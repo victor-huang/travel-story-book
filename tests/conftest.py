@@ -86,3 +86,30 @@ def has_ffmpeg() -> bool:
 @pytest.fixture
 def has_exiftool() -> bool:
     return shutil.which("exiftool") is not None
+
+
+def pytest_collection_modifyitems(config, items) -> None:
+    """Skip marked tests when their optional dependency is absent.
+
+    CI installs the `images` extra but not `clip`, so the OpenCV-based quality scoring is
+    exercised there while torch is not downloaded. Without this hook those tests error instead of
+    skipping -- which is how a red CI went unnoticed for a commit.
+    """
+    from story_book.pipeline.embeddings import clip_importable
+
+    # clip_importable() returns (available, reason) -- a non-empty tuple is always truthy, so it
+    # has to be unpacked. Checking the tuple itself silently reports "available" forever.
+    clip_available, clip_reason = clip_importable()
+
+    gates = {
+        "needs_clip": (clip_available, clip_reason),
+        "needs_ffmpeg": (shutil.which("ffmpeg") is not None, "requires ffmpeg on PATH"),
+        "needs_exiftool": (shutil.which("exiftool") is not None, "requires exiftool on PATH"),
+    }
+    for name, (available, reason) in gates.items():
+        if available:
+            continue
+        skip = pytest.mark.skip(reason=reason)
+        for item in items:
+            if name in item.keywords:
+                item.add_marker(skip)

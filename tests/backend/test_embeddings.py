@@ -89,6 +89,7 @@ class TestClipRunnerClassify:
         assert len(results) == 2
 
 
+@pytest.mark.needs_clip
 class TestEmbeddingStageAgainstRealFixtures:
     def _seed_media(self, conn: sqlite3.Connection, media_dir: Path, name: str) -> Media:
         media = Media(

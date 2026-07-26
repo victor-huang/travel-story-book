@@ -29,9 +29,9 @@ jobs:
           enable-cache: true
 
       - run: uv python install 3.12
-      # Deliberately not --all-extras: the vision extra pulls torch, which would dominate
-      # CI time. needs_clip tests skip here and are expected to run locally.
-      - run: uv sync --extra exif --extra video
+      # Everything except `clip`, which pulls torch and would dominate CI time. `images` is small
+      # and keeps the OpenCV-based quality scoring under test here; needs_clip tests skip.
+      - run: uv sync --extra images --extra exif --extra video
 
       - name: Lint
         run: |

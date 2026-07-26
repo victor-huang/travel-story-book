@@ -12,14 +12,25 @@ dependencies = [
     "pillow>=11.0",
     "pillow-heif>=0.21",
     "timezonefinder>=6.5",
+    # Used directly for image arrays, so declared directly rather than relied on transitively.
+    "numpy>=2.0",
 ]
 
 [project.optional-dependencies]
-# Heavy stages are opt-in so a clone stays cheap and CI stays fast.
-vision = [
+# Split deliberately. `images` is small (no torch) and carries the quality signals, so CI can
+# install it and actually exercise that code; `clip` is the multi-hundred-megabyte half. Bundling
+# them meant CI skipped both, and the OpenCV-based scoring went untested there -- which is where a
+# calibration bug hid.
+images = [
+    "opencv-python-headless>=4.10",
+]
+clip = [
     "open-clip-torch>=2.30",
     "torch>=2.5",
-    "opencv-python-headless>=4.10",
+]
+# Convenience alias for a full local install.
+vision = [
+    "travel-story-book[images,clip]",
 ]
 video = [
     "faster-whisper>=1.1",
@@ -54,6 +65,7 @@ markers = [
     "needs_exiftool: requires the exiftool binary on PATH",
     "needs_ffmpeg: requires the ffmpeg binary on PATH",
     "needs_clip: requires the CLIP model and torch",
+    "needs_exiftool: requires the exiftool binary on PATH",
 ]
 
 [tool.ruff]
