@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -65,13 +66,67 @@ class TestFixtureMedia:
         assert (media_dir / "notes.txt").exists()
 
 
-class TestVideoFixtures:
-    def test_speech_clip_exists(self, media_dir: Path, has_ffmpeg: bool) -> None:
-        if not has_ffmpeg:
-            pytest.skip("ffmpeg not installed; video fixtures not generated")
-        assert (media_dir / "clip_speech.mov").exists()
+VIDEO_FIXTURES = ["clip_speech.mov", "clip_silent.mp4"]
 
-    def test_silent_clip_exists(self, media_dir: Path, has_ffmpeg: bool) -> None:
+
+class TestVideoFixtures:
+    """Videos are committed artifacts like the images, so their presence is asserted, not
+    skipped. Gating these on ffmpeg was wrong: a clone has the fixtures whether or not it has
+    the binary, and the binary-based skip turned a missing fixture into a hard CI failure
+    instead of the intended skip. Only the ffprobe-based checks need the binary.
+    """
+
+    @pytest.mark.parametrize("name", VIDEO_FIXTURES)
+    def test_fixture_exists(self, media_dir: Path, name: str) -> None:
+        assert (media_dir / name).exists()
+
+    @pytest.mark.parametrize("name", VIDEO_FIXTURES)
+    def test_fixture_stays_small(self, media_dir: Path, name: str) -> None:
+        assert (media_dir / name).stat().st_size < 50 * 1024
+
+    @pytest.mark.needs_ffmpeg
+    @pytest.mark.parametrize("name", VIDEO_FIXTURES)
+    def test_fixture_is_decodable(self, media_dir: Path, name: str, has_ffmpeg: bool) -> None:
         if not has_ffmpeg:
-            pytest.skip("ffmpeg not installed; video fixtures not generated")
-        assert (media_dir / "clip_silent.mp4").exists()
+            pytest.skip("ffprobe unavailable")
+        probe = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(media_dir / name),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert float(probe.stdout.strip()) == pytest.approx(3.0, abs=0.5)
+
+    @pytest.mark.needs_ffmpeg
+    @pytest.mark.parametrize("name", VIDEO_FIXTURES)
+    def test_fixture_has_an_audio_track(self, media_dir: Path, name: str, has_ffmpeg: bool) -> None:
+        """Both clips carry audio; only one carries speech. T15's auto mode must tell them apart."""
+        if not has_ffmpeg:
+            pytest.skip("ffprobe unavailable")
+        probe = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "a",
+                "-show_entries",
+                "stream=codec_type",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(media_dir / name),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert probe.stdout.strip() == "audio"
