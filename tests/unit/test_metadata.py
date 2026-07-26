@@ -171,7 +171,7 @@ class TestMetadataStageProcessBatch:
 
         device_calls = [c for c in conn.execute.call_args_list if "INSERT INTO device" in c.args[0]]
         assert len(device_calls) == 1
-        assert device_calls[0].args[1] == ("Sony ILCE-7M4", "Sony", "ILCE-7M4")
+        assert device_calls[0].args[1][:3] == ("Sony ILCE-7M4", "Sony", "ILCE-7M4")
 
     def test_no_device_row_written_without_make_or_model(self, mocker) -> None:
         media = _media()

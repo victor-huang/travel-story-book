@@ -15,11 +15,12 @@ human hands to ChatGPT to write the travel journal.
 
 ```bash
 uv sync                                          # deps; --extra vision/video/exif for heavy stages
-uv run pytest                                    # 186 tests, expect 0 failures 0 skips locally
+uv run pytest                                    # 753 tests, expect 0 failures 0 skips locally
 uv run pytest tests/unit                         # fast, mocked, no DB
 uv run story-book build <src> --out <dir>        # the pipeline
 uv run story-book report --out <dir>             # re-render HTML only
-uv run story-book profile <src>                  # folder stats
+uv run story-book profile <src>                  # folder stats + suggested config
+uv run story-book eval <truth.toml> --out <dir>   # score against a labelled truth set
 uv run python tests/fixtures/generate.py         # regenerate fixtures (deterministic)
 ```
 
@@ -63,7 +64,7 @@ scan → metadata → timezones → gps_backfill → geocode → days → events
 Changing these breaks every parallel task. Amend only via the tracker's cross-task request table.
 
 - `db/models.py` — the inter-stage data contract. `Media` plus the `StrEnum`s.
-- `db/schema.sql` — 18 tables. `stage_result` is the resume backbone.
+- `db/schema.sql` — 19 tables. `stage_result` is the resume backbone.
 - `db/connection.py` — use `upsert_media`, `iter_media`, `completed_hashes`,
   `record_stage_result`, `clear_stage`. **Do not write raw SQL against `media` or
   `stage_result`.**
@@ -75,8 +76,10 @@ Changing these breaks every parallel task. Amend only via the tracker's cross-ta
     recorded as **failed**, so a provider that silently drops an image can't pass as success.
   - `WholeTripStage` — aggregate work (days, events, selection, timeline). Cached under
     `TRIP_SENTINEL`.
-  - Raise `SkipItem` for "does not apply" (terminal, never retried). Override `available()` to
-    declare a missing binary — never abort the pipeline.
+  - Raise `SkipItem` for "does not apply" (terminal, never retried). **In a `BatchStage` this is
+    batch-granular** — it skips every co-batched item — so exclude inapplicable items in
+    `select()` instead. Override `available()` to declare a missing binary — never abort the run.
+  - `always_run = True` for discovery and whole-media aggregates; see the integration rules below.
 - `config.py` — **every threshold lives here. No magic numbers in stage code.** Add a field
   instead.
 
@@ -101,13 +104,39 @@ cases — not for restating what the code says. Match surrounding style.
   consistency with other projects here; means "integration".)
 - Every stage needs at least one `tests/backend/` test against a real fixture. Mocked-only
   coverage of EXIF, image, and timezone code is how those bugs escape.
-- 21 committed fixtures in `tests/fixtures/media/` cover HEIC+GPS+offset, GPS-without-offset,
+- 27 committed fixtures in `tests/fixtures/media/` cover HEIC+GPS+offset, GPS-without-offset,
   no-GPS (Sony), no-EXIF, burst pair, byte-identical duplicate pair, distinct pair,
   sharp/blurred, screenshot, receipt, over/under exposure, a +02:00→+03:00 timezone crossing,
-  and speech/silent video clips. Reuse them; regenerate via the deterministic generator.
+  speech/silent video clips, an offset-vs-GPS conflict, and a Photos-export-shaped .mov whose
+  `CreateDate` disagrees with its `Keys:CreationDate`. Reuse them; regenerate via the
+  deterministic generator.
 - Fixtures are committed artifacts: **assert their presence, never skip on a proxy** like
   "is ffmpeg installed". Gate on the binary only for checks that truly invoke it
   (`@pytest.mark.needs_ffmpeg`).
+
+### Integration rules learned the hard way
+
+Nine stages each passed their own suite; wiring them together still surfaced six bugs. All six
+lived in places a per-stage test cannot reach.
+
+- **Test the seam, not just the sides.** A stage writing a field nobody reads passes every test it
+  owns. `tests/backend/test_pipeline_integration.py` is where handoffs get asserted.
+- **Run it twice.** Caching means the second `build` takes different paths than the first. Bugs
+  found only on run two: re-scan blanking metadata, and aggregate stages going stale.
+- **`always_run` is needed by discovery stages and by aggregates over the whole media set**
+  (`scan`, `timezones`, and later days/events/selection/timeline). Their cache key is a constant,
+  so it encodes no dependency on the media set. Per-item stages never need it.
+- **An upsert that writes every column will blank what a partial writer doesn't know about.** Use
+  `upsert_media_discovery` from the scanner; own columns, not just tables.
+- **If a fixture needs a setup line, ask who runs it in production.** HEIC decoding "worked" for
+  months of test-time because the test registered the opener itself and the app never did.
+- **Batching trades away fault isolation — pay it back.** Try the batch, fall back to per-item on
+  failure, so one bad file costs only itself.
+- **Ordering tests don't test calibration.** Sharpness was monotone and correct in order while
+  compressed to a 0.001 range, silently neutering the highest-weighted term in the score. Assert
+  the *spread* of any component feeding a weighted sum.
+- **Look at real output.** A rendered contact sheet exposed the flat-score bug in seconds; no
+  assertion had.
 
 ### Hard-won gotchas
 

@@ -245,12 +245,12 @@ No dependencies on each other. Each is a pure `input → output` stage over the 
 | ID | Task | Status | Owner | Depends on |
 | --- | --- | --- | --- | --- |
 | T10 | Scan & hash (M1) | done | agent-scan | Wave 0 |
-| T11 | Metadata extraction (M2) | review | agent-metadata | Wave 0 |
+| T11 | Metadata extraction (M2) | done | agent-metadata | Wave 0 |
 | T12 | Timezone resolution (M2) | done | agent-timezones | Wave 0 |
-| T13 | Quality scoring (M8) | review | agent-quality | Wave 0 |
+| T13 | Quality scoring (M8) | done | agent-quality | Wave 0 |
 | T14 | CLIP embeddings (M7) | done | agent-clip | Wave 0 |
-| T15 | Video analysis (M9) | review | agent-video | Wave 0 |
-| T16 | Contact sheet renderer (M14) | review | agent-contactsheet | Wave 0 |
+| T15 | Video analysis (M9) | done | agent-video | Wave 0 |
+| T16 | Contact sheet renderer (M14) | done | agent-contactsheet | Wave 0 |
 | T17 | `profile` command (Phase 0) | done | claude (main) | Wave 0 |
 | T18 | Truth set format & eval harness | done | agent-eval | Wave 0 |
 
@@ -473,15 +473,21 @@ Need a change in a file you don't own? Add a row. The owning agent (or the human
 | --- | --- | --- | --- |
 | T05 | human | `brew install ffmpeg exiftool`, then re-run `tests/fixtures/generate.py`. Blocks T11 and T15. | resolved 2026-07-26 |
 | T13 | T14 | T13 needs CLIP zero-shot classification. T14 owns the implementation; T13 defines a narrow interface and mocks it. Agree the signature before either lands. | resolved — interface matched verbatim |
-| T12 | T11 | **Correctness bug.** `metadata.py` computes the EXIF offset but never persists it, so `tz_offset_minutes`/`tz_source` stay at defaults and **level 1 of the timezone order can never fire** — every item silently falls through to GPS. One-line fix in `_apply`. | open — integrator |
-| T13 | integrator | `opencv-python-headless` 5.0.0 removed `CascadeClassifier` and ships no cascade data, so face detection never runs and every photo gets the neutral 0.5 face component. **20% of the quality weight is now a constant.** Wire `FaceDetectorYN` + YuNet ONNX, or drop `face` from the weights. | open — integrator |
-| T15 | integrator | No table for poster path / keyframes / fps / motion score. Using a JSON sidecar under `cache_dir` as a stopgap; T40/T41 would have to learn an informal convention. Add a `video_meta` table (bumps `SCHEMA_VERSION`). | open — integrator |
-| T15 | integrator | Needs `VideoConfig.speech_mean_volume_floor_db` (currently a module constant, −50 dB; measured speech ≈ −20.8, silent ≈ −91). | open — integrator |
-| T10 | integrator | Whole-trip stages are cached under `TRIP_SENTINEL`, so a second `build` never re-walks the source tree for newly added files without `--force scan`. Consider an `always_run` flag on `Stage`. | open — integrator |
-| T14 | integrator | `SkipItem` is documented as per-item but is **batch-granular** inside `BatchStage` — raising it for one video would skip every co-batched image. Worked around by filtering in `select()`. Fix the docs or add per-item skip support. | open — integrator |
-| T11 | integrator | Wrote a local `_upsert_device` since `connection.py` has no device helper. Consider consolidating. | open — integrator |
-| T11 | integrator | `profile.py` still has its own shallow copy of the Module 2 field-priority logic. Migrate it onto the new canonical `story_book/exif.py`. | open — integrator |
-| T18 | integrator | `eval.py` is not wired to a CLI command. Entry point: `evaluate_truth_set_file(conn, path)` + `render_report(report)`. | open — integrator |
+| T12 | T11 | **Correctness bug.** `metadata.py` computes the EXIF offset but never persists it, so `tz_offset_minutes`/`tz_source` stay at defaults and **level 1 of the timezone order can never fire** — every item silently falls through to GPS. One-line fix in `_apply`. | resolved |
+| T13 | integrator | `opencv-python-headless` 5.0.0 removed `CascadeClassifier` and ships no cascade data, so face detection never runs and every photo gets the neutral 0.5 face component. **20% of the quality weight is now a constant.** Wire `FaceDetectorYN` + YuNet ONNX, or drop `face` from the weights. | resolved |
+| T15 | integrator | No table for poster path / keyframes / fps / motion score. Using a JSON sidecar under `cache_dir` as a stopgap; T40/T41 would have to learn an informal convention. Add a `video_meta` table (bumps `SCHEMA_VERSION`). | resolved |
+| T15 | integrator | Needs `VideoConfig.speech_mean_volume_floor_db` (currently a module constant, −50 dB; measured speech ≈ −20.8, silent ≈ −91). | resolved |
+| T10 | integrator | Whole-trip stages are cached under `TRIP_SENTINEL`, so a second `build` never re-walks the source tree for newly added files without `--force scan`. Consider an `always_run` flag on `Stage`. | resolved |
+| T14 | integrator | `SkipItem` is documented as per-item but is **batch-granular** inside `BatchStage` — raising it for one video would skip every co-batched image. Worked around by filtering in `select()`. Fix the docs or add per-item skip support. | resolved |
+| T11 | integrator | Wrote a local `_upsert_device` since `connection.py` has no device helper. Consider consolidating. | resolved |
+| T11 | integrator | `profile.py` still has its own shallow copy of the Module 2 field-priority logic. Migrate it onto the new canonical `story_book/exif.py`. | resolved |
+| T18 | integrator | `eval.py` is not wired to a CLI command. Entry point: `evaluate_truth_set_file(conn, path)` + `render_report(report)`. | resolved |
+| — | integrator | **Content classifier was badly miscalibrated.** Bare-word CLIP labels labelled **209 of 277** real travel photos `screenshot` — a *rejected* class — which would have thrown out three quarters of the trip. Fixed with natural-language prompt ensembles: rejected share fell to 6%. | resolved |
+| — | integrator | **Sharpness was collapsed to ~0** for every real photo: it divided Laplacian variance by pixel count, so a 12 MP photo scored 0.001 while carrying the largest weight. `overall` had stdev 0.037. Now measured at a fixed 512px short edge against a calibrated reference; sharpness stdev 0.009 → 0.225, overall 0.037 → 0.125. | resolved |
+| — | integrator | **Re-scanning wiped all metadata.** `scan` built a fresh `Media` and called the full `upsert_media`, whose `ON CONFLICT` overwrote every column with NULLs. Combined with the new `always_run` this would have emptied the DB on every build while the repopulating stages sat cached. Added `upsert_media_discovery`. | resolved |
+| — | integrator | **`timezones` went stale on incremental adds.** Aggregate whole-trip stages need `always_run` too, or a newly added photo keeps a NULL `taken_utc` and vanishes from ordering, days, and the timeline. | resolved |
+| — | integrator | **HEIC was never registered in production.** The fixture test called `register_heif_opener()` itself, so the suite proved the library worked while the app never registered it — every HEIC failed. Now registered at package import. `cv2.imread` also cannot read HEIC at all, so image loading moved to Pillow. | resolved |
+| — | integrator | **One bad file failed its whole batch.** A single unreadable HEIC failed all 22 co-batched items in embeddings and content-class. Both now try the batch and fall back to per-item. | resolved |
 | T25 | integrator | Providers call the API via hand-rolled `urllib` because `pyproject.toml` was off-limits. Consider adding `anthropic` as an optional extra. Also reconsider the `claude-opus-5` default for a few-hundred-image batch naming task. | open — integrator |
 
 # Amendments to the plan doc
@@ -508,6 +514,7 @@ decision made.
 | 2026-07-26 | claude | Fixture set extended for the above: timezone crossing is now 3 items per side (a real crossing is sustained), plus a new `offset_gps_conflict.jpg`. 26 fixtures, 338 tests. |
 | 2026-07-26 | claude | **T17 done.** `story-book profile` ships with warnings + a suggested-config table computed from observed data, and `--json`. 308 tests pass. Shared extension allowlist added at `story_book/media_types.py` — **T10 must import it, not fork it**. |
 | 2026-07-26 | claude | Retro: `exiftool -fast2` silently zeroed video durations by skipping the moov atom. Flag removed; regression test added. A speed flag that changes how much of a file is read is a correctness flag. |
+| 2026-07-26 | claude | **Integration pass done. The pipeline runs end to end.** 286 real items, 1.9 GB, 8m31s, **zero failures**; source verified byte-identical. 753 tests pass. Six bugs found that no unit test could have caught — four of them only visible on the *second* run or on *real* photos. Details in the retro. |
 | 2026-07-26 | claude | Pushed to https://github.com/victor-huang/travel-story-book (public). CI runs on macOS + Linux. |
 | 2026-07-26 | claude | exiftool 13.55 + ffmpeg 8.1.2 installed; video fixtures generated. **T05 done, 180 tests pass, 0 skips.** T11 and T15 unblocked. Verified exiftool reads the HEIC fixture's `OffsetTimeOriginal` and GPS correctly. |
 | 2026-07-26 | claude | **Wave 0 done.** T01-T04, T06 complete; T05 in review (video fixtures need ffmpeg). 178 tests pass. Wave 1 unblocked. |

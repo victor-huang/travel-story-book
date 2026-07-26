@@ -88,6 +88,10 @@ class VideoConfig:
     transcribe_min_seconds: float = 10.0
     whisper_model: str = "small"
     keyframe_count: int = 5
+    # Mean volume below this is treated as silence, so `transcribe = "auto"` skips the clip.
+    # Measured against the fixtures: a clip with a voice-band tone reads ~-21 dB, a silent
+    # clip ~-91 dB. -50 sits clear of both.
+    speech_mean_volume_floor_db: float = -50.0
 
     def __post_init__(self) -> None:
         if self.transcribe not in {"none", "auto", "all"}:
@@ -102,6 +106,12 @@ class ModelConfig:
     clip_pretrained: str = "laion2b_s34b_b79k"
     clip_batch_size: int = 32
     device: str = "auto"
+    # Path to a YuNet ONNX face-detection model. OpenCV 5.x dropped the classic Haar cascade
+    # API and ships no detection data, so there is nothing to fall back on. Left unset by
+    # default rather than downloaded silently: the project's promise is that only the landmark
+    # stage reaches the network. Unset means the face signal is unavailable, and the quality
+    # score renormalizes over its remaining components rather than carrying dead weight.
+    face_detector_model: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

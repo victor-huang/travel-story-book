@@ -168,7 +168,12 @@ class TestShouldTranscribe:
     def test_none_mode_never_transcribes(self) -> None:
         assert (
             should_transcribe(
-                mode="none", duration=100.0, has_audio=True, mean_volume_db=-10.0, min_seconds=1.0
+                mode="none",
+                duration=100.0,
+                has_audio=True,
+                mean_volume_db=-10.0,
+                min_seconds=1.0,
+                volume_floor_db=-50.0,
             )
             is False
         )
@@ -176,7 +181,12 @@ class TestShouldTranscribe:
     def test_no_audio_track_never_transcribes(self) -> None:
         assert (
             should_transcribe(
-                mode="all", duration=100.0, has_audio=False, mean_volume_db=None, min_seconds=1.0
+                mode="all",
+                duration=100.0,
+                has_audio=False,
+                mean_volume_db=None,
+                min_seconds=1.0,
+                volume_floor_db=-50.0,
             )
             is False
         )
@@ -184,7 +194,12 @@ class TestShouldTranscribe:
     def test_all_mode_transcribes_regardless_of_duration(self) -> None:
         assert (
             should_transcribe(
-                mode="all", duration=0.5, has_audio=True, mean_volume_db=None, min_seconds=10.0
+                mode="all",
+                duration=0.5,
+                has_audio=True,
+                mean_volume_db=None,
+                min_seconds=10.0,
+                volume_floor_db=-50.0,
             )
             is True
         )
@@ -192,7 +207,12 @@ class TestShouldTranscribe:
     def test_auto_mode_skips_short_clips(self) -> None:
         assert (
             should_transcribe(
-                mode="auto", duration=5.0, has_audio=True, mean_volume_db=-10.0, min_seconds=10.0
+                mode="auto",
+                duration=5.0,
+                has_audio=True,
+                mean_volume_db=-10.0,
+                min_seconds=10.0,
+                volume_floor_db=-50.0,
             )
             is False
         )
@@ -200,7 +220,12 @@ class TestShouldTranscribe:
     def test_auto_mode_skips_quiet_clips(self) -> None:
         assert (
             should_transcribe(
-                mode="auto", duration=30.0, has_audio=True, mean_volume_db=-80.0, min_seconds=10.0
+                mode="auto",
+                duration=30.0,
+                has_audio=True,
+                mean_volume_db=-80.0,
+                min_seconds=10.0,
+                volume_floor_db=-50.0,
             )
             is False
         )
@@ -208,7 +233,12 @@ class TestShouldTranscribe:
     def test_auto_mode_transcribes_long_clips_with_signal(self) -> None:
         assert (
             should_transcribe(
-                mode="auto", duration=30.0, has_audio=True, mean_volume_db=-20.0, min_seconds=10.0
+                mode="auto",
+                duration=30.0,
+                has_audio=True,
+                mean_volume_db=-20.0,
+                min_seconds=10.0,
+                volume_floor_db=-50.0,
             )
             is True
         )
@@ -216,7 +246,12 @@ class TestShouldTranscribe:
     def test_auto_mode_treats_unknown_volume_as_silent(self) -> None:
         assert (
             should_transcribe(
-                mode="auto", duration=30.0, has_audio=True, mean_volume_db=None, min_seconds=10.0
+                mode="auto",
+                duration=30.0,
+                has_audio=True,
+                mean_volume_db=None,
+                min_seconds=10.0,
+                volume_floor_db=-50.0,
             )
             is False
         )
@@ -293,13 +328,13 @@ class TestVideoStageComputeTranscription:
 
 
 class TestVideoStagePersist:
-    """`_video_cache_dir` and `_write_manifest` are always mocked here -- persist's disk
-    writes (frames, manifest) are exercised for real in `tests/backend/test_video.py`.
+    """`_video_cache_dir` and `_upsert_video_meta` are always mocked here -- persist's disk
+    writes and its video_meta row are exercised for real in `tests/backend/test_video.py`.
     """
 
     def _patch_filesystem(self, mocker):
         mocker.patch("story_book.pipeline.video._video_cache_dir", return_value=Path("/fake/cache"))
-        mocker.patch("story_book.pipeline.video._write_manifest")
+        mocker.patch("story_book.pipeline.video._upsert_video_meta")
         mocker.patch("story_book.pipeline.video._extract_frame", return_value=False)
 
     def test_backfills_missing_duration_width_height(self, mocker) -> None:

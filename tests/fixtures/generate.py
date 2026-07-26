@@ -393,6 +393,29 @@ def main() -> None:
     # A file the scanner must ignore.
     (MEDIA_DIR / "notes.txt").write_text("not media\n")
 
+    # A clip shaped like a Photos export: CreateDate holds the *export* time while the real
+    # capture time sits only in QuickTime Keys:CreationDate. Without this fixture the binding
+    # Module 2 rule is covered by mocked unit tests only -- the ffmpeg-generated clips above
+    # carry a 0000:00:00 placeholder and no Keys:CreationDate at all, so they cannot exercise it.
+    made_export = make_video(MEDIA_DIR / "clip_apple_export.mov", seconds=2, with_speech=False)
+    if made_export and shutil.which("exiftool"):
+        subprocess.run(
+            [
+                "exiftool",
+                "-overwrite_original",
+                "-q",
+                # Capture time, 8 days before the "export".
+                "-Keys:CreationDate=2026:07:18 11:37:58+02:00",
+                # The misleading fields a naive reader would pick up.
+                "-QuickTime:CreateDate=2026:07:26 18:43:20",
+                "-QuickTime:ModifyDate=2026:07:26 18:43:20",
+                str(MEDIA_DIR / "clip_apple_export.mov"),
+            ],
+            check=True,
+        )
+    elif made_export:
+        print("exiftool not found -- clip_apple_export.mov left without its Keys:CreationDate")
+
     made_speech = make_video(MEDIA_DIR / "clip_speech.mov", seconds=3, with_speech=True)
     made_silent = make_video(MEDIA_DIR / "clip_silent.mp4", seconds=3, with_speech=False)
     if not (made_speech and made_silent):

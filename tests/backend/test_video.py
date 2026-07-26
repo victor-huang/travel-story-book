@@ -67,12 +67,13 @@ class TestDurationAndThumbnail:
         assert stored.duration is not None and stored.duration > 0
         assert stored.width and stored.height
 
-        manifest_path = ctx.out_dir / ".cache" / "video" / f"{media.hash}_manifest.json"
-        assert manifest_path.exists()
-        manifest = json.loads(manifest_path.read_text())
-        assert manifest["poster"] is not None
-        assert Path(manifest["poster"]).exists()
-        assert len(manifest["frames"]) == stage_ctx.config.video.keyframe_count
+        row = ctx.conn.execute(
+            "SELECT * FROM video_meta WHERE media_hash = ?", (media.hash,)
+        ).fetchone()
+        assert row is not None
+        assert row["poster_path"] is not None
+        assert (ctx.out_dir / row["poster_path"]).exists()
+        assert len(json.loads(row["keyframe_paths"])) == stage_ctx.config.video.keyframe_count
 
     def test_poster_is_written_under_out_dir_not_source_dir(self, ctx: StageContext) -> None:
         media = _seed(ctx, "clip_speech.mov")
@@ -91,9 +92,10 @@ class TestDurationAndThumbnail:
         payload = VideoStage().compute(media, stage_ctx.config)
         VideoStage().persist(stage_ctx, media, payload)
 
-        manifest_path = ctx.out_dir / ".cache" / "video" / f"{media.hash}_manifest.json"
-        manifest = json.loads(manifest_path.read_text())
-        assert manifest["motion_score"] is not None
+        row = ctx.conn.execute(
+            "SELECT motion_score FROM video_meta WHERE media_hash = ?", (media.hash,)
+        ).fetchone()
+        assert row["motion_score"] is not None
 
 
 class TestAutoTranscribeRouting:
@@ -198,3 +200,71 @@ class TestSkipItemForNonVideoMedia:
         media = Media(hash="img", path="/src/a.jpg", kind=MediaKind.IMAGE, bytes=1, mtime=0.0)
         with pytest.raises(SkipItem):
             VideoStage().compute(media, ctx.config)
+
+
+class TestVideoMetaTable:
+    """Derived video facts belong in the schema, not an undocumented sidecar file."""
+
+    def test_keyframe_paths_are_stored_relative_to_the_output_dir(self, ctx: StageContext) -> None:
+        media = _seed(ctx, "clip_speech.mov")
+        stage_ctx = _with_video_config(ctx, transcribe="none", keyframe_count=2)
+
+        payload = VideoStage().compute(media, stage_ctx.config)
+        VideoStage().persist(stage_ctx, media, payload)
+
+        row = ctx.conn.execute(
+            "SELECT keyframe_paths FROM video_meta WHERE media_hash = ?", (media.hash,)
+        ).fetchone()
+        paths = json.loads(row["keyframe_paths"])
+        assert all(not Path(p).is_absolute() for p in paths)
+
+    def test_relative_keyframe_paths_resolve_against_the_output_dir(
+        self, ctx: StageContext
+    ) -> None:
+        media = _seed(ctx, "clip_speech.mov")
+        stage_ctx = _with_video_config(ctx, transcribe="none", keyframe_count=2)
+
+        payload = VideoStage().compute(media, stage_ctx.config)
+        VideoStage().persist(stage_ctx, media, payload)
+
+        row = ctx.conn.execute(
+            "SELECT keyframe_paths FROM video_meta WHERE media_hash = ?", (media.hash,)
+        ).fetchone()
+        assert all((ctx.out_dir / p).exists() for p in json.loads(row["keyframe_paths"]))
+
+    def test_fps_is_recorded(self, ctx: StageContext) -> None:
+        media = _seed(ctx, "clip_speech.mov")
+        stage_ctx = _with_video_config(ctx, transcribe="none")
+
+        payload = VideoStage().compute(media, stage_ctx.config)
+        VideoStage().persist(stage_ctx, media, payload)
+
+        row = ctx.conn.execute(
+            "SELECT fps FROM video_meta WHERE media_hash = ?", (media.hash,)
+        ).fetchone()
+        assert row["fps"] and row["fps"] > 0
+
+    def test_rerunning_persist_updates_rather_than_duplicating(self, ctx: StageContext) -> None:
+        media = _seed(ctx, "clip_speech.mov")
+        stage_ctx = _with_video_config(ctx, transcribe="none")
+
+        payload = VideoStage().compute(media, stage_ctx.config)
+        VideoStage().persist(stage_ctx, media, payload)
+        VideoStage().persist(stage_ctx, media, payload)
+
+        count = ctx.conn.execute("SELECT COUNT(*) AS n FROM video_meta").fetchone()["n"]
+        assert count == 1
+
+    def test_silent_clip_records_a_low_mean_volume(self, ctx: StageContext) -> None:
+        media = _seed(ctx, "clip_silent.mp4")
+        stage_ctx = _with_video_config(ctx, transcribe="auto", transcribe_min_seconds=1.0)
+
+        payload = VideoStage().compute(media, stage_ctx.config)
+        VideoStage().persist(stage_ctx, media, payload)
+
+        row = ctx.conn.execute(
+            "SELECT mean_volume_db, has_speech FROM video_meta WHERE media_hash = ?",
+            (media.hash,),
+        ).fetchone()
+        assert row["mean_volume_db"] < stage_ctx.config.video.speech_mean_volume_floor_db
+        assert row["has_speech"] == 0

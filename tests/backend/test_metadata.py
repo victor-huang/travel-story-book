@@ -7,10 +7,14 @@ truly invoke the binary rather than relying on it as a skip proxy.
 
 from __future__ import annotations
 
+from datetime import date, datetime
+from pathlib import Path
+
 import pytest
 
 from story_book.db import connection as db
 from story_book.db.models import GpsSource, Media, MediaKind
+from story_book.exif import extract_timestamp, run_exiftool
 from story_book.pipeline.base import StageContext
 from story_book.pipeline.metadata import MetadataStage
 
@@ -191,3 +195,53 @@ class TestAllFixturesAcceptanceCriterion:
         for media in batch:
             stored = db.get_media(ctx.conn, media.hash)
             assert stored.duration is not None and stored.duration > 0
+
+
+class TestPhotosExportedVideoUsesCaptureTimeNotExportTime:
+    """End-to-end regression for the P01 finding, against a real file.
+
+    `clip_apple_export.mov` carries `Keys:CreationDate` = capture time and a `QuickTime:CreateDate`
+    eight days later standing in for the export time -- the exact shape of a Photos-exported clip.
+    Until this fixture existed the rule was covered only by mocked dicts, because the other video
+    fixtures have a `0000:00:00` placeholder and no `Keys:CreationDate` to prefer.
+    """
+
+    def test_the_capture_time_wins(self, media_dir: Path, has_exiftool: bool) -> None:
+        if not has_exiftool:
+            pytest.skip("exiftool not installed")
+        target = media_dir / "clip_apple_export.mov"
+        meta = run_exiftool([target])[str(target)]
+        timestamp = extract_timestamp(meta, MediaKind.VIDEO)
+        assert timestamp.dt == datetime(2026, 7, 18, 11, 37, 58)
+
+    def test_the_export_date_is_not_used(self, media_dir: Path, has_exiftool: bool) -> None:
+        if not has_exiftool:
+            pytest.skip("exiftool not installed")
+        target = media_dir / "clip_apple_export.mov"
+        timestamp = extract_timestamp(run_exiftool([target])[str(target)], MediaKind.VIDEO)
+        assert timestamp.dt.date() != date(2026, 7, 26)
+
+    def test_the_source_field_is_recorded_as_creation_date(
+        self, media_dir: Path, has_exiftool: bool
+    ) -> None:
+        if not has_exiftool:
+            pytest.skip("exiftool not installed")
+        target = media_dir / "clip_apple_export.mov"
+        timestamp = extract_timestamp(run_exiftool([target])[str(target)], MediaKind.VIDEO)
+        assert timestamp.field == "CreationDate"
+
+    def test_it_is_not_flagged_as_an_export_artifact(
+        self, media_dir: Path, has_exiftool: bool
+    ) -> None:
+        if not has_exiftool:
+            pytest.skip("exiftool not installed")
+        target = media_dir / "clip_apple_export.mov"
+        timestamp = extract_timestamp(run_exiftool([target])[str(target)], MediaKind.VIDEO)
+        assert timestamp.is_export_artifact is False
+
+    def test_the_embedded_offset_is_recovered(self, media_dir: Path, has_exiftool: bool) -> None:
+        if not has_exiftool:
+            pytest.skip("exiftool not installed")
+        target = media_dir / "clip_apple_export.mov"
+        timestamp = extract_timestamp(run_exiftool([target])[str(target)], MediaKind.VIDEO)
+        assert timestamp.offset_minutes == 120

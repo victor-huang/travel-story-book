@@ -316,6 +316,11 @@ class TimezoneStage(WholeTripStage):
 
     name = "timezones"
     version = 1
+    # Aggregate stages derive from the whole media set, so a cached result goes stale the moment
+    # scan adds a file: the new item would keep a NULL taken_utc and drop out of ordering, day
+    # grouping, and the timeline -- invisibly. Re-resolving is pure in-memory work over rows
+    # already in the DB, so running it every build is cheap and idempotent.
+    always_run = True
     description = "Resolve capture timezone and UTC instant for every dated media item."
 
     def run(self, ctx: StageContext) -> None:

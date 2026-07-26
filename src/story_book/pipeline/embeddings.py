@@ -189,6 +189,32 @@ def _store_embedding(conn: Any, media_hash: str, model_tag: str, vector: list[fl
     )
 
 
+def _embed_resiliently(runner: ClipRunner, batch: list[Media]) -> list[tuple[Media, list[float]]]:
+    """Embed a batch, degrading to per-item on failure.
+
+    Batching is the whole point of this stage, but a single unreadable file raised inside
+    `embed_images` would fail every co-batched item -- 22 photos lost to one bad HEIC, observed
+    on the first end-to-end run. So: try the batch, and if anything goes wrong retry one at a
+    time so only the genuinely broken file fails. Items omitted here are recorded as per-item
+    failures by the runner and retried on the next run.
+    """
+    paths = [Path(media.path) for media in batch]
+    try:
+        return list(zip(batch, runner.embed_images(paths), strict=True))
+    except Exception:
+        logger.warning(
+            "embeddings: batch of %d failed; retrying individually", len(batch), exc_info=True
+        )
+
+    recovered: list[tuple[Media, list[float]]] = []
+    for media in batch:
+        try:
+            recovered.append((media, runner.embed_images([Path(media.path)])[0]))
+        except Exception:
+            logger.warning("embeddings: %s could not be embedded", media.path, exc_info=True)
+    return recovered
+
+
 class EmbeddingStage(BatchStage):
     """Compute and cache CLIP embeddings for every image, keyed by content hash and model tag."""
 
@@ -213,10 +239,8 @@ class EmbeddingStage(BatchStage):
         if not batch:
             return {}
         runner = load_clip(ctx.config)
-        paths = [Path(media.path) for media in batch]
-        vectors = runner.embed_images(paths)
         results: dict[str, Any] = {}
-        for media, vector in zip(batch, vectors, strict=True):
+        for media, vector in _embed_resiliently(runner, batch):
             _store_embedding(ctx.conn, media.hash, runner.model_tag, vector)
             results[media.hash] = {"model": runner.model_tag, "dim": runner.dim}
         return results

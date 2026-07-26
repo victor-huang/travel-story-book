@@ -67,6 +67,9 @@ transcribe = "auto"
 transcribe_min_seconds = 10.0
 whisper_model = "small"
 keyframe_count = 5
+# Mean volume below this counts as silence, so `transcribe = "auto"` skips the clip. Measured
+# against real clips: speech reads around -21 dB, a silent clip around -91 dB.
+speech_mean_volume_floor_db = -50.0
 
 [models]
 clip_name = "ViT-B-32"
@@ -74,6 +77,15 @@ clip_pretrained = "laion2b_s34b_b79k"
 clip_batch_size = 32
 # auto | mps | cuda | cpu
 device = "auto"
+
+# Path to a YuNet ONNX face-detection model, e.g. face_detection_yunet_2023mar.onnx from
+# OpenCV Zoo. OpenCV 5 removed the classic Haar cascade API and ships no detection data, so
+# without this there is no face detector. It is deliberately NOT downloaded automatically:
+# only the landmark stage is allowed to touch the network.
+#
+# Unset simply means the face signal is unavailable. The quality score then renormalizes over
+# its remaining components rather than feeding in a constant, so nothing is silently diluted.
+# face_detector_model = "~/models/face_detection_yunet_2023mar.onnx"
 
 [geocode]
 # Offline city/region lookup always works. Nominatim adds POI-level names but is

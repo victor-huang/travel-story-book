@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from story_book.db import connection as db
-from story_book.db.models import GpsSource, Media
+from story_book.db.models import GpsSource, Media, TzSource
 from story_book.exif import exiftool_available, extract_timestamp, run_exiftool
 from story_book.pipeline.base import BatchStage, StageContext
 
@@ -23,21 +23,6 @@ from story_book.pipeline.base import BatchStage, StageContext
 def _device_id(make: str | None, model: str | None) -> str | None:
     parts = [p.strip() for p in (make, model) if p and p.strip()]
     return " ".join(parts) or None
-
-
-def _upsert_device(
-    conn: sqlite3.Connection, device_id: str, make: str | None, model: str | None
-) -> None:
-    """Insert or update a `device` row. Not covered by `db.connection` helpers, so this is the
-    one place in this module that writes SQL directly -- `device`, unlike `media` and
-    `stage_result`, has no shared upsert helper yet."""
-    conn.execute(
-        """
-        INSERT INTO device (id, make, model) VALUES (?, ?, ?)
-        ON CONFLICT (id) DO UPDATE SET make = excluded.make, model = excluded.model
-        """,
-        (device_id, make, model),
-    )
 
 
 def _as_number(value: object) -> float | None:
@@ -84,6 +69,15 @@ class MetadataStage(BatchStage):
         timestamp = extract_timestamp(meta, media.kind)
         media.taken_local = timestamp.dt.isoformat() if timestamp.dt is not None else None
 
+        # Hand the raw EXIF offset to T12 through the two fields the frozen Media model has for
+        # it. Without this the offset was parsed and discarded, tz_source stayed UNKNOWN, and
+        # level 1 of the timezone resolution order (validated EXIF offset) could never fire --
+        # every item silently fell through to GPS. TimezoneStage re-validates this against GPS
+        # and overrides it on disagreement; recording it is not the same as trusting it.
+        if timestamp.offset_minutes is not None:
+            media.tz_offset_minutes = timestamp.offset_minutes
+            media.tz_source = TzSource.EXIF_OFFSET
+
         media.width = _as_int(meta.get("ImageWidth"))
         media.height = _as_int(meta.get("ImageHeight"))
         media.duration = _as_number(meta.get("Duration"))
@@ -92,7 +86,7 @@ class MetadataStage(BatchStage):
         model = (meta.get("Model") or "").strip() or None
         device_id = _device_id(make, model)
         if device_id is not None:
-            _upsert_device(conn, device_id, make, model)
+            db.upsert_device(conn, device_id, make, model)
         media.device_id = device_id
 
         media.lat = _as_number(meta.get("GPSLatitude"))

@@ -59,3 +59,4 @@ is set up (a lint rule, a test, a CLAUDE.md line), say so and do it.
 | Wave 0 — foundation | [2026-07-26-wave-0-foundation.md](./2026-07-26-wave-0-foundation.md) | 8 |
 | T17 — profile command | [2026-07-26-t17-profile.md](./2026-07-26-t17-profile.md) | 2 |
 | P01 — real trip data | [2026-07-26-p01-real-data.md](./2026-07-26-p01-real-data.md) | 3 + 1 note |
+| Wave 1 integration | [2026-07-26-integration.md](./2026-07-26-integration.md) | 6 |

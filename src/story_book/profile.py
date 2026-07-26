@@ -11,9 +11,6 @@ shallow: T11 owns real metadata extraction, timezone resolution, and persistence
 
 from __future__ import annotations
 
-import json
-import shutil
-import subprocess
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -21,31 +18,14 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from story_book.db.models import MediaKind
+from story_book.exif import (
+    DEFAULT_CHUNK_SIZE,
+    exiftool_available,
+    extract_timestamp,
+    run_exiftool,
+)
 from story_book.media_types import IGNORED_NAMES, classify, is_hidden
 
-EXIFTOOL_FIELDS = [
-    "-SourceFile",
-    "-MIMEType",
-    "-Make",
-    "-Model",
-    "-DateTimeOriginal",
-    "-OffsetTimeOriginal",
-    # QuickTime Keys:CreationDate. For Apple video this is the only trustworthy capture time --
-    # CreateDate/MediaCreateDate hold the *export* time on Photos-exported .mov files, and it
-    # carries the original UTC offset. Prefer it for video.
-    "-CreationDate",
-    "-CreateDate",
-    "-MediaCreateDate",
-    "-GPSLatitude",
-    "-GPSLongitude",
-    "-Duration",
-    "-ImageWidth",
-    "-ImageHeight",
-]
-EXIFTOOL_CHUNK = 500
-
-# An offset must hold for this many consecutive items to count as a real timezone change rather
-# than one mis-tagged photo. Without it, 13 interleaved outliers read as 14 "crossings".
 SUSTAINED_OFFSET_RUN = 3
 
 
@@ -152,64 +132,10 @@ def scan(source: Path) -> tuple[list[Path], int]:
 
 
 def read_metadata(paths: list[Path]) -> dict[str, dict]:
-    """Batch EXIF read. One exiftool process per chunk, never one per file.
-
-    Per-file spawn is roughly a 20x slowdown on a large library; the argument list is fed over
-    stdin so a folder of 8,000 files cannot blow past ARG_MAX.
-    """
-    if not paths or not shutil.which("exiftool"):
+    """Batch EXIF read, delegating to the canonical reader in `story_book.exif`."""
+    if not paths or not exiftool_available():
         return {}
-
-    results: dict[str, dict] = {}
-    for start in range(0, len(paths), EXIFTOOL_CHUNK):
-        chunk = paths[start : start + EXIFTOOL_CHUNK]
-        # No -fast2: it skips the moov atom, which silently zeroes video Duration.
-        completed = subprocess.run(
-            ["exiftool", "-json", "-n", *EXIFTOOL_FIELDS, "-@", "-"],
-            input="\n".join(str(p) for p in chunk),
-            capture_output=True,
-            text=True,
-        )
-        if not completed.stdout.strip():
-            continue
-        for entry in json.loads(completed.stdout):
-            results[entry["SourceFile"]] = entry
-    return results
-
-
-def _parse_exif_datetime(value: object) -> datetime | None:
-    """EXIF stamps look like '2026:07:18 09:20:00', sometimes with a trailing offset."""
-    if not isinstance(value, str):
-        return None
-    text = value.strip()
-    if text.startswith(("0000", "    ")):
-        return None
-    text = text.split("+")[0].split("Z")[0].strip()
-    for pattern in ("%Y:%m:%d %H:%M:%S", "%Y:%m:%d %H:%M", "%Y-%m-%d %H:%M:%S"):
-        try:
-            return datetime.strptime(text[:19], pattern)
-        except ValueError:
-            continue
-    return None
-
-
-def _parse_offset(value: object) -> int | None:
-    """'+02:00' -> 120 minutes."""
-    if not isinstance(value, str) or len(value) < 6 or value[0] not in "+-":
-        return None
-    try:
-        hours, minutes = int(value[1:3]), int(value[4:6])
-    except ValueError:
-        return None
-    total = hours * 60 + minutes
-    return -total if value[0] == "-" else total
-
-
-def _embedded_offset(value: object) -> int | None:
-    """Offset carried inside a timestamp string, e.g. '2026:07:18 11:37:58+02:00'."""
-    if not isinstance(value, str) or len(value) < 25:
-        return None
-    return _parse_offset(value[19:25])
+    return run_exiftool(paths, chunk_size=DEFAULT_CHUNK_SIZE)
 
 
 def build_item(path: Path, meta: dict, size: int) -> Item:
@@ -218,25 +144,10 @@ def build_item(path: Path, meta: dict, size: int) -> Item:
     model = (meta.get("Model") or "").strip()
     device = " ".join(part for part in (make, model) if part) or None
 
-    # Field priority differs by kind. For Apple video, CreateDate is the export time and only
-    # Keys:CreationDate is the capture time -- reading the wrong one puts every clip on the
-    # day it was exported.
-    if kind is MediaKind.VIDEO:
-        candidates = ("CreationDate", "DateTimeOriginal", "CreateDate", "MediaCreateDate")
-    else:
-        candidates = ("DateTimeOriginal", "CreationDate", "CreateDate", "MediaCreateDate")
-
-    taken = None
-    source_field = None
-    for field_name in candidates:
-        taken = _parse_exif_datetime(meta.get(field_name))
-        if taken is not None:
-            source_field = field_name
-            break
-
-    offset = _parse_offset(meta.get("OffsetTimeOriginal"))
-    if offset is None and source_field is not None:
-        offset = _embedded_offset(meta.get(source_field))
+    # Field priority, parsing, and the embedded-offset fallback all live in `story_book.exif`.
+    # The profiler used to carry its own copy; two implementations of a rule that real data just
+    # corrected is exactly the kind of duplication that silently diverges.
+    timestamp = extract_timestamp(meta, kind)
 
     latitude, longitude = meta.get("GPSLatitude"), meta.get("GPSLongitude")
     duration = meta.get("Duration")
@@ -245,9 +156,9 @@ def build_item(path: Path, meta: dict, size: int) -> Item:
         kind=kind,
         bytes=size,
         device=device,
-        taken=taken,
-        time_source=source_field,
-        utc_offset_minutes=offset,
+        taken=timestamp.dt,
+        time_source=timestamp.field,
+        utc_offset_minutes=timestamp.offset_minutes,
         has_gps=latitude is not None and longitude is not None,
         lat=latitude if isinstance(latitude, (int, float)) else None,
         lon=longitude if isinstance(longitude, (int, float)) else None,
@@ -537,7 +448,7 @@ def _round_to(value: float, step: float) -> float:
 def run(source: Path) -> Profile:
     """Scan, read metadata, analyze. No database, no writes."""
     paths, ignored = scan(source)
-    exiftool = shutil.which("exiftool") is not None
+    exiftool = exiftool_available()
     metadata = read_metadata(paths)
     items = [build_item(p, metadata.get(str(p), {}), p.stat().st_size) for p in paths]
     return analyze(source, items, ignored, exiftool)

@@ -72,21 +72,21 @@ class TestScanStageProcess:
         return ctx
 
     def test_ignored_name_is_skipped(self, tmp_path: Path, mocker) -> None:
-        upsert = mocker.patch("story_book.pipeline.scan.upsert_media")
+        upsert = mocker.patch("story_book.pipeline.scan.upsert_media_discovery")
         path = tmp_path / ".DS_Store"
         path.write_bytes(b"junk")
         ScanStage()._process(self._ctx(tmp_path), path)
         upsert.assert_not_called()
 
     def test_hidden_file_is_skipped(self, tmp_path: Path, mocker) -> None:
-        upsert = mocker.patch("story_book.pipeline.scan.upsert_media")
+        upsert = mocker.patch("story_book.pipeline.scan.upsert_media_discovery")
         path = tmp_path / ".hidden.jpg"
         path.write_bytes(b"junk")
         ScanStage()._process(self._ctx(tmp_path), path)
         upsert.assert_not_called()
 
     def test_file_in_dot_directory_is_skipped(self, tmp_path: Path, mocker) -> None:
-        upsert = mocker.patch("story_book.pipeline.scan.upsert_media")
+        upsert = mocker.patch("story_book.pipeline.scan.upsert_media_discovery")
         (tmp_path / ".trip").mkdir()
         path = tmp_path / ".trip" / "photo.jpg"
         path.write_bytes(b"junk")
@@ -94,14 +94,14 @@ class TestScanStageProcess:
         upsert.assert_not_called()
 
     def test_non_media_extension_is_skipped(self, tmp_path: Path, mocker) -> None:
-        upsert = mocker.patch("story_book.pipeline.scan.upsert_media")
+        upsert = mocker.patch("story_book.pipeline.scan.upsert_media_discovery")
         path = tmp_path / "notes.txt"
         path.write_text("hi")
         ScanStage()._process(self._ctx(tmp_path), path)
         upsert.assert_not_called()
 
     def test_media_file_is_upserted(self, tmp_path: Path, mocker) -> None:
-        upsert = mocker.patch("story_book.pipeline.scan.upsert_media")
+        upsert = mocker.patch("story_book.pipeline.scan.upsert_media_discovery")
         path = tmp_path / "photo.jpg"
         path.write_bytes(b"image bytes")
         ScanStage()._process(self._ctx(tmp_path), path)
@@ -112,7 +112,7 @@ class TestScanStageProcess:
         assert media.hash == hashlib.blake2b(b"image bytes").hexdigest()
 
     def test_zero_byte_file_is_still_recorded(self, tmp_path: Path, mocker) -> None:
-        upsert = mocker.patch("story_book.pipeline.scan.upsert_media")
+        upsert = mocker.patch("story_book.pipeline.scan.upsert_media_discovery")
         path = tmp_path / "empty.jpg"
         path.write_bytes(b"")
         ScanStage()._process(self._ctx(tmp_path), path)
@@ -120,7 +120,7 @@ class TestScanStageProcess:
         assert media.bytes == 0
 
     def test_unreadable_file_is_skipped_without_raising(self, tmp_path: Path, mocker) -> None:
-        upsert = mocker.patch("story_book.pipeline.scan.upsert_media")
+        upsert = mocker.patch("story_book.pipeline.scan.upsert_media_discovery")
         mocker.patch("story_book.pipeline.scan._hash_file", side_effect=OSError("denied"))
         path = tmp_path / "photo.jpg"
         path.write_bytes(b"x")
@@ -128,7 +128,7 @@ class TestScanStageProcess:
         upsert.assert_not_called()
 
     def test_stat_failure_is_skipped_without_raising(self, tmp_path: Path, mocker) -> None:
-        upsert = mocker.patch("story_book.pipeline.scan.upsert_media")
+        upsert = mocker.patch("story_book.pipeline.scan.upsert_media_discovery")
         path = tmp_path / "photo.jpg"
         path.write_bytes(b"x")
         mocker.patch.object(Path, "stat", side_effect=OSError("gone"))

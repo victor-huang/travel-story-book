@@ -43,6 +43,12 @@ class SkipItem(Exception):
 
     Skipped is a terminal success state -- the item will not be retried on the next run.
     Use it for "this stage does not apply to this item", not for errors.
+
+    **Granularity differs by stage shape, and the difference bites.** In a `PerItemStage` this
+    skips exactly the one item. In a `BatchStage` the runner catches it around the whole
+    `process_batch` call, so raising it for a single unwanted item marks **every co-batched
+    item skipped too**. A `BatchStage` must therefore exclude inapplicable items in `select()`
+    rather than raising here -- see `EmbeddingStage`, which filters to images that way.
     """
 
 
@@ -69,6 +75,23 @@ class Stage(ABC):
     name: str
     version: int = 1
     description: str = ""
+
+    always_run: bool = False
+    """Ignore the cached result and run every time.
+
+    Two kinds of stage need it, and both were found by running the pipeline twice:
+
+    * **Discovery** -- `scan` finds files, so a cached 'ok' means a second `build` never notices
+      photos added since the first.
+    * **Aggregates over the whole media set** -- `timezones`, and later days/events/selection/
+      timeline. Their cached result goes stale as soon as `scan` adds an item, and the symptom is
+      silent: the new photo keeps a NULL `taken_utc` and simply vanishes from ordering, day
+      grouping, and the timeline.
+
+    Only set this where re-running is cheap and idempotent; it forgoes the resume guarantee for
+    that stage by design. Per-item stages should never need it -- their cache is keyed per item,
+    so new items are picked up automatically.
+    """
 
     def available(self, ctx: StageContext) -> tuple[bool, str]:
         """Whether this stage can run. Return (False, reason) to skip it entirely.

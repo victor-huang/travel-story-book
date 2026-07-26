@@ -17,9 +17,10 @@ import pytest
 from story_book.config import Config
 from story_book.db import connection as db
 from story_book.db.models import Media, MediaKind
+from story_book.pipeline import quality
 from story_book.pipeline.base import StageContext
 from story_book.pipeline.embeddings import clip_importable
-from story_book.pipeline.quality import CONTENT_CLASSES, ContentClassStage, QualityStage
+from story_book.pipeline.quality import ContentClassStage, QualityStage
 
 
 def _seed(conn: sqlite3.Connection, media_dir: Path, name: str) -> Media:
@@ -149,9 +150,10 @@ class TestContentClassStageWithMockedClip:
         receipt = _seed(conn, media_dir, "receipt.jpg")
 
         fake_runner = mocker.Mock()
+        # classify() is called with prompts, not class names, so weight the winner's prompts.
         fake_runner.classify.return_value = [
-            {label: (1.0 if label == "screenshot" else 0.0) for label in CONTENT_CLASSES},
-            {label: (1.0 if label == "receipt" else 0.0) for label in CONTENT_CLASSES},
+            _prompt_scores("screenshot"),
+            _prompt_scores("receipt"),
         ]
         stage = ContentClassStage()
         mocker.patch.object(stage, "_runner_for", return_value=fake_runner)
@@ -198,3 +200,44 @@ class TestContentClassStageWithRealClip:
         results = ContentClassStage().process_batch(ctx, [receipt])
 
         assert results[receipt.hash] == "receipt"
+
+
+class TestHeicIsScorable:
+    """HEIC is the dominant iPhone format, and `cv2.imread` cannot read it at all.
+
+    The first end-to-end run failed every HEIC while the suite stayed green, because the fixture
+    test registered the Pillow HEIF opener itself -- proving the library worked, never that the
+    application had registered it. Loading now goes through Pillow, registered at package import.
+    """
+
+    def test_a_heic_file_produces_a_score(self, media_dir: Path) -> None:
+        image = quality._load_bgr(str(media_dir / "heic_gps_offset.heic"))
+        assert image.shape[2] == 3
+
+    def test_heic_dimensions_match_the_fixture(self, media_dir: Path) -> None:
+        image = quality._load_bgr(str(media_dir / "heic_gps_offset.heic"))
+        assert image.shape[:2] == (240, 320)
+
+    def test_compute_scores_a_heic_without_raising(self, media_dir: Path) -> None:
+        media = Media(
+            hash="h",
+            path=str(media_dir / "heic_gps_offset.heic"),
+            kind=MediaKind.IMAGE,
+            bytes=1,
+            mtime=0.0,
+        )
+        payload = quality.QualityStage().compute(media, Config())
+        assert 0.0 <= payload["overall"] <= 1.0
+
+    def test_an_unreadable_path_names_the_file_in_the_error(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="unreadable image"):
+            quality._load_bgr(str(tmp_path / "absent.jpg"))
+
+
+def _prompt_scores(winner: str) -> dict[str, float]:
+    """A classify() row keyed by prompt, with all probability on `winner`'s prompts."""
+    prompts = [p for group in quality.CONTENT_CLASS_PROMPTS.values() for p in group]
+    scores = dict.fromkeys(prompts, 0.0)
+    for prompt in quality.CONTENT_CLASS_PROMPTS[winner]:
+        scores[prompt] = 1.0 / len(quality.CONTENT_CLASS_PROMPTS[winner])
+    return scores

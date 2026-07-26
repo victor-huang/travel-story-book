@@ -18,8 +18,16 @@ from story_book import __version__, profile_render
 from story_book import profile as story_profile
 from story_book.config import Config, ConfigError
 from story_book.db import connection as db
+from story_book.eval import evaluate_truth_set_file, render_report
 from story_book.pipeline.base import Stage, StageContext
+from story_book.pipeline.embeddings import EmbeddingStage
+from story_book.pipeline.landmarks.base import LandmarkStage
+from story_book.pipeline.metadata import MetadataStage
+from story_book.pipeline.quality import ContentClassStage, QualityStage
 from story_book.pipeline.runner import Runner
+from story_book.pipeline.scan import ScanStage
+from story_book.pipeline.timezones import TimezoneStage
+from story_book.pipeline.video import VideoStage
 from story_book.profile_json import profile_to_dict
 
 app = typer.Typer(
@@ -33,11 +41,32 @@ console = Console()
 def build_stages(ctx: StageContext) -> list[Stage]:
     """The pipeline, in dependency order.
 
-    Wave 1+ tasks append their stage here. Order is the corrected order from the plan doc:
-    scan -> metadata -> timezones -> gps_backfill -> geocode -> days -> events ->
-    (embeddings, quality, video) -> dedup -> selection -> landmarks -> timeline.
+    The corrected order from the plan doc, with unbuilt stages marked. Landmark recognition sits
+    deliberately *after* selection so it only ever sees a few hundred representatives rather than
+    every photo, and event detection must never consume landmark labels -- that circularity was
+    the original draft's bug.
+
+        scan -> metadata -> timezones
+             -> [gps_backfill] -> [geocode] -> [days] -> [events]        (Wave 2/3)
+             -> video, embeddings, quality, content_class               (independent)
+             -> [dedup] -> [selection]                                  (Wave 3)
+             -> landmarks
+             -> [timeline] -> [report, package]                          (Wave 3/4)
+
+    Bracketed stages are not implemented yet. Every stage declares its own `available()`, so an
+    absent binary, a missing optional dependency, or `--no-cloud` skips that stage and the run
+    still completes.
     """
-    return []
+    return [
+        ScanStage(),
+        MetadataStage(),
+        TimezoneStage(),
+        VideoStage(),
+        EmbeddingStage(),
+        QualityStage(),
+        ContentClassStage(),
+        LandmarkStage(),
+    ]
 
 
 def _load_config(config_path: Path | None) -> Config:
@@ -110,15 +139,6 @@ def build(
         no_cloud=config.no_cloud,
     )
     stages = build_stages(ctx)
-    if not stages:
-        console.print(
-            "[yellow]No stages registered yet.[/] Wave 0 is complete; the pipeline itself "
-            "lands in Wave 1. See dev_plan/implementation_tracker.md."
-        )
-        console.print(f"trip: [bold]{trip_name}[/]  source: {source}  out: {out}")
-        console.print(f"media rows in db: {db.count_media(conn)}")
-        return
-
     console.print(f"trip: [bold]{trip_name}[/]  ({db.count_media(conn)} media known)")
     if include_all:
         console.print("[cyan]--include-all[/]: unselected media will also be exported")
@@ -151,6 +171,29 @@ def report(
     console.print(
         "[yellow]Report rendering lands in T40.[/] See dev_plan/implementation_tracker.md."
     )
+
+
+@app.command(name="eval")
+def eval_command(
+    truth_set: Annotated[
+        Path, typer.Argument(exists=True, dir_okay=False, help="Hand-labelled truth set TOML.")
+    ],
+    out: Annotated[Path, typer.Option("--out", "-o", help="Output directory holding story.db.")],
+) -> None:
+    """Score the pipeline against a hand-labelled truth set.
+
+    Reports event-boundary precision/recall, duplicate-cluster pairwise precision/recall, and
+    keeper agreement, with the Phase 1 targets from the plan. See `docs/truth_set.md` for the
+    format and labelling guidance.
+    """
+    db_path = out.resolve() / db.DB_FILENAME
+    if not db_path.exists():
+        console.print(f"[red]no database at {db_path}[/] -- run `story-book build` first.")
+        raise typer.Exit(2)
+
+    conn = db.connect(db_path, create=False)
+    report = evaluate_truth_set_file(conn, truth_set)
+    console.print(render_report(report))
 
 
 @app.command()

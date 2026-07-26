@@ -12,11 +12,8 @@ from story_book.profile import (
     Item,
     Profile,
     _count_crossings,
-    _format_offset,
     _gap_stats,
     _largest_gap_days,
-    _parse_exif_datetime,
-    _parse_offset,
     analyze,
     build_item,
     percentile,
@@ -70,49 +67,6 @@ class TestClassify:
 
     def test_ordinary_path_is_not_hidden(self) -> None:
         assert not is_hidden(Path("Day01/photo.jpg"))
-
-
-class TestParseExifDatetime:
-    def test_standard_exif_format(self) -> None:
-        assert _parse_exif_datetime("2026:07:18 09:20:00") == datetime(2026, 7, 18, 9, 20)
-
-    def test_trailing_offset_is_ignored(self) -> None:
-        assert _parse_exif_datetime("2026:07:18 09:20:00+02:00") == datetime(2026, 7, 18, 9, 20)
-
-    def test_zero_date_is_rejected(self) -> None:
-        assert _parse_exif_datetime("0000:00:00 00:00:00") is None
-
-    def test_blank_is_rejected(self) -> None:
-        assert _parse_exif_datetime("") is None
-
-    def test_non_string_is_rejected(self) -> None:
-        assert _parse_exif_datetime(12345) is None
-
-    def test_garbage_is_rejected(self) -> None:
-        assert _parse_exif_datetime("not a date") is None
-
-
-class TestParseOffset:
-    def test_positive_offset(self) -> None:
-        assert _parse_offset("+02:00") == 120
-
-    def test_negative_offset(self) -> None:
-        assert _parse_offset("-08:00") == -480
-
-    def test_half_hour_offset(self) -> None:
-        assert _parse_offset("+05:30") == 330
-
-    def test_missing_sign_is_rejected(self) -> None:
-        assert _parse_offset("02:00") is None
-
-    def test_none_is_rejected(self) -> None:
-        assert _parse_offset(None) is None
-
-    def test_round_trips_through_format(self) -> None:
-        assert _format_offset(_parse_offset("+05:30")) == "+05:30"
-
-    def test_negative_round_trips(self) -> None:
-        assert _format_offset(-480) == "-08:00"
 
 
 class TestBuildItem:

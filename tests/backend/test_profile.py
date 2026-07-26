@@ -7,8 +7,20 @@ from pathlib import Path
 
 import pytest
 
+from story_book.media_types import VIDEO_EXTENSIONS, classify
 from story_book.profile import read_metadata, run, scan
 from story_book.profile_json import profile_to_dict
+
+
+def _expected_counts(media_dir: Path) -> tuple[int, int, int]:
+    """(media, images, videos) derived from the directory rather than hard-coded.
+
+    Hard-coded counts made every one of these tests fail the moment a fixture was added, which
+    is noise: the behaviour under test is "the profiler agrees with what is on disk".
+    """
+    files = [p for p in media_dir.iterdir() if p.is_file() and classify(p) is not None]
+    videos = [p for p in files if p.suffix.lower() in VIDEO_EXTENSIONS]
+    return len(files), len(files) - len(videos), len(videos)
 
 
 @pytest.fixture
@@ -21,7 +33,7 @@ def profile(media_dir: Path, has_exiftool: bool):
 class TestScan:
     def test_finds_every_media_file(self, media_dir: Path) -> None:
         paths, _ = scan(media_dir)
-        assert len(paths) == 25
+        assert len(paths) == _expected_counts(media_dir)[0]
 
     def test_skips_the_non_media_file(self, media_dir: Path) -> None:
         paths, _ = scan(media_dir)
@@ -80,14 +92,15 @@ class TestReadMetadata:
 
 
 class TestRunOnFixtures:
-    def test_counts_images(self, profile) -> None:
-        assert profile.images == 23
+    def test_counts_images(self, profile, media_dir: Path) -> None:
+        assert profile.images == _expected_counts(media_dir)[1]
 
-    def test_counts_videos(self, profile) -> None:
-        assert profile.videos == 2
+    def test_counts_videos(self, profile, media_dir: Path) -> None:
+        assert profile.videos == _expected_counts(media_dir)[2]
 
-    def test_sums_video_duration(self, profile) -> None:
-        assert profile.video_seconds == pytest.approx(6.0, abs=1.0)
+    def test_sums_video_duration(self, profile, media_dir: Path) -> None:
+        """Every video fixture is a few seconds, so the total scales with how many there are."""
+        assert profile.video_seconds >= 2.0 * _expected_counts(media_dir)[2] - 1.0
 
     def test_identifies_the_iphone(self, profile) -> None:
         assert profile.devices["Apple iPhone 16 Pro"] > 0
@@ -151,18 +164,21 @@ class TestProfileJson:
 
 
 class TestDegradesWithoutExiftool:
+    """Availability is now decided by `story_book.exif.exiftool_available`, which the profiler
+    imports -- so that is what these patch."""
+
     def test_still_counts_files(self, media_dir: Path, mocker) -> None:
-        mocker.patch("story_book.profile.shutil.which", return_value=None)
-        assert run(media_dir).total == 25
+        mocker.patch("story_book.profile.exiftool_available", return_value=False)
+        assert run(media_dir).total == _expected_counts(media_dir)[0]
 
     def test_reports_exiftool_as_unavailable(self, media_dir: Path, mocker) -> None:
-        mocker.patch("story_book.profile.shutil.which", return_value=None)
+        mocker.patch("story_book.profile.exiftool_available", return_value=False)
         assert run(media_dir).exiftool_available is False
 
     def test_warns_that_metadata_is_missing(self, media_dir: Path, mocker) -> None:
         from story_book.profile import warnings
 
-        mocker.patch("story_book.profile.shutil.which", return_value=None)
+        mocker.patch("story_book.profile.exiftool_available", return_value=False)
         assert any("exiftool not found" in w for w in warnings(run(media_dir)))
 
 

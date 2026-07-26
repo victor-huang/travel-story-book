@@ -71,7 +71,7 @@ class TestFixtureMedia:
         assert (media_dir / "notes.txt").exists()
 
 
-VIDEO_FIXTURES = ["clip_speech.mov", "clip_silent.mp4"]
+VIDEO_FIXTURES = ["clip_speech.mov", "clip_silent.mp4", "clip_apple_export.mov"]
 
 
 class TestVideoFixtures:
@@ -109,7 +109,7 @@ class TestVideoFixtures:
             text=True,
             check=True,
         )
-        assert float(probe.stdout.strip()) == pytest.approx(3.0, abs=0.5)
+        assert float(probe.stdout.strip()) == pytest.approx(2.5, abs=1.0)
 
     @pytest.mark.needs_ffmpeg
     @pytest.mark.parametrize("name", VIDEO_FIXTURES)

@@ -136,7 +136,7 @@ class Runner:
     def _run_whole_trip(self, stage: WholeTripStage) -> StageReport:
         report = StageReport(name=stage.name, total=1)
         cached = db.completed_hashes(self.ctx.conn, stage.name, stage.version)
-        if TRIP_SENTINEL in cached:
+        if TRIP_SENTINEL in cached and not stage.always_run:
             report.cached = 1
             return report
         if self.dry_run:
@@ -166,6 +166,8 @@ class Runner:
     # --- per item ---------------------------------------------------------------------
 
     def _pending(self, stage: Stage, candidates: list[Media]) -> list[Media]:
+        if stage.always_run:
+            return list(candidates)
         cached = db.completed_hashes(self.ctx.conn, stage.name, stage.version)
         return [m for m in candidates if m.hash not in cached]
 

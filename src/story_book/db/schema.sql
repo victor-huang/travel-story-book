@@ -155,6 +155,19 @@ CREATE TABLE IF NOT EXISTS media_landmark (
     PRIMARY KEY (media_hash, landmark_id)
 );
 
+-- Derived video facts. A first pass kept these in a JSON sidecar under the cache dir, which
+-- would have forced the report and package builders to learn an informal file convention.
+-- Frame paths are stored relative to the output directory so the export stays portable.
+CREATE TABLE IF NOT EXISTS video_meta (
+    media_hash    TEXT PRIMARY KEY REFERENCES media (hash) ON DELETE CASCADE,
+    fps           REAL,
+    poster_path   TEXT,
+    keyframe_paths TEXT,   -- JSON array of output-relative paths
+    motion_score  REAL,
+    mean_volume_db REAL,
+    has_speech    INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS transcript (
     media_hash TEXT PRIMARY KEY REFERENCES media (hash) ON DELETE CASCADE,
     model      TEXT NOT NULL,

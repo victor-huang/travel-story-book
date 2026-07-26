@@ -10,7 +10,7 @@ from pathlib import Path
 
 from story_book.db.models import Media, StageResult, StageStatus
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DB_FILENAME = "story.db"
 
 
@@ -122,6 +122,37 @@ def upsert_media(conn: sqlite3.Connection, media: Media) -> None:
     )
 
 
+def upsert_media_discovery(conn: sqlite3.Connection, media: Media) -> None:
+    """Record a file the scanner found, without touching anything a later stage computed.
+
+    `upsert_media` writes every column, which is correct for a stage that read a full row,
+    mutated it, and is writing it back. It is *wrong* for the scanner, which constructs a fresh
+    `Media` carrying only discovery fields -- using it there blanks `taken_local`, GPS, and the
+    `tz_*` fields with NULLs on every re-scan. Combined with `always_run` on the scan stage that
+    silently empties the database on every build, since the stages that would repopulate those
+    fields see a cached result and skip.
+
+    So the scanner owns exactly the columns it actually knows about.
+    """
+    conn.execute(
+        """
+        INSERT INTO media (hash, path, kind, bytes, mtime)
+        VALUES (:hash, :path, :kind, :bytes, :mtime)
+        ON CONFLICT (hash) DO UPDATE SET
+            path = excluded.path,
+            bytes = excluded.bytes,
+            mtime = excluded.mtime
+        """,
+        {
+            "hash": media.hash,
+            "path": media.path,
+            "kind": str(media.kind),
+            "bytes": media.bytes,
+            "mtime": media.mtime,
+        },
+    )
+
+
 def get_media(conn: sqlite3.Connection, media_hash: str) -> Media | None:
     row = conn.execute("SELECT * FROM media WHERE hash = ?", (media_hash,)).fetchone()
     return Media.from_row(row) if row else None
@@ -225,6 +256,26 @@ def stage_failures(conn: sqlite3.Connection, stage: str) -> list[StageResult]:
 
 
 # --- trip -----------------------------------------------------------------------------
+
+
+def upsert_device(
+    conn: sqlite3.Connection,
+    device_id: str,
+    make: str | None = None,
+    model: str | None = None,
+    clock_offset_minutes: int = 0,
+) -> None:
+    """Insert or update a capture device. Keyed by the caller's stable device id."""
+    conn.execute(
+        """
+        INSERT INTO device (id, make, model, clock_offset_minutes)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT (id) DO UPDATE SET
+            make = COALESCE(excluded.make, device.make),
+            model = COALESCE(excluded.model, device.model)
+        """,
+        (device_id, make, model, clock_offset_minutes),
+    )
 
 
 def ensure_trip(conn: sqlite3.Connection, name: str) -> None:

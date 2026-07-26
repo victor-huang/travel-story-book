@@ -50,10 +50,6 @@ POSTER_TIME_MAX_SECONDS = 1.0
 MOTION_THUMB_SIZE = 32
 """Side length, in px, frames are shrunk to before diffing -- cheap and resolution-independent."""
 
-# Ideally `config.video.speech_mean_volume_floor_db`, but `config.py` belongs to another task
-# (see the "Contracts" list this task must not edit). Flagged in the tracker's cross-task
-# request table as a config field this stage would like to exist.
-SPEECH_MEAN_VOLUME_FLOOR_DB = -50.0
 
 _MEAN_VOLUME_RE = re.compile(r"mean_volume:\s*(-?\d+(?:\.\d+)?) dB")
 
@@ -76,6 +72,7 @@ class VideoAnalysis:
     transcript_text: str | None
     transcript_segments: str | None
     whisper_model: str | None
+    mean_volume_db: float | None = None
 
 
 def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -154,6 +151,7 @@ def should_transcribe(
     has_audio: bool,
     mean_volume_db: float | None,
     min_seconds: float,
+    volume_floor_db: float,
 ) -> bool:
     """The routing decision, kept pure and separate from ffmpeg/whisper calls.
 
@@ -167,7 +165,7 @@ def should_transcribe(
         return True
     if duration is None or duration < min_seconds:
         return False
-    return mean_volume_db is not None and mean_volume_db > SPEECH_MEAN_VOLUME_FLOOR_DB
+    return mean_volume_db is not None and mean_volume_db > volume_floor_db
 
 
 _MODEL_CACHE: dict[str, Any] = {}
@@ -253,21 +251,54 @@ def _video_cache_dir(ctx: StageContext) -> Path:
     return path
 
 
-def _write_manifest(
-    manifest_path: Path,
+def _relative_to_out(ctx: StageContext, path: str | None) -> str | None:
+    """Store output-relative paths so the export directory stays portable if moved."""
+    if path is None:
+        return None
+    try:
+        return str(Path(path).relative_to(ctx.out_dir))
+    except ValueError:
+        return path
+
+
+def _upsert_video_meta(
+    conn: Any,
+    media_hash: str,
     *,
     fps: float | None,
-    poster: str | None,
-    frames: list[str],
+    poster_path: str | None,
+    keyframe_paths: list[str | None],
     motion_score: float | None,
+    mean_volume_db: float | None,
+    has_speech: bool,
 ) -> None:
-    """The only durable record of poster/frame paths, fps, and motion score.
+    """Derived video facts go in `video_meta`.
 
-    There is no `db/schema.sql` table for these -- that file is a frozen contract this task
-    does not own -- so a small JSON sidecar next to the images is the record instead.
+    An earlier pass wrote these to a JSON sidecar because the schema had nowhere for them, which
+    would have forced the report and package builders to learn an undocumented file convention.
     """
-    manifest_path.write_text(
-        json.dumps({"fps": fps, "poster": poster, "frames": frames, "motion_score": motion_score})
+    conn.execute(
+        """
+        INSERT INTO video_meta (
+            media_hash, fps, poster_path, keyframe_paths, motion_score, mean_volume_db, has_speech
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (media_hash) DO UPDATE SET
+            fps = excluded.fps,
+            poster_path = excluded.poster_path,
+            keyframe_paths = excluded.keyframe_paths,
+            motion_score = excluded.motion_score,
+            mean_volume_db = excluded.mean_volume_db,
+            has_speech = excluded.has_speech
+        """,
+        (
+            media_hash,
+            fps,
+            poster_path,
+            json.dumps([p for p in keyframe_paths if p is not None]),
+            motion_score,
+            mean_volume_db,
+            int(has_speech),
+        ),
     )
 
 
@@ -313,6 +344,7 @@ class VideoStage(PerItemStage):
             has_audio=probe.has_audio,
             mean_volume_db=mean_volume,
             min_seconds=config.video.transcribe_min_seconds,
+            volume_floor_db=config.video.speech_mean_volume_floor_db,
         ):
             try:
                 transcript_text, transcript_segments = transcribe(path, config.video.whisper_model)
@@ -327,6 +359,7 @@ class VideoStage(PerItemStage):
             transcript_text=transcript_text,
             transcript_segments=transcript_segments,
             whisper_model=whisper_model,
+            mean_volume_db=mean_volume,
         )
 
     def persist(self, ctx: StageContext, media: Media, payload: VideoAnalysis) -> None:
@@ -353,12 +386,15 @@ class VideoStage(PerItemStage):
 
             motion_score = _motion_score([Path(p) for p in frame_paths])
 
-        _write_manifest(
-            cache_dir / f"{media.hash}_manifest.json",
+        _upsert_video_meta(
+            ctx.conn,
+            media.hash,
             fps=probe.fps,
-            poster=poster_path,
-            frames=frame_paths,
+            poster_path=_relative_to_out(ctx, poster_path),
+            keyframe_paths=[_relative_to_out(ctx, p) for p in frame_paths],
             motion_score=motion_score,
+            mean_volume_db=payload.mean_volume_db,
+            has_speech=payload.transcribed,
         )
 
         if payload.transcribed and payload.transcript_text is not None:
