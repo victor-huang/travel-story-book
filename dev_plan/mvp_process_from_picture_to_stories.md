@@ -249,17 +249,26 @@ Within a day, start a new event when **any** of:
 - the event has run longer than `event_max_minutes` (a coarse backstop), or
 - sustained movement (a transit segment) ends.
 
-**Revised after P02 — the original "running cluster centroid" rule does not work.** As an event
-accumulates items its centroid converges on the average of everything so far, so individual
-1–2 km moves stop exceeding the threshold and the event never ends. On one real day this collapsed
-**129 items spanning 11:31–20:15** — an entire afternoon across several places — into a single
-event, which in turn made selection represent nine hours with five photos taken within fifteen
-minutes of each other.
+**Revised after P02, then corrected again by measurement in T24.** On one real day, **129 items
+spanning 11:31–20:15** — an entire afternoon across several places — collapsed into a single event,
+which made selection represent nine hours with five photos taken within fifteen minutes of each
+other.
 
-Compare against a **recent window** (the last handful of located items) rather than the whole
-event, so walking away from where you just were still registers. The maximum-duration backstop
-covers photographing continuously without moving far. With both, the same day split into 7 events
-with plausible spans. Binding on T24.
+The P02 diagnosis blamed the centroid: the theory was that a whole-event centroid converges on the
+average of everything so far, so movement stops registering, and the fix was to compare against
+only the most recent items. **That theory was wrong, and T24 measured it before building on it.**
+On the real day a recent window of 6, 12, or 1000 items gives *identical* results — the entire
+4-to-7 event improvement came from the duration backstop alone. On synthetic gradual drift the
+recent window is actively worse: it follows you, so you are never far from it and it never splits,
+while a whole-event centroid lags behind the drift and does eventually notice.
+
+So the rule keeps the simple whole-event centroid, and `events.max_minutes` is what breaks up a
+long day. The honest description of the remaining gap: wandering a city centre for nine hours
+trips neither the gap nor the jump rule, because shots are minutes apart and every position sits
+within `jump_km` of a central point. Only the clock catches it.
+
+Whether `jump_km` itself should be smaller is a real open question and a **tuning** one — it needs
+the P03 labelled set. Guessing at it is what this project keeps learning not to do.
 
 Deliberately **not** using landmark labels here — that was the circular dependency. A
 second refinement pass after Module 11 may merge or rename events using landmark labels.

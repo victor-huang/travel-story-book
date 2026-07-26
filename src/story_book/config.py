@@ -50,6 +50,12 @@ class EventConfig:
     jump_km: float = 1.5
     min_items: int = 2
 
+    # The rule that actually breaks up a long day. Neither the time gap nor the GPS jump fires
+    # while wandering a city centre for nine hours: shots are minutes apart and every position is
+    # within `jump_km` of the running centroid. Measured on a real 141-item day, this single
+    # threshold took it from 4 events to 7; nothing else moved the number.
+    max_minutes: float = 150.0
+
 
 @dataclass(frozen=True, slots=True)
 class DedupConfig:

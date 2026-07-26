@@ -375,7 +375,7 @@ export output.
 
 | ID | Task | Status | Owner | Depends on |
 | --- | --- | --- | --- | --- |
-| T24 | Event detection (M6) | todo | — | T20, T22 |
+| T24 | Event detection (M6) | done | claude (main) | T20, T22 |
 | T23 | Near-dup clustering (M7) | todo | — | T14, T24 |
 | T30 | Selection (M10) | todo | — | T13, T23 |
 | T32 | Overrides file | todo | — | T24, T30 |
@@ -497,7 +497,7 @@ From Phase 0 in the plan doc. Neither is a coding task; both are cheap and can s
 | --- | --- | --- | --- |
 | P01 | Run `profile` on the real trip; retune threshold defaults | done | claude (main) — [findings](./p01_profile_findings.md) |
 | P02 | Hand-test the ChatGPT handoff on one real day | **done** | claude + human |
-| P03 | Label ~200 photos: event bounds, dup groups, preferred picks | todo | — |
+| P03 | Label ~200 photos: event bounds, dup groups, preferred picks | **kit ready** | human — `~/Desktop/p03_labelling_kit` |
 
 P02 is the make-or-break check: if a hand-assembled contact sheet + brief doesn't produce a
 journal worth keeping, every upstream module is aimed at the wrong target. Do it before Wave 1
@@ -528,7 +528,9 @@ Need a change in a file you don't own? Add a row. The owning agent (or the human
 | T21 | T41 | `place.country` stores the ISO alpha-2 code (`AT`), not a full name. P02's brief wants "Austria". Mapping is a presentation concern — T41's job, noted so it isn't forgotten. | open — T41 |
 | P02 | T41 | **Format validated; seven additions required.** Manifest with stable asset IDs, video records with explicit `no_speech`, geocoded place candidates, trip context, structured output request, richer event location, component scores. See the T41 entry. | open — T41 |
 | P02 | T13/T30 | Content taxonomy should not be binary keep/reject — a ticket or menu is a scrapbook element, not trash. Four-way (`exclude`/`archive-only`/`scrapbook-candidate`/`story-evidence`) **deferred to Phase 2**; Phase 1's job is only keeping screenshots out of highlights. | deferred |
-| P02 | T24 | **Module 6's centroid rule is broken and amended.** A whole-event running centroid stops registering movement as the event grows: 129 items over 8¾ hours became one event. Compare against a *recent* window plus a max-duration backstop. Needs `events.max_minutes` and `events.recent_window` in config when T24 lands. | open — T24 |
+| P02 | T24 | **Module 6's centroid rule amended** after 129 items over 8¾ hours became one event. | resolved — but see the correction below |
+| T24 | plan doc | **The P02 diagnosis was wrong and measurement caught it.** Recent-window comparison makes *no difference* on the real day (6, 12 and 1000 give identical results) and is *worse* on synthetic gradual drift, because it follows you. The entire 4→7 improvement came from `events.max_minutes`. `recent_window` was removed rather than shipped; the plan doc now records the disproof alongside the original claim. | resolved |
+| T24 | P03 | Whether `jump_km` should be below 1.5 km is a genuine open question that needs labels, not intuition. Wandering a city centre trips neither the gap nor the jump rule today. | open — needs P03 |
 | P02 | T30 | Selection needs **temporal spread within an event**, not just embedding diversity. On the mega-event it returned five photos from a fifteen-minute span to represent nine hours. Partly a symptom of the event bug, but worth an explicit constraint. | open — T30 |
 | P02 | T15 | **Whisper hallucinated on every real clip** — fluent German, Chinese, Greek and Tibetan invented from concert music and street noise. A fabricated quote in a journal is a fabricated memory. Fixed: VAD, language-confidence, avg_logprob and no-speech gates, all configurable; stale rows now deleted on rejection. All 8 bogus transcripts dropped. | resolved |
 | — | integrator | **Content classifier was badly miscalibrated.** Bare-word CLIP labels labelled **209 of 277** real travel photos `screenshot` — a *rejected* class — which would have thrown out three quarters of the trip. Fixed with natural-language prompt ensembles: rejected share fell to 6%. | resolved |
@@ -563,6 +565,8 @@ decision made.
 | 2026-07-26 | claude | Fixture set extended for the above: timezone crossing is now 3 items per side (a real crossing is sustained), plus a new `offset_gps_conflict.jpg`. 26 fixtures, 338 tests. |
 | 2026-07-26 | claude | **T17 done.** `story-book profile` ships with warnings + a suggested-config table computed from observed data, and `--json`. 308 tests pass. Shared extension allowlist added at `story_book/media_types.py` — **T10 must import it, not fork it**. |
 | 2026-07-26 | claude | Retro: `exiftool -fast2` silently zeroed video durations by skipping the moov atom. Flag removed; regression test added. A speed flag that changes how much of a file is read is a correctness flag. |
+| 2026-07-26 | claude | **T24 done.** 20 events across the real trip's 4 days, all 286 items linked; the last day shows Vienna → waypoint → Munich. Measurement disproved the P02 centroid diagnosis before it was built: `recent_window` removed, `max_minutes` is what actually works. |
+| 2026-07-26 | claude | **P03 labelling kit generated** at `~/Desktop/p03_labelling_kit` — 175 photos over 2 days, 10 contact sheets with filename/time/gap per cell (videos via poster frames), and a pre-listed but deliberately *un-grouped* `truth_set.toml`. Not pre-filled with the pipeline's guesses, or the eval would flatter itself. |
 | 2026-07-26 | claude | **Wave 2 done and integrated.** T20/T21/T22/T26/T33 landed; 11 stages now run end to end. Real trip: 907 tests pass, zero pipeline failures, 280 EXIF + 6 interpolated locations, 3 places (Vienna/Munich/one waypoint — geocoding revealed the trip spans two cities), 4 days. Four integration bugs fixed, three of them the same silent-staleness family. |
 | 2026-07-26 | claude | **P02 done — the format is validated.** Real ChatGPT test on one day produced a usable journal, accurate captions, self-flagged uncertainties, and no screenshot/receipt leakage. Seven additions folded into T41; new task T33 (trip context); Module 6 amended; two items deliberately deferred to Phase 2. Wave 2 is now the next build step. |
 | 2026-07-26 | claude | **Integration pass done. The pipeline runs end to end.** 286 real items, 1.9 GB, 8m31s, **zero failures**; source verified byte-identical. 753 tests pass. Six bugs found that no unit test could have caught — four of them only visible on the *second* run or on *real* photos. Details in the retro. |

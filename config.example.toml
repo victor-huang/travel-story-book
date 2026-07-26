@@ -35,6 +35,11 @@ gap_minutes = 90.0
 jump_km = 1.5
 min_items = 2
 
+# The rule that actually breaks up a long day. Wandering a city centre triggers neither the gap
+# nor the jump rule -- shots are minutes apart and every position sits within jump_km of the
+# running centroid. On a real 141-item day this alone took 4 events to 7.
+max_minutes = 150.0
+
 [dedup]
 # Tight threshold: near-exact duplicates and burst frames.
 phash_max_distance = 6

@@ -22,6 +22,7 @@ from story_book.eval import evaluate_truth_set_file, render_report
 from story_book.pipeline.base import Stage, StageContext
 from story_book.pipeline.days import DaysStage
 from story_book.pipeline.embeddings import EmbeddingStage
+from story_book.pipeline.events import EventStage
 from story_book.pipeline.geocode import GeocodeStage
 from story_book.pipeline.gps_backfill import GpsBackfillStage
 from story_book.pipeline.home_filter import HomeFilterStage
@@ -52,8 +53,7 @@ def build_stages(ctx: StageContext) -> list[Stage]:
     the original draft's bug.
 
         scan -> metadata -> timezones
-             -> gps_backfill -> geocode -> days -> home_filter
-             -> [events]                                                 (Wave 3)
+             -> gps_backfill -> geocode -> days -> events -> home_filter
              -> video, embeddings, quality, content_class                (independent)
              -> [dedup] -> [selection]                                   (Wave 3)
              -> landmarks
@@ -73,6 +73,7 @@ def build_stages(ctx: StageContext) -> list[Stage]:
         GpsBackfillStage(),
         GeocodeStage(),
         DaysStage(),
+        EventStage(),
         HomeFilterStage(),
         VideoStage(),
         EmbeddingStage(),
