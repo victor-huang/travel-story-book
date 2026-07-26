@@ -143,14 +143,15 @@ One agent does all of Wave 0, in order. Do not parallelize this.
 | T02 | Config loading | done | claude (main) | T01 |
 | T03 | DB schema, connection, models | done | claude (main) | T01 |
 | T04 | Stage framework & runner | done | claude (main) | T03 |
-| T05 | Test fixtures & conftest | review | claude (main) | T01 |
+| T05 | Test fixtures & conftest | done | claude (main) | T01 |
 | T06 | CLI skeleton | done | claude (main) | T02, T04 |
 
-**Wave 0 is complete and Wave 1 is unblocked.** 178 tests pass, 2 skip (video fixtures).
-T05 is `review` rather than `done` for one reason only: `ffmpeg` is not installed on this
-machine, so the two video fixtures were not generated. Run `brew install ffmpeg exiftool`
-then `uv run python tests/fixtures/generate.py` and the two skips become passes. **T15
-(video analysis) and T11 (metadata) cannot be completed until those binaries exist.**
+**Wave 0 is complete and Wave 1 is fully unblocked.** 180 tests pass, 0 skip.
+
+System binaries are installed (exiftool 13.55, ffmpeg 8.1.2), so all 21 fixtures exist
+including the two video clips — T11 and T15 have no remaining blocker. The fixture generator
+is deterministic: re-running it leaves the 19 image fixtures byte-identical, so a
+regeneration never shows up as spurious diff noise.
 
 ### Contracts now frozen — read these before starting any Wave 1 task
 
@@ -451,7 +452,7 @@ Need a change in a file you don't own? Add a row. The owning agent (or the human
 
 | From | To (task/file) | Request | Status |
 | --- | --- | --- | --- |
-| T05 | human | `brew install ffmpeg exiftool`, then re-run `tests/fixtures/generate.py`. Blocks T11 and T15. | open |
+| T05 | human | `brew install ffmpeg exiftool`, then re-run `tests/fixtures/generate.py`. Blocks T11 and T15. | resolved 2026-07-26 |
 | T13 | T14 | T13 needs CLIP zero-shot classification. T14 owns the implementation; T13 defines a narrow interface and mocks it. Agree the signature before either lands. | open |
 
 # Amendments to the plan doc
@@ -471,6 +472,8 @@ decision made.
 
 | Date | Who | Entry |
 | --- | --- | --- |
+| 2026-07-26 | claude | Pushed to https://github.com/victor-huang/travel-story-book (public). CI runs on macOS + Linux. |
+| 2026-07-26 | claude | exiftool 13.55 + ffmpeg 8.1.2 installed; video fixtures generated. **T05 done, 180 tests pass, 0 skips.** T11 and T15 unblocked. Verified exiftool reads the HEIC fixture's `OffsetTimeOriginal` and GPS correctly. |
 | 2026-07-26 | claude | **Wave 0 done.** T01-T04, T06 complete; T05 in review (video fixtures need ffmpeg). 178 tests pass. Wave 1 unblocked. |
 | 2026-07-26 | claude | Added `BatchStage` beyond the plan's two stage shapes -- CLIP and vision APIs are much cheaper batched, and a per-item cache write inside a batch keeps resume correct. Recorded as an amendment. |
 | 2026-07-26 | claude | Resume proven by test: `InterruptingStage` fires a real `SIGINT` after 40 of 100 items; the rerun recomputes exactly the remaining 60. See `tests/backend/test_runner.py::TestResumeAfterInterrupt`. |
