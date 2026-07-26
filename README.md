@@ -25,7 +25,8 @@ open ~/story-out/index.html
 
 Early development. See [`dev_plan/`](./dev_plan) for the design
 ([plan](./dev_plan/mvp_process_from_picture_to_stories.md)) and current progress
-([tracker](./dev_plan/implementation_tracker.md)).
+([tracker](./dev_plan/implementation_tracker.md)). Development retros — errors hit and lessons
+learned per cycle — live in [`retro/agentic_coding/`](./retro/agentic_coding).
 
 ## System dependencies
 

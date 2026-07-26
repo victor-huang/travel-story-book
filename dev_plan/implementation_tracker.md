@@ -40,6 +40,13 @@ Within a wave, all tasks are parallel-safe by construction. Between waves, respe
 If you find a task already `wip` with an owner, pick another. Never take over a `wip` task
 without the human's say-so.
 
+## After each dev/test cycle
+
+Add a retro entry to `retro/agentic_coding/` for anything that cost real time or shipped a
+wrong result — above all **tests that were wrong rather than code**, and confident claims that
+turned out false. Skim the most recent entry before starting a cycle. Template and conventions
+are in that folder's README.
+
 ## Definition of done for any task
 
 - Acceptance criterion in the task entry is demonstrably met.
