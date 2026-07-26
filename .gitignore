@@ -1,0 +1,18 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# Never commit real trip data, output, or secrets.
+/out/
+/output/
+*.db
+*.db-wal
+*.db-shm
+config.toml
+overrides.toml
+.env
