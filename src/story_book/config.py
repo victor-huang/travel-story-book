@@ -88,6 +88,14 @@ class VideoConfig:
     transcribe_min_seconds: float = 10.0
     whisper_model: str = "small"
     keyframe_count: int = 5
+    # Whisper hallucinates fluent nonsense on ambient noise and on music. These gates discard a
+    # transcript rather than let a fabricated quote reach the travel journal. Values measured
+    # against real clips: a concert recording mis-transcribed as speech scored
+    # language_probability 0.26 and avg_logprob -0.85, where genuine speech sits near 0.9 / -0.4.
+    transcript_min_language_probability: float = 0.5
+    transcript_min_avg_logprob: float = -0.7
+    transcript_max_no_speech_prob: float = 0.6
+    transcript_min_chars: int = 16
     # Mean volume below this is treated as silence, so `transcribe = "auto"` skips the clip.
     # Measured against the fixtures: a clip with a voice-band tone reads ~-21 dB, a silent
     # clip ~-91 dB. -50 sits clear of both.

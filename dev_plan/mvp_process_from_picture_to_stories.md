@@ -244,9 +244,22 @@ what to do about it.
 ## 6. Event detection
 
 Within a day, start a new event when **any** of:
-- time gap > `event_gap_minutes` (default 90), or
-- distance from the running cluster centroid > `event_jump_km` (default 1.5), or
+- time gap > `event_gap_minutes`, or
+- distance from the **recent** items' centroid > `event_jump_km`, or
+- the event has run longer than `event_max_minutes` (a coarse backstop), or
 - sustained movement (a transit segment) ends.
+
+**Revised after P02 — the original "running cluster centroid" rule does not work.** As an event
+accumulates items its centroid converges on the average of everything so far, so individual
+1–2 km moves stop exceeding the threshold and the event never ends. On one real day this collapsed
+**129 items spanning 11:31–20:15** — an entire afternoon across several places — into a single
+event, which in turn made selection represent nine hours with five photos taken within fifteen
+minutes of each other.
+
+Compare against a **recent window** (the last handful of located items) rather than the whole
+event, so walking away from where you just were still registers. The maximum-duration backstop
+covers photographing continuously without moving far. With both, the same day split into 7 events
+with plausible spans. Binding on T24.
 
 Deliberately **not** using landmark labels here — that was the circular dependency. A
 second refinement pass after Module 11 may merge or rename events using landmark labels.

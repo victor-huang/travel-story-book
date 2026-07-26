@@ -156,7 +156,7 @@ class TestPerClipCheckpointing:
         stage_ctx = _with_video_config(ctx, transcribe="all")
         calls: list[Path] = []
 
-        def fake_transcribe(path: Path, model_name: str) -> tuple[str, str]:
+        def fake_transcribe(path: Path, model_name: str, *_args) -> tuple[str, str]:
             calls.append(path)
             if len(calls) == 2:
                 raise KeyboardInterrupt()
@@ -175,7 +175,7 @@ class TestPerClipCheckpointing:
         stage_ctx = _with_video_config(ctx, transcribe="all")
         calls: list[Path] = []
 
-        def fake_transcribe(path: Path, model_name: str) -> tuple[str, str]:
+        def fake_transcribe(path: Path, model_name: str, *_args) -> tuple[str, str]:
             calls.append(path)
             if len(calls) == 2:
                 raise KeyboardInterrupt()

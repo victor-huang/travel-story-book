@@ -37,7 +37,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from story_book.config import Config
+from story_book.config import Config, VideoConfig
 from story_book.db import connection as db
 from story_book.db.models import Media, MediaKind
 from story_book.pipeline.base import PerItemStage, SkipItem, StageContext
@@ -180,13 +180,54 @@ def _get_whisper_model(model_name: str) -> Any:
     return _MODEL_CACHE[model_name]
 
 
-def transcribe(path: Path, model_name: str) -> tuple[str, str]:
-    """Returns (joined text, JSON-encoded segment list)."""
+def transcribe(path: Path, model_name: str, video_config: VideoConfig) -> tuple[str, str]:
+    """Returns (joined text, JSON-encoded segment list). Empty text means "no usable speech".
+
+    Whisper hallucinates confidently on ambient noise, and short travel clips are mostly ambient
+    noise. On a real trip's clips the naive call invented fluent German and Chinese sentences plus
+    runs of Tibetan and CJK characters -- which is worse than returning nothing, because the whole
+    point of a transcript here is to feed quotes into a travel journal. A fabricated quote is a
+    fabricated memory.
+
+    Three guards, cheapest first:
+
+    * `vad_filter=True` -- voice-activity detection drops non-speech audio before decoding, which
+      removes most of the opportunity to hallucinate.
+    * `no_speech_prob` per segment -- the model's own estimate that a segment contains no speech.
+      Segments above the threshold are discarded.
+    * the detected language's probability, and each segment's `avg_logprob` -- both are the
+      model's own confidence, and both collapse on non-speech audio. A concert clip transcribed
+      as garbled Greek scored 0.26 and -0.85 against roughly 0.9 and -0.4 for real speech.
+    * `no_speech_prob` per segment, and a minimum surviving length.
+    """
     model = _get_whisper_model(model_name)
-    segments = list(model.transcribe(str(path))[0])
-    text = " ".join(segment.text.strip() for segment in segments).strip()
+    raw, info = model.transcribe(str(path), vad_filter=True)
+
+    language_probability = getattr(info, "language_probability", 1.0)
+    if language_probability < video_config.transcript_min_language_probability:
+        logger.info(
+            "video: discarding transcript for %s -- language confidence %.2f is too low",
+            path.name,
+            language_probability,
+        )
+        return "", json.dumps([])
+
+    kept = []
+    for segment in raw:
+        if getattr(segment, "no_speech_prob", 0.0) > video_config.transcript_max_no_speech_prob:
+            continue
+        if getattr(segment, "avg_logprob", 0.0) < video_config.transcript_min_avg_logprob:
+            continue
+        if not segment.text.strip():
+            continue
+        kept.append(segment)
+
+    text = " ".join(segment.text.strip() for segment in kept).strip()
+    if len(text) < video_config.transcript_min_chars:
+        return "", json.dumps([])
+
     segments_json = json.dumps(
-        [{"start": segment.start, "end": segment.end, "text": segment.text} for segment in segments]
+        [{"start": segment.start, "end": segment.end, "text": segment.text} for segment in kept]
     )
     return text, segments_json
 
@@ -347,7 +388,9 @@ class VideoStage(PerItemStage):
             volume_floor_db=config.video.speech_mean_volume_floor_db,
         ):
             try:
-                transcript_text, transcript_segments = transcribe(path, config.video.whisper_model)
+                transcript_text, transcript_segments = transcribe(
+                    path, config.video.whisper_model, config.video
+                )
                 transcribed = True
                 whisper_model = config.video.whisper_model
             except Exception:
@@ -394,11 +437,21 @@ class VideoStage(PerItemStage):
             keyframe_paths=[_relative_to_out(ctx, p) for p in frame_paths],
             motion_score=motion_score,
             mean_volume_db=payload.mean_volume_db,
-            has_speech=payload.transcribed,
+            # Whether usable speech was actually *found*, not whether transcription was
+            # attempted. Recording the attempt made this flag claim speech on clips whose
+            # transcript the quality gates had just thrown away.
+            has_speech=bool(payload.transcript_text),
         )
 
-        if payload.transcribed and payload.transcript_text is not None:
+        # An empty string means the transcript-quality guards rejected everything. Storing it
+        # would create a row that says nothing, which downstream readers would treat as real --
+        # and any *previous* row has to go too, or tightening the guards leaves the old
+        # hallucinated text in place forever. Observed exactly that: re-running with stricter
+        # gates reported success while the database still served the bad transcripts.
+        if payload.transcribed and payload.transcript_text:
             self._store_transcript(ctx, media, payload)
+        else:
+            ctx.conn.execute("DELETE FROM transcript WHERE media_hash = ?", (media.hash,))
 
     def _backfill_media_fields(self, ctx: StageContext, media: Media, probe: VideoProbe) -> None:
         """Fill duration/width/height only where T11's EXIF pass left them empty."""

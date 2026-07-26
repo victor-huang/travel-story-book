@@ -6,13 +6,15 @@ coverage lives in `tests/backend/test_video.py`.
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
-from story_book.config import Config
+from story_book.config import Config, VideoConfig
 from story_book.db.models import Media, MediaKind
 from story_book.pipeline.base import SkipItem, StageContext
 from story_book.pipeline.video import (
@@ -25,6 +27,7 @@ from story_book.pipeline.video import (
     ffmpeg_available,
     probe_video,
     should_transcribe,
+    transcribe,
 )
 
 
@@ -419,3 +422,76 @@ class TestVideoStagePersist:
             c for c in ctx.conn.execute.call_args_list if "INSERT INTO transcript" in c.args[0]
         ]
         assert transcript_calls == []
+
+
+class TestTranscriptQualityGates:
+    """Whisper invents fluent nonsense on ambient noise and on music, and a fabricated quote in a
+    travel journal is a fabricated memory. Real clips produced confident German, Chinese, Greek and
+    Tibetan text from a concert recording and from street noise.
+    """
+
+    def _model(self, mocker, *, language_probability: float, segments: list):
+        info = SimpleNamespace(language="en", language_probability=language_probability)
+        model = mocker.Mock()
+        model.transcribe.return_value = (iter(segments), info)
+        return mocker.patch("story_book.pipeline.video._get_whisper_model", return_value=model)
+
+    def _segment(self, text: str, *, no_speech_prob: float = 0.1, avg_logprob: float = -0.3):
+        return SimpleNamespace(
+            start=0.0, end=1.0, text=text, no_speech_prob=no_speech_prob, avg_logprob=avg_logprob
+        )
+
+    def test_vad_filter_is_enabled(self, mocker) -> None:
+        """The cheapest guard: drop non-speech audio before the decoder can invent words for it."""
+        patched = self._model(
+            mocker, language_probability=0.95, segments=[self._segment("a real sentence here")]
+        )
+        transcribe(Path("/x.mov"), "small", VideoConfig())
+        assert patched.return_value.transcribe.call_args.kwargs["vad_filter"] is True
+
+    def test_low_language_confidence_is_discarded(self, mocker) -> None:
+        """The measured concert case: language_probability 0.26 with fluent-looking output."""
+        self._model(
+            mocker, language_probability=0.26, segments=[self._segment("Τι κλαίνε λάχουζικα")]
+        )
+        assert transcribe(Path("/x.mov"), "small", VideoConfig())[0] == ""
+
+    def test_poor_average_logprob_segments_are_dropped(self, mocker) -> None:
+        self._model(
+            mocker,
+            language_probability=0.95,
+            segments=[self._segment("plausible but invented text", avg_logprob=-0.85)],
+        )
+        assert transcribe(Path("/x.mov"), "small", VideoConfig())[0] == ""
+
+    def test_high_no_speech_probability_segments_are_dropped(self, mocker) -> None:
+        self._model(
+            mocker,
+            language_probability=0.95,
+            segments=[self._segment("ambient noise as words", no_speech_prob=0.9)],
+        )
+        assert transcribe(Path("/x.mov"), "small", VideoConfig())[0] == ""
+
+    def test_a_fragment_too_short_to_be_narration_is_discarded(self, mocker) -> None:
+        self._model(mocker, language_probability=0.95, segments=[self._segment("Thanks.")])
+        assert transcribe(Path("/x.mov"), "small", VideoConfig())[0] == ""
+
+    def test_real_speech_survives_every_gate(self, mocker) -> None:
+        self._model(
+            mocker,
+            language_probability=0.95,
+            segments=[self._segment("Welcome to the old town, this is the cathedral square.")],
+        )
+        assert "cathedral square" in transcribe(Path("/x.mov"), "small", VideoConfig())[0]
+
+    def test_a_discarded_transcript_has_no_segments(self, mocker) -> None:
+        self._model(mocker, language_probability=0.20, segments=[self._segment("nonsense")])
+        assert json.loads(transcribe(Path("/x.mov"), "small", VideoConfig())[1]) == []
+
+    def test_the_gates_are_configurable(self, mocker) -> None:
+        """A narration-heavy library may legitimately want them looser."""
+        self._model(
+            mocker, language_probability=0.30, segments=[self._segment("a real sentence here")]
+        )
+        loose = VideoConfig(transcript_min_language_probability=0.1)
+        assert transcribe(Path("/x.mov"), "small", loose)[0] != ""
