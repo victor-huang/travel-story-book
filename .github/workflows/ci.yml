@@ -31,7 +31,7 @@ jobs:
       - run: uv python install 3.12
       # Everything except `clip`, which pulls torch and would dominate CI time. `images` is small
       # and keeps the OpenCV-based quality scoring under test here; needs_clip tests skip.
-      - run: uv sync --extra images --extra exif --extra video
+      - run: uv sync --extra images --extra exif --extra video --extra geo
 
       - name: Lint
         run: |

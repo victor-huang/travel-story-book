@@ -330,11 +330,11 @@ hand-written toy truth set and reports the metrics named in the plan's success c
 
 | ID | Task | Status | Owner | Depends on |
 | --- | --- | --- | --- | --- |
-| T20 | GPS backfill (M3) | todo | — | T11, T12 |
-| T21 | Reverse geocoding (M4) | todo | — | T11 |
-| T22 | Days (M5) | todo | — | T12 |
+| T20 | GPS backfill (M3) | wip | agent-gps | T11, T12 |
+| T21 | Reverse geocoding (M4) | wip | agent-geocode | T11 |
+| T22 | Days (M5) | wip | agent-days | T12 |
 | T25 | Landmark provider interface (M11) | review | agent-landmarks | Wave 0 |
-| T26 | Home-location privacy filter | todo | — | T21 |
+| T26 | Home-location privacy filter | wip | agent-privacy | T11, T20 |
 
 ### T20 — GPS backfill
 Time-interpolate location for GPS-less media from GPS-bearing neighbors on any device.
@@ -362,7 +362,11 @@ pipeline complete; the cost estimate is printed before any call.
 
 ### T26 — Home-location privacy filter
 Flag `media.is_near_home` within `home_exclusion_km` of configured home; exclude from all
-exports by default. **Acceptance:** a fixture near the configured home never appears in any
+exports by default.
+
+**Dependency corrected:** originally listed as depending on T21 (geocoding). It doesn't — it needs
+coordinates and a configured home, which come from T11/T20. Reverse geocoding is irrelevant to a
+distance test, so this can run in parallel with T21. **Acceptance:** a fixture near the configured home never appears in any
 export output.
 
 ---
@@ -416,7 +420,7 @@ need — no output reaches back into the DB.
 
 | ID | Task | Status | Owner | Depends on |
 | --- | --- | --- | --- | --- |
-| T33 | Trip context input (new, P02) | todo | — | — |
+| T33 | Trip context input (new, P02) | wip | agent-context | — |
 | T40 | Static HTML report (M13) | todo | — | T31 |
 | T41 | ChatGPT package (M14) | todo | — | T31, T16 |
 | T42 | Non-destructiveness proof | todo | — | Wave 3 |

@@ -38,6 +38,11 @@ video = [
 exif = [
     "pyexiftool>=0.5.6",
 ]
+# Offline reverse geocoding. Bundles its own city dataset and builds a k-d tree, so it needs no
+# network -- which is what lets `--no-cloud` still produce place names.
+geo = [
+    "reverse-geocoder>=1.5.1",
+]
 
 [project.scripts]
 story-book = "story_book.cli:app"
