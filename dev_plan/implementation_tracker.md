@@ -244,15 +244,15 @@ No dependencies on each other. Each is a pure `input → output` stage over the 
 
 | ID | Task | Status | Owner | Depends on |
 | --- | --- | --- | --- | --- |
-| T10 | Scan & hash (M1) | todo | — | Wave 0 |
-| T11 | Metadata extraction (M2) | todo | — | Wave 0 |
-| T12 | Timezone resolution (M2) | todo | — | Wave 0 |
-| T13 | Quality scoring (M8) | todo | — | Wave 0 |
-| T14 | CLIP embeddings (M7) | todo | — | Wave 0 |
-| T15 | Video analysis (M9) | todo | — | Wave 0 |
-| T16 | Contact sheet renderer (M14) | todo | — | Wave 0 |
+| T10 | Scan & hash (M1) | done | agent-scan | Wave 0 |
+| T11 | Metadata extraction (M2) | review | agent-metadata | Wave 0 |
+| T12 | Timezone resolution (M2) | done | agent-timezones | Wave 0 |
+| T13 | Quality scoring (M8) | review | agent-quality | Wave 0 |
+| T14 | CLIP embeddings (M7) | done | agent-clip | Wave 0 |
+| T15 | Video analysis (M9) | review | agent-video | Wave 0 |
+| T16 | Contact sheet renderer (M14) | review | agent-contactsheet | Wave 0 |
 | T17 | `profile` command (Phase 0) | done | claude (main) | Wave 0 |
-| T18 | Truth set format & eval harness | todo | — | Wave 0 |
+| T18 | Truth set format & eval harness | done | agent-eval | Wave 0 |
 
 ### T10 — Scan & hash
 BLAKE2b content hashing, extension allowlist, symlink and hidden-file handling, sidecar
@@ -333,7 +333,7 @@ hand-written toy truth set and reports the metrics named in the plan's success c
 | T20 | GPS backfill (M3) | todo | — | T11, T12 |
 | T21 | Reverse geocoding (M4) | todo | — | T11 |
 | T22 | Days (M5) | todo | — | T12 |
-| T25 | Landmark provider interface (M11) | todo | — | Wave 0 |
+| T25 | Landmark provider interface (M11) | review | agent-landmarks | Wave 0 |
 | T26 | Home-location privacy filter | todo | — | T21 |
 
 ### T20 — GPS backfill
@@ -472,7 +472,17 @@ Need a change in a file you don't own? Add a row. The owning agent (or the human
 | From | To (task/file) | Request | Status |
 | --- | --- | --- | --- |
 | T05 | human | `brew install ffmpeg exiftool`, then re-run `tests/fixtures/generate.py`. Blocks T11 and T15. | resolved 2026-07-26 |
-| T13 | T14 | T13 needs CLIP zero-shot classification. T14 owns the implementation; T13 defines a narrow interface and mocks it. Agree the signature before either lands. | open |
+| T13 | T14 | T13 needs CLIP zero-shot classification. T14 owns the implementation; T13 defines a narrow interface and mocks it. Agree the signature before either lands. | resolved — interface matched verbatim |
+| T12 | T11 | **Correctness bug.** `metadata.py` computes the EXIF offset but never persists it, so `tz_offset_minutes`/`tz_source` stay at defaults and **level 1 of the timezone order can never fire** — every item silently falls through to GPS. One-line fix in `_apply`. | open — integrator |
+| T13 | integrator | `opencv-python-headless` 5.0.0 removed `CascadeClassifier` and ships no cascade data, so face detection never runs and every photo gets the neutral 0.5 face component. **20% of the quality weight is now a constant.** Wire `FaceDetectorYN` + YuNet ONNX, or drop `face` from the weights. | open — integrator |
+| T15 | integrator | No table for poster path / keyframes / fps / motion score. Using a JSON sidecar under `cache_dir` as a stopgap; T40/T41 would have to learn an informal convention. Add a `video_meta` table (bumps `SCHEMA_VERSION`). | open — integrator |
+| T15 | integrator | Needs `VideoConfig.speech_mean_volume_floor_db` (currently a module constant, −50 dB; measured speech ≈ −20.8, silent ≈ −91). | open — integrator |
+| T10 | integrator | Whole-trip stages are cached under `TRIP_SENTINEL`, so a second `build` never re-walks the source tree for newly added files without `--force scan`. Consider an `always_run` flag on `Stage`. | open — integrator |
+| T14 | integrator | `SkipItem` is documented as per-item but is **batch-granular** inside `BatchStage` — raising it for one video would skip every co-batched image. Worked around by filtering in `select()`. Fix the docs or add per-item skip support. | open — integrator |
+| T11 | integrator | Wrote a local `_upsert_device` since `connection.py` has no device helper. Consider consolidating. | open — integrator |
+| T11 | integrator | `profile.py` still has its own shallow copy of the Module 2 field-priority logic. Migrate it onto the new canonical `story_book/exif.py`. | open — integrator |
+| T18 | integrator | `eval.py` is not wired to a CLI command. Entry point: `evaluate_truth_set_file(conn, path)` + `render_report(report)`. | open — integrator |
+| T25 | integrator | Providers call the API via hand-rolled `urllib` because `pyproject.toml` was off-limits. Consider adding `anthropic` as an optional extra. Also reconsider the `claude-opus-5` default for a few-hundred-image batch naming task. | open — integrator |
 
 # Amendments to the plan doc
 

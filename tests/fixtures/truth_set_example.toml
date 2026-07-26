@@ -1,0 +1,55 @@
+# Toy truth set for T18's eval harness. See docs/truth_set.md for the full format spec.
+#
+# This is a hand-written EXAMPLE, not a real trip -- the filenames below don't need to exist
+# anywhere. It's used to demonstrate the format and, in tests/backend/test_eval.py, to exercise
+# `evaluate()` end to end against a small synthetic DB.
+
+[trip]
+name = "Toy trip"
+notes = "hand-labelled by a human to demonstrate the format, not real trip data"
+
+# --- Event boundaries -------------------------------------------------------------------
+# Each [[event]] block lists the photos that belong to ONE event, in whatever order is
+# convenient. A photo's true event is "whichever block it's in" -- there's no separate ID to
+# keep in sync. Order across items within a block doesn't matter; the eval harness re-derives
+# chronological order from the pipeline's own timestamps.
+
+[[event]]
+items = ["IMG_0001.jpg", "IMG_0002.jpg", "IMG_0003.jpg"]
+
+[[event]]
+items = ["IMG_0004.jpg", "IMG_0005.jpg"]
+
+[[event]]
+items = ["IMG_0006.jpg", "IMG_0007.jpg", "IMG_0008.jpg", "IMG_0009.jpg"]
+
+# --- Duplicate groups --------------------------------------------------------------------
+# Members that are near-duplicates of each other. `keep` is the photo a human would keep --
+# optional, since a group can be labelled before a preferred pick is decided.
+
+[[duplicate_group]]
+members = ["IMG_0001.jpg", "IMG_0002.jpg"]
+keep = "IMG_0002.jpg"
+
+[[duplicate_group]]
+members = ["IMG_0006.jpg", "IMG_0007.jpg", "IMG_0008.jpg"]
+keep = "IMG_0007.jpg"
+
+# A group with no preferred pick yet -- partial labelling is fine.
+[[duplicate_group]]
+members = ["IMG_0004.jpg", "IMG_0005.jpg"]
+
+# --- Distinct pairs (optional) -------------------------------------------------------------
+# Explicitly known NON-duplicates, so the pairwise metric has a labelled negative example --
+# without this, a photo the pipeline never sees mentioned anywhere can't contribute a "the
+# pipeline must not merge these" check. Note: this must be its own [[distinct_pair]] table
+# rather than a bare `distinct_pairs = [...]` array -- TOML attaches a bare key that follows an
+# [[array-of-tables]] header to the *last table in that array*, not to the document root.
+[[distinct_pair]]
+pair = ["IMG_0003.jpg", "IMG_0009.jpg"]
+
+# --- Hashes (optional) ---------------------------------------------------------------------
+# Only needed if a filename is ambiguous (e.g. the same name appears under two source folders).
+# Most truth sets can omit this table entirely.
+[hashes]
+"IMG_0001.jpg" = "example-hash-0001"
