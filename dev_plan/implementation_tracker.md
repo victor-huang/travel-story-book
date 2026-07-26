@@ -251,7 +251,7 @@ No dependencies on each other. Each is a pure `input → output` stage over the 
 | T14 | CLIP embeddings (M7) | todo | — | Wave 0 |
 | T15 | Video analysis (M9) | todo | — | Wave 0 |
 | T16 | Contact sheet renderer (M14) | todo | — | Wave 0 |
-| T17 | `profile` command (Phase 0) | todo | — | Wave 0 |
+| T17 | `profile` command (Phase 0) | done | claude (main) | Wave 0 |
 | T18 | Truth set format & eval harness | todo | — | Wave 0 |
 
 ### T10 — Scan & hash
@@ -300,11 +300,22 @@ Given a list of (image, caption) pairs, render labeled grid montages (~12–20 c
 with a stable cell index for the brief's mapping. Pure Pillow, no DB. **Acceptance:** a
 20-image sheet is legible at typical screen size and every cell's index matches its caption.
 
-### T17 — `profile` command
-The Phase 0 profiling report: counts by type and device, date range, timezone crossings,
-% missing GPS, % HEIC, total bytes, video count and total duration. **This is the highest
--value Wave 1 task** — its output retunes every threshold default. Run it on the real trip
-and paste results into the [Log](#log).
+### T17 — `profile` command ✅ done
+**Owns:** `src/story_book/profile.py`, `profile_render.py`, `profile_json.py`,
+`src/story_book/media_types.py`, `tests/unit/test_profile.py`, `tests/backend/test_profile.py`
+
+Delivered: counts by type/device/extension, date range and span, timezone-offset distribution
+and crossing count, % missing GPS (overall and per device), % HEIC, total bytes, video count
+and total duration, inter-photo gap percentiles, late-night item count, plus a **warnings**
+section and a **suggested config** table computed from observed data. `--json` writes the raw
+profile for diffing. Runs standalone: no DB, no writes, degrades to file-only stats without
+exiftool.
+
+**⚠️ T10 must import the extension allowlist from `story_book/media_types.py`** rather than
+redefining one — that module is shared so the scanner and profiler cannot disagree about what
+counts as media. T10 may extend it; do not fork it.
+
+Still open as **P01**: run it on the real trip and fold the numbers into `config.toml`.
 
 ### T18 — Truth set format & eval harness
 Define the labeled-truth-set file format (event boundaries, duplicate groups, preferred pick
@@ -479,6 +490,8 @@ decision made.
 
 | Date | Who | Entry |
 | --- | --- | --- |
+| 2026-07-26 | claude | **T17 done.** `story-book profile` ships with warnings + a suggested-config table computed from observed data, and `--json`. 308 tests pass. Shared extension allowlist added at `story_book/media_types.py` — **T10 must import it, not fork it**. |
+| 2026-07-26 | claude | Retro: `exiftool -fast2` silently zeroed video durations by skipping the moov atom. Flag removed; regression test added. A speed flag that changes how much of a file is read is a correctness flag. |
 | 2026-07-26 | claude | Pushed to https://github.com/victor-huang/travel-story-book (public). CI runs on macOS + Linux. |
 | 2026-07-26 | claude | exiftool 13.55 + ffmpeg 8.1.2 installed; video fixtures generated. **T05 done, 180 tests pass, 0 skips.** T11 and T15 unblocked. Verified exiftool reads the HEIC fixture's `OffsetTimeOriginal` and GPS correctly. |
 | 2026-07-26 | claude | **Wave 0 done.** T01-T04, T06 complete; T05 in review (video fixtures need ffmpeg). 178 tests pass. Wave 1 unblocked. |

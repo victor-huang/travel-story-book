@@ -6,6 +6,7 @@ as stages land.
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 from typing import Annotated
@@ -13,11 +14,13 @@ from typing import Annotated
 import typer
 from rich.console import Console
 
-from story_book import __version__
+from story_book import __version__, profile_render
+from story_book import profile as story_profile
 from story_book.config import Config, ConfigError
 from story_book.db import connection as db
 from story_book.pipeline.base import Stage, StageContext
 from story_book.pipeline.runner import Runner
+from story_book.profile_json import profile_to_dict
 
 app = typer.Typer(
     add_completion=False,
@@ -153,13 +156,24 @@ def report(
 @app.command()
 def profile(
     source: Annotated[Path, typer.Argument(exists=True, file_okay=False)],
+    json_out: Annotated[
+        Path | None, typer.Option("--json", help="Also write the raw profile as JSON.")
+    ] = None,
 ) -> None:
-    """Summarize a media folder: counts, devices, date range, GPS and timezone coverage."""
-    console.print(
-        "[yellow]Profiling lands in T17.[/] It is the highest-value Wave 1 task: its output "
-        "retunes every threshold default in config.example.toml."
-    )
-    console.print(f"would profile: {source.resolve()}")
+    """Summarize a media folder: counts, devices, date range, GPS and timezone coverage.
+
+    Reads nothing but metadata and writes no database. Run this before `build` -- its suggested
+    config replaces the guessed defaults that every later stage depends on.
+    """
+    source = source.resolve()
+    with console.status(f"scanning {source}..."):
+        result = story_profile.run(source)
+    profile_render.render(result, console)
+
+    if json_out is not None:
+        json_out.parent.mkdir(parents=True, exist_ok=True)
+        json_out.write_text(json.dumps(profile_to_dict(result), indent=2))
+        console.print(f"wrote {json_out}")
 
 
 def _validate_transcribe(value: str) -> None:

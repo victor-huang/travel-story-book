@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -113,3 +114,19 @@ class TestProfile:
 
     def test_a_missing_folder_is_rejected(self, tmp_path: Path) -> None:
         assert runner.invoke(app, ["profile", str(tmp_path / "absent")]).exit_code != 0
+
+
+class TestProfileOutput:
+    def test_it_reports_media_counts(self, media_dir: Path) -> None:
+        result = runner.invoke(app, ["profile", str(media_dir)])
+        assert "Media" in result.output
+
+    def test_it_writes_json_when_asked(self, media_dir: Path, tmp_path: Path) -> None:
+        target = tmp_path / "profile.json"
+        runner.invoke(app, ["profile", str(media_dir), "--json", str(target)])
+        assert target.exists()
+
+    def test_the_json_is_valid(self, media_dir: Path, tmp_path: Path) -> None:
+        target = tmp_path / "profile.json"
+        runner.invoke(app, ["profile", str(media_dir), "--json", str(target)])
+        assert json.loads(target.read_text())["media"]["total"] > 0
