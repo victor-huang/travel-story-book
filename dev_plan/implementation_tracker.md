@@ -416,6 +416,7 @@ need — no output reaches back into the DB.
 
 | ID | Task | Status | Owner | Depends on |
 | --- | --- | --- | --- | --- |
+| T33 | Trip context input (new, P02) | todo | — | — |
 | T40 | Static HTML report (M13) | todo | — | T31 |
 | T41 | ChatGPT package (M14) | todo | — | T31, T16 |
 | T42 | Non-destructiveness proof | todo | — | Wave 3 |
@@ -428,14 +429,49 @@ state.** Pure function of `trip.json` + thumbnails. `story-book report` re-rende
 existing DB. **Acceptance:** browsable offline via `open index.html`; re-render completes in
 under 10 seconds.
 
+### T33 — Trip context input  *(new, from P02)*
+**Owns:** `src/story_book/trip_context.py`, `trip_context.example.yaml`, tests
+
+The only input the pipeline cannot extract from media: travellers, journal voice, known plans, and
+free-text notes. Optional throughout — the package must be complete without it. Names may be
+aliases. Resolved context goes into `trip.json` so both outputs see it, and when it is absent the
+prompt must instruct the model to stay factual rather than invent feelings.
+
+**Why it exists:** P02's journal was accurate and impersonal, and said so itself — *"it lacks
+personal reactions because none were included in the package."* Highest output-quality gain per
+line of code in the project right now. See the plan doc's "Trip context" section.
+
 ### T41 — ChatGPT package
-Per day: contact sheets (via T16), `brief.md` (timeline, events, landmarks, transcript
-excerpts, counts, contact-sheet index mapping), `prompt.md` (ready to paste), `full/`
-(full-res selected media). Plus a trip-level overview package.
-**Explicitly not** a zip of raw photos — ChatGPT can't do vision on archive contents and chat
-attachment limits are far below a day's photo count. See Module 14 for the reasoning.
-**Acceptance:** pasting `prompt.md` + contact sheets into ChatGPT yields a journal, captions,
-and a layout needing only light editing. **A human must verify this one.**
+**Depends on:** T31, T16, T33
+
+Per day: contact sheets (via T16), `brief.md`, `prompt.md`, and the selected media. **Explicitly
+not** a zip of raw photos — ChatGPT cannot do vision on archive contents.
+
+**P02 validated the format and added seven requirements** (full reasoning in the plan doc's
+Module 14, "P02 result"):
+
+1. **`manifest.json` is the authoritative artifact**, with a stable `asset_id` (the content hash
+   the pipeline already has) mapping to source filename, event, capture time, export path and cell
+   ID. Cell IDs are positional and must never be an asset's identity. `brief.md` is *generated
+   from* the manifest. `schema_version` from day one.
+2. **Video records with explicit negatives** — duration, poster, keyframes, motion score,
+   highlight ranges, and `transcript_status` distinguishing `no_speech` (processed, none found)
+   from absent (not processed). All already in `video_meta`; the export just omitted it.
+3. **Reverse-geocoded place candidates**, not raw coordinates.
+4. **Trip context** from T33, or an explicit statement that there is none.
+5. **Request structured output** (chapters, captions, layout_pages, video_scenes, uncertainties,
+   requested_additional_context) alongside the prose, so editorial decisions can drive a renderer.
+6. **Richer per-event location** — centroid, start, end, radius, GPS coverage.
+7. **Component quality scores** (sharpness/exposure/contrast/face-when-measured). **Not**
+   aesthetic or composition: those are Phase 2 and shipping them would misrepresent what the
+   pipeline knows.
+
+Also declare in the manifest whether the package is **preview-only or includes originals** — a
+preview cannot support judgements about focus, blink, noise, or crop headroom.
+
+**Acceptance:** pasting `prompt.md` + contact sheets into ChatGPT yields a journal, captions, and a
+layout needing only light editing — **met at P02** — *plus* a video storyboard that references
+actual footage, which P02 could not produce.
 
 ### T42 — Non-destructiveness proof
 A test that hashes the entire source tree before and after a full `build` and asserts
@@ -456,7 +492,7 @@ From Phase 0 in the plan doc. Neither is a coding task; both are cheap and can s
 | ID | Task | Status | Owner |
 | --- | --- | --- | --- |
 | P01 | Run `profile` on the real trip; retune threshold defaults | done | claude (main) — [findings](./p01_profile_findings.md) |
-| P02 | Hand-test the ChatGPT handoff on one real day | todo | — |
+| P02 | Hand-test the ChatGPT handoff on one real day | **done** | claude + human |
 | P03 | Label ~200 photos: event bounds, dup groups, preferred picks | todo | — |
 
 P02 is the make-or-break check: if a hand-assembled contact sheet + brief doesn't produce a
@@ -482,6 +518,8 @@ Need a change in a file you don't own? Add a row. The owning agent (or the human
 | T11 | integrator | Wrote a local `_upsert_device` since `connection.py` has no device helper. Consider consolidating. | resolved |
 | T11 | integrator | `profile.py` still has its own shallow copy of the Module 2 field-priority logic. Migrate it onto the new canonical `story_book/exif.py`. | resolved |
 | T18 | integrator | `eval.py` is not wired to a CLI command. Entry point: `evaluate_truth_set_file(conn, path)` + `render_report(report)`. | resolved |
+| P02 | T41 | **Format validated; seven additions required.** Manifest with stable asset IDs, video records with explicit `no_speech`, geocoded place candidates, trip context, structured output request, richer event location, component scores. See the T41 entry. | open — T41 |
+| P02 | T13/T30 | Content taxonomy should not be binary keep/reject — a ticket or menu is a scrapbook element, not trash. Four-way (`exclude`/`archive-only`/`scrapbook-candidate`/`story-evidence`) **deferred to Phase 2**; Phase 1's job is only keeping screenshots out of highlights. | deferred |
 | P02 | T24 | **Module 6's centroid rule is broken and amended.** A whole-event running centroid stops registering movement as the event grows: 129 items over 8¾ hours became one event. Compare against a *recent* window plus a max-duration backstop. Needs `events.max_minutes` and `events.recent_window` in config when T24 lands. | open — T24 |
 | P02 | T30 | Selection needs **temporal spread within an event**, not just embedding diversity. On the mega-event it returned five photos from a fifteen-minute span to represent nine hours. Partly a symptom of the event bug, but worth an explicit constraint. | open — T30 |
 | P02 | T15 | **Whisper hallucinated on every real clip** — fluent German, Chinese, Greek and Tibetan invented from concert music and street noise. A fabricated quote in a journal is a fabricated memory. Fixed: VAD, language-confidence, avg_logprob and no-speech gates, all configurable; stale rows now deleted on rejection. All 8 bogus transcripts dropped. | resolved |
@@ -517,6 +555,7 @@ decision made.
 | 2026-07-26 | claude | Fixture set extended for the above: timezone crossing is now 3 items per side (a real crossing is sustained), plus a new `offset_gps_conflict.jpg`. 26 fixtures, 338 tests. |
 | 2026-07-26 | claude | **T17 done.** `story-book profile` ships with warnings + a suggested-config table computed from observed data, and `--json`. 308 tests pass. Shared extension allowlist added at `story_book/media_types.py` — **T10 must import it, not fork it**. |
 | 2026-07-26 | claude | Retro: `exiftool -fast2` silently zeroed video durations by skipping the moov atom. Flag removed; regression test added. A speed flag that changes how much of a file is read is a correctness flag. |
+| 2026-07-26 | claude | **P02 done — the format is validated.** Real ChatGPT test on one day produced a usable journal, accurate captions, self-flagged uncertainties, and no screenshot/receipt leakage. Seven additions folded into T41; new task T33 (trip context); Module 6 amended; two items deliberately deferred to Phase 2. Wave 2 is now the next build step. |
 | 2026-07-26 | claude | **Integration pass done. The pipeline runs end to end.** 286 real items, 1.9 GB, 8m31s, **zero failures**; source verified byte-identical. 753 tests pass. Six bugs found that no unit test could have caught — four of them only visible on the *second* run or on *real* photos. Details in the retro. |
 | 2026-07-26 | claude | Pushed to https://github.com/victor-huang/travel-story-book (public). CI runs on macOS + Linux. |
 | 2026-07-26 | claude | exiftool 13.55 + ffmpeg 8.1.2 installed; video fixtures generated. **T05 done, 180 tests pass, 0 skips.** T11 and T15 unblocked. Verified exiftool reads the HEIC fixture's `OffsetTimeOriginal` and GPS correctly. |

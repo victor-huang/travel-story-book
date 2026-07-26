@@ -60,3 +60,4 @@ is set up (a lint rule, a test, a CLAUDE.md line), say so and do it.
 | T17 — profile command | [2026-07-26-t17-profile.md](./2026-07-26-t17-profile.md) | 2 |
 | P01 — real trip data | [2026-07-26-p01-real-data.md](./2026-07-26-p01-real-data.md) | 3 + 1 note |
 | Wave 1 integration | [2026-07-26-integration.md](./2026-07-26-integration.md) | 6 |
+| P02 — ChatGPT handoff | [2026-07-26-p02-chatgpt-handoff.md](./2026-07-26-p02-chatgpt-handoff.md) | 4 + pushback |

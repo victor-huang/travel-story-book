@@ -354,6 +354,15 @@ overrides end up version-controllable and diffable.
 
 ## 11. Landmark recognition (cloud, representatives only)
 
+**P02 data point worth checking before spending on this.** Given only coordinates and contact-sheet
+thumbnails, ChatGPT correctly named the Hofburg, St Stephen's Cathedral, the Vienna State Opera and
+the Musikverein. It may have inferred those from the images rather than the coordinates, and it
+cautioned against relying on the behaviour — but it suggests the marginal value of a dedicated
+landmark pass may be smaller than assumed *for famous landmarks in a well-fed package*. Measure
+that before committing to per-trip API spend: the honest comparison is a package with landmark
+labels against one without, judged on the journal.
+
+
 Send only event highlights plus cluster keepers — a few hundred images per trip. Batch
 multiple images per request with the coordinates and reverse-geocoded place name as
 context; that context is what makes the difference between "a palace" and "Belvedere
@@ -422,6 +431,126 @@ Also emit a per-trip package with one contact sheet per day for an overview pass
 *in week one*, before building any upstream module. If pasting `prompt.md` plus the contact
 sheets into ChatGPT does not produce a journal you'd actually keep, every upstream module is
 optimizing toward the wrong target and the handoff design needs to change first.
+
+### P02 result: the format passed, with seven required additions
+
+Tested on a real 141-item day. The journal draft was chronologically accurate and usable, the
+captions matched what is visible, the model flagged its own uncertainties rather than inventing,
+and no screenshot or receipt reached the 29 selected photos. **The format is validated.** The
+contact-sheet + brief + prompt shape stays.
+
+It also identified the Hofburg, St Stephen's Cathedral, the State Opera and the Musikverein
+correctly from coordinates and images alone — a useful data point for how much Module 11 has to
+carry (see the note there).
+
+Seven additions are now part of Module 14's spec, in priority order:
+
+1. **`manifest.json`, and it is the authoritative artifact.** Contact-sheet cell IDs are
+   *positional* — they change whenever selection changes — so they cannot be the identity of an
+   asset. The pipeline already has a stable identity (the BLAKE2b content hash); the package
+   simply never exposed it. Emit a manifest mapping a stable `asset_id` to source filename,
+   content hash, event, capture time, export path, and cell ID. `brief.md` is **generated from
+   the manifest**, not maintained alongside it. Carry a `schema_version` from the first release.
+2. **Video records, including explicit negatives.** Videos were counted in the brief but
+   otherwise absent — no duration, poster, or transcript — so the requested storyboard could
+   only be invented from stills. Every video needs a record: duration, poster frame reference,
+   keyframes, motion score, and highlight ranges. Crucially, `transcript_status` must
+   distinguish **`no_speech`** (processed, nothing found) from **absent** (not processed). All
+   of this already exists in `video_meta`; only the export omitted it.
+3. **Reverse-geocoded place candidates, not raw coordinates.** Asking the model to resolve
+   coordinates is fragile — it may name a place from the image rather than the position, and be
+   confidently wrong. Ship `country`/`city`/`neighborhood` plus candidate places with distances
+   and confidences. Confirms the priority of Modules 4 and 11.
+4. **Trip context.** The prompt asks for a first-person journal, but the package says nothing
+   about who travelled, whose voice is speaking, what was planned, or what mattered. The draft
+   was accurate and impersonal for exactly that reason: *"it lacks personal reactions because
+   none were included in the package."* See the new section below.
+5. **Structured output alongside prose.** Ask for a JSON block (chapters, captions,
+   layout_pages, video_scenes, uncertainties, requested_additional_context) in addition to the
+   readable answer. Without it the model's editorial decisions are trapped in prose and cannot
+   drive a book or video renderer.
+6. **Richer per-event location.** One averaged coordinate can place an event somewhere nobody
+   stopped, and hides movement. Emit centroid, start, end, radius, and GPS coverage; for walking
+   events, a simplified path.
+7. **Component quality scores, not just `overall`.** A bare `0.88` tells the model nothing about
+   *why* a photo won. Ship the components that actually exist — sharpness, exposure, contrast,
+   and face when measured. **Not** aesthetic or composition scores: those are explicitly Phase 2
+   and inventing them here would misrepresent what the pipeline knows.
+
+Also state in the manifest whether the package is **preview-only or includes originals**. A
+preview package cannot support judgements about focus, blink, noise, or crop headroom, and the
+recipient should be told rather than left to infer.
+
+### Clusters are not chapters
+
+P02 named this precisely: what Module 6 produces is a **time-and-location cluster**, not a
+narrative unit. One real cluster contained a church interior, the State Opera, and an evening
+walk — chronologically correct, three different stories.
+
+Resolution, chosen to avoid inventing a semantic-segmentation stage:
+
+- **Clusters stay mechanical** and stay the pipeline's output. Module 6 is unchanged in kind.
+- **Chapters are proposed by the model** in its structured output, and approved or edited by the
+  human through `overrides.toml`. The package ships clusters; the model suggests how to combine
+  or split them into chapters.
+
+This keeps semantics where the judgement actually is, and keeps a wrong guess cheap to fix.
+
+### Deferred to Phase 2, deliberately
+
+P02 proposed a four-way content taxonomy — `exclude` / `archive-only` / `scrapbook-candidate` /
+`story-evidence` — on the grounds that a ticket, menu, or receipt can be a legitimate scrapbook
+element rather than trash. The principle is right and the binary keep/reject is crude. But
+Phase 1's job is narrower: keep screenshots and receipts *out of highlights*. The taxonomy
+expands Module 8's label set and Module 10's logic, so it waits.
+
+Likewise the distinction between **technical quality** and **emotional or narrative importance**
+is real and important — a technically weaker family photo often matters more than a perfect
+façade — but scoring it needs either face identity (Phase 2) or human input, so Phase 1 ships
+technical quality only and says so.
+
+---
+
+# Trip context — the one input the pipeline cannot extract
+
+Added after P02. Every other input to this system is derived from the media. This one cannot be,
+and its absence was the single clearest weakness in the generated journal, which said of itself:
+*"This draft is chronologically grounded, but it lacks personal reactions because none were
+included in the package."*
+
+A photo library records **what was photographed**. It does not record who was there, whose voice
+the journal should be in, what was planned versus stumbled upon, or what anyone felt. No amount of
+better vision models recovers that — it has to be supplied.
+
+So Phase 1 accepts a small, entirely optional context file, read into the package:
+
+```yaml
+travelers:
+  - role: narrator
+    name: <optional, alias allowed>
+  - role: spouse
+  - role: child
+    name: <optional>
+journal_voice: first_person_plural      # or first_person_singular
+known_plans:
+  - "Attend the Mozart concert at the Musikverein, 20:15"
+notes:
+  - "The concert was one of the main reasons for coming to Vienna."
+```
+
+Design constraints:
+
+- **Optional throughout.** The pipeline must produce a complete package with no context file. It
+  simply produces a more impersonal journal, and the manifest says so.
+- **Names may be aliases.** Real names are the user's choice, not a requirement, and the project's
+  privacy stance means the tool should never push for them.
+- **Free-text notes are the highest-value field per keystroke.** One line about why a day mattered
+  changes the journal more than any additional extracted metadata. The package should ask for
+  little and use whatever it gets.
+- **Never invent it.** If context is absent, the prompt must tell the model to stay factual rather
+  than manufacture feelings. An invented emotion is the same failure as an invented quote.
+
+Store the resolved context in `trip.json` so both outputs see it.
 
 ---
 
