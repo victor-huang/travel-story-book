@@ -330,11 +330,11 @@ hand-written toy truth set and reports the metrics named in the plan's success c
 
 | ID | Task | Status | Owner | Depends on |
 | --- | --- | --- | --- | --- |
-| T20 | GPS backfill (M3) | wip | agent-gps | T11, T12 |
-| T21 | Reverse geocoding (M4) | wip | agent-geocode | T11 |
-| T22 | Days (M5) | wip | agent-days | T12 |
+| T20 | GPS backfill (M3) | done | agent-gps | T11, T12 |
+| T21 | Reverse geocoding (M4) | done | agent-geocode | T11 |
+| T22 | Days (M5) | done | agent-days | T12 |
 | T25 | Landmark provider interface (M11) | review | agent-landmarks | Wave 0 |
-| T26 | Home-location privacy filter | wip | agent-privacy | T11, T20 |
+| T26 | Home-location privacy filter | done | agent-privacy | T11, T20 |
 
 ### T20 — GPS backfill
 Time-interpolate location for GPS-less media from GPS-bearing neighbors on any device.
@@ -420,7 +420,7 @@ need — no output reaches back into the DB.
 
 | ID | Task | Status | Owner | Depends on |
 | --- | --- | --- | --- | --- |
-| T33 | Trip context input (new, P02) | wip | agent-context | — |
+| T33 | Trip context input (new, P02) | done | agent-context | — |
 | T40 | Static HTML report (M13) | todo | — | T31 |
 | T41 | ChatGPT package (M14) | todo | — | T31, T16 |
 | T42 | Non-destructiveness proof | todo | — | Wave 3 |
@@ -522,6 +522,10 @@ Need a change in a file you don't own? Add a row. The owning agent (or the human
 | T11 | integrator | Wrote a local `_upsert_device` since `connection.py` has no device helper. Consider consolidating. | resolved |
 | T11 | integrator | `profile.py` still has its own shallow copy of the Module 2 field-priority logic. Migrate it onto the new canonical `story_book/exif.py`. | resolved |
 | T18 | integrator | `eval.py` is not wired to a CLI command. Entry point: `evaluate_truth_set_file(conn, path)` + `render_report(report)`. | resolved |
+| — | integrator | **Place identity was a coordinate cell, not a place.** 159 rows all saying "Vienna" for one trip, because rounding is ~11 m — and `event.place_id` points here, so two events in the same square would fragment. Now find-or-create by resolved content, with orphan cleanup so `--force` matches a fresh build. 159 → 3 rows. | resolved |
+| — | integrator | **`should_exclude_from_export` couldn't see the home config**, so it excluded every coordinate-less item even with no home set — silently dropping GPS-less camera/GoPro photos to guard a home that was never configured. Now takes `home`, plus `unknown_location_count()` so the drop is reportable. | resolved |
+| — | integrator | **Trip date range used `COALESCE`**, so it was written once and never revised: adding an earlier photo left `start_local` wrong forever. Now recomputed. The test asserting the old behaviour is replaced by one asserting the range extends. | resolved |
+| T21 | T41 | `place.country` stores the ISO alpha-2 code (`AT`), not a full name. P02's brief wants "Austria". Mapping is a presentation concern — T41's job, noted so it isn't forgotten. | open — T41 |
 | P02 | T41 | **Format validated; seven additions required.** Manifest with stable asset IDs, video records with explicit `no_speech`, geocoded place candidates, trip context, structured output request, richer event location, component scores. See the T41 entry. | open — T41 |
 | P02 | T13/T30 | Content taxonomy should not be binary keep/reject — a ticket or menu is a scrapbook element, not trash. Four-way (`exclude`/`archive-only`/`scrapbook-candidate`/`story-evidence`) **deferred to Phase 2**; Phase 1's job is only keeping screenshots out of highlights. | deferred |
 | P02 | T24 | **Module 6's centroid rule is broken and amended.** A whole-event running centroid stops registering movement as the event grows: 129 items over 8¾ hours became one event. Compare against a *recent* window plus a max-duration backstop. Needs `events.max_minutes` and `events.recent_window` in config when T24 lands. | open — T24 |
@@ -559,6 +563,7 @@ decision made.
 | 2026-07-26 | claude | Fixture set extended for the above: timezone crossing is now 3 items per side (a real crossing is sustained), plus a new `offset_gps_conflict.jpg`. 26 fixtures, 338 tests. |
 | 2026-07-26 | claude | **T17 done.** `story-book profile` ships with warnings + a suggested-config table computed from observed data, and `--json`. 308 tests pass. Shared extension allowlist added at `story_book/media_types.py` — **T10 must import it, not fork it**. |
 | 2026-07-26 | claude | Retro: `exiftool -fast2` silently zeroed video durations by skipping the moov atom. Flag removed; regression test added. A speed flag that changes how much of a file is read is a correctness flag. |
+| 2026-07-26 | claude | **Wave 2 done and integrated.** T20/T21/T22/T26/T33 landed; 11 stages now run end to end. Real trip: 907 tests pass, zero pipeline failures, 280 EXIF + 6 interpolated locations, 3 places (Vienna/Munich/one waypoint — geocoding revealed the trip spans two cities), 4 days. Four integration bugs fixed, three of them the same silent-staleness family. |
 | 2026-07-26 | claude | **P02 done — the format is validated.** Real ChatGPT test on one day produced a usable journal, accurate captions, self-flagged uncertainties, and no screenshot/receipt leakage. Seven additions folded into T41; new task T33 (trip context); Module 6 amended; two items deliberately deferred to Phase 2. Wave 2 is now the next build step. |
 | 2026-07-26 | claude | **Integration pass done. The pipeline runs end to end.** 286 real items, 1.9 GB, 8m31s, **zero failures**; source verified byte-identical. 753 tests pass. Six bugs found that no unit test could have caught — four of them only visible on the *second* run or on *real* photos. Details in the retro. |
 | 2026-07-26 | claude | Pushed to https://github.com/victor-huang/travel-story-book (public). CI runs on macOS + Linux. |

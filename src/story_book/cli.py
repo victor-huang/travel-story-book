@@ -20,7 +20,11 @@ from story_book.config import Config, ConfigError
 from story_book.db import connection as db
 from story_book.eval import evaluate_truth_set_file, render_report
 from story_book.pipeline.base import Stage, StageContext
+from story_book.pipeline.days import DaysStage
 from story_book.pipeline.embeddings import EmbeddingStage
+from story_book.pipeline.geocode import GeocodeStage
+from story_book.pipeline.gps_backfill import GpsBackfillStage
+from story_book.pipeline.home_filter import HomeFilterStage
 from story_book.pipeline.landmarks.base import LandmarkStage
 from story_book.pipeline.metadata import MetadataStage
 from story_book.pipeline.quality import ContentClassStage, QualityStage
@@ -29,6 +33,7 @@ from story_book.pipeline.scan import ScanStage
 from story_book.pipeline.timezones import TimezoneStage
 from story_book.pipeline.video import VideoStage
 from story_book.profile_json import profile_to_dict
+from story_book.trip_context import TripContext, TripContextError
 
 app = typer.Typer(
     add_completion=False,
@@ -47,9 +52,10 @@ def build_stages(ctx: StageContext) -> list[Stage]:
     the original draft's bug.
 
         scan -> metadata -> timezones
-             -> [gps_backfill] -> [geocode] -> [days] -> [events]        (Wave 2/3)
-             -> video, embeddings, quality, content_class               (independent)
-             -> [dedup] -> [selection]                                  (Wave 3)
+             -> gps_backfill -> geocode -> days -> home_filter
+             -> [events]                                                 (Wave 3)
+             -> video, embeddings, quality, content_class                (independent)
+             -> [dedup] -> [selection]                                   (Wave 3)
              -> landmarks
              -> [timeline] -> [report, package]                          (Wave 3/4)
 
@@ -61,6 +67,13 @@ def build_stages(ctx: StageContext) -> list[Stage]:
         ScanStage(),
         MetadataStage(),
         TimezoneStage(),
+        # Location before anything that reads it: geocoding and the home filter must see
+        # interpolated coordinates, not just measured ones -- otherwise a GPS-less photo taken at
+        # home would skip the privacy check entirely.
+        GpsBackfillStage(),
+        GeocodeStage(),
+        DaysStage(),
+        HomeFilterStage(),
         VideoStage(),
         EmbeddingStage(),
         QualityStage(),
@@ -115,6 +128,10 @@ def build(
     include_all: Annotated[
         bool, typer.Option("--include-all", help="Export unselected media too.")
     ] = False,
+    context_path: Annotated[
+        Path | None,
+        typer.Option("--context", help="Trip context TOML: travellers, voice, plans, notes."),
+    ] = None,
 ) -> None:
     """Run the pipeline. Safe to interrupt and re-run: finished work is not recomputed."""
     config = _load_config(config_path)
@@ -126,6 +143,21 @@ def build(
     source = source.resolve()
     out = out.resolve()
     out.mkdir(parents=True, exist_ok=True)
+
+    # The one input that cannot be extracted from the media. Absent is fine and common -- the
+    # journal is simply more impersonal, and the package says so rather than inventing feelings.
+    try:
+        trip_context = TripContext.load(context_path)
+    except TripContextError as exc:
+        console.print(f"[red]trip context error:[/] {exc}")
+        raise typer.Exit(2) from exc
+    if trip_context.is_empty:
+        console.print(
+            "[dim]no trip context supplied; the journal will stay factual. "
+            "See trip_context.example.toml.[/]"
+        )
+    else:
+        console.print(f"trip context: {len(trip_context.travelers)} traveller(s) described")
 
     trip_name = config.trip_name or source.name
     conn = db.connect(out / db.DB_FILENAME)

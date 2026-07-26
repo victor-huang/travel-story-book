@@ -1,0 +1,44 @@
+# Travel Story Book trip context. Copy to a file of your choice and pass it to the
+# pipeline (see the CLI's --context flag) to make the generated journal personal instead
+# of factual-but-impersonal.
+#
+# EVERYTHING below is optional. An absent file, or a file with only some fields filled
+# in, is a fully valid input -- the pipeline runs fine without it and simply produces a
+# more impersonal journal instead. Names may be aliases, or omitted entirely; nothing
+# here is required to identify anyone. Delete any section you don't want to fill in.
+#
+# The highest-value field for the least effort is `notes`: one sentence about why a day
+# mattered changes the generated journal more than any other field in this file.
+#
+# NOTE ON ORDERING: TOML requires plain keys (journal_voice, known_plans, notes) to
+# appear before any `[[travelers]]` table -- once an array-of-tables header starts,
+# everything after it belongs to that table until the next header.
+
+# How the journal should refer to the group. One of:
+#   first_person_singular   -- "I walked up to the fortress..."
+#   first_person_plural     -- "We walked up to the fortress..."
+# Omit to let the model choose.
+journal_voice = "first_person_plural"
+
+# Things that were planned in advance, so the model can tell "we went because we planned
+# to" apart from "we stumbled onto this."
+known_plans = [
+    "Attend the Mozart concert at the Musikverein, 20:15",
+]
+
+# Free-text notes -- anything about why a day or moment mattered. Used verbatim; ask for
+# little, and whatever you write is used as-is.
+notes = [
+    "The concert was one of the main reasons for coming to Vienna.",
+]
+
+# Who was on the trip. `role` is the only required key per entry, and is free text
+# ("narrator", "spouse", "child", "friend"...). `name` is optional and may be a real
+# name, a nickname, or an alias -- whatever you're comfortable having show up in a
+# generated journal. An entry with only a role and no name is fully usable.
+[[travelers]]
+role = "narrator"
+name = "V."
+
+[[travelers]]
+role = "child"

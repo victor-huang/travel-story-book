@@ -9,14 +9,20 @@ through to GPS. Both stages passed their own suites throughout.
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from rich.console import Console
 
+from story_book.config import HomeLocation
 from story_book.db import connection as db
 from story_book.db.models import GpsSource, TzSource
 from story_book.pipeline.base import StageContext
+from story_book.pipeline.days import DaysStage
+from story_book.pipeline.geocode import GeocodeStage
+from story_book.pipeline.gps_backfill import GpsBackfillStage
+from story_book.pipeline.home_filter import HomeFilterStage
 from story_book.pipeline.metadata import MetadataStage
 from story_book.pipeline.runner import Runner
 from story_book.pipeline.scan import ScanStage
@@ -192,4 +198,90 @@ class TestAddingAFileToAnAlreadyBuiltTrip:
         before = {p.name: p.read_bytes() for p in built.source_dir.iterdir() if p.is_file()}
         self._rebuild(built, stages)
         after = {p.name: p.read_bytes() for p in built.source_dir.iterdir() if p.is_file()}
+        assert before == after
+
+
+class TestWave2Seams:
+    """Cross-stage checks for the location and grouping stages.
+
+    Ordering matters here and is not obvious: `home_filter` must run *after* `gps_backfill`, or a
+    GPS-less photo taken at home skips the privacy check entirely. Same for `geocode` -- an
+    interpolated coordinate should still get a place.
+    """
+
+    @pytest.fixture
+    def wave2_stages(self) -> list:
+        return [
+            ScanStage(),
+            MetadataStage(),
+            TimezoneStage(),
+            GpsBackfillStage(),
+            GeocodeStage(),
+            DaysStage(),
+            HomeFilterStage(),
+        ]
+
+    @pytest.fixture
+    def located(self, ctx: StageContext, wave2_stages: list, has_exiftool: bool) -> StageContext:
+        if not has_exiftool:
+            pytest.skip("exiftool not installed")
+        Runner(ctx, wave2_stages, console=Console(quiet=True)).run()
+        return ctx
+
+    def test_interpolated_items_also_get_a_place(self, located: StageContext) -> None:
+        """Ordering proof: geocode runs after backfill, so estimated coordinates resolve too."""
+        interpolated = [
+            m for m in db.iter_media(located.conn) if m.gps_source is GpsSource.INTERPOLATED
+        ]
+        if not interpolated:
+            pytest.skip("no interpolation happened on this fixture set")
+        assert all(m.place_id is not None for m in interpolated)
+
+    def test_every_located_item_has_a_place(self, located: StageContext) -> None:
+        located_items = [m for m in db.iter_media(located.conn) if m.has_gps]
+        assert all(m.place_id is not None for m in located_items)
+
+    def test_places_collapse_to_a_handful_not_one_per_photo(self, located: StageContext) -> None:
+        """The guard against place identity drifting back to a coordinate cell."""
+        places = located.conn.execute("SELECT COUNT(*) AS n FROM place").fetchone()["n"]
+        assert places <= 6
+
+    def test_days_are_created(self, located: StageContext) -> None:
+        days = located.conn.execute("SELECT COUNT(*) AS n FROM day").fetchone()["n"]
+        assert days >= 1
+
+    def test_the_trip_range_covers_the_media(self, located: StageContext) -> None:
+        trip = located.conn.execute("SELECT start_local, end_local FROM trip").fetchone()
+        assert trip["start_local"] is not None and trip["end_local"] is not None
+
+    def test_no_home_configured_flags_nothing(self, located: StageContext) -> None:
+        flagged = located.conn.execute(
+            "SELECT COUNT(*) AS n FROM media WHERE is_near_home = 1"
+        ).fetchone()["n"]
+        assert flagged == 0
+
+    def test_a_configured_home_flags_the_matching_fixtures(
+        self, ctx: StageContext, wave2_stages: list, has_exiftool: bool
+    ) -> None:
+        if not has_exiftool:
+            pytest.skip("exiftool not installed")
+        home = HomeLocation(lat=48.2082, lon=16.3738, exclusion_km=5.0)
+        ctx = replace(ctx, config=replace(ctx.config, home=home))
+        Runner(ctx, wave2_stages, console=Console(quiet=True)).run()
+
+        flagged = ctx.conn.execute(
+            "SELECT COUNT(*) AS n FROM media WHERE is_near_home = 1"
+        ).fetchone()["n"]
+        assert flagged > 0
+
+    def test_a_second_run_adds_no_rows(self, located: StageContext, wave2_stages: list) -> None:
+        before = {
+            table: located.conn.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()["n"]
+            for table in ("media", "place", "day")
+        }
+        Runner(located, wave2_stages, console=Console(quiet=True)).run()
+        after = {
+            table: located.conn.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()["n"]
+            for table in ("media", "place", "day")
+        }
         assert before == after
