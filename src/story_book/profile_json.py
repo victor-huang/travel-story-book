@@ -34,6 +34,9 @@ def profile_to_dict(profile: Profile) -> dict[str, Any]:
             "utc_offsets": dict(profile.offsets.most_common()),
             "offset_changes": profile.timezone_crossings,
             "largest_gap_days": round(profile.largest_day_gap_days, 3),
+            "timestamp_sources": dict(profile.time_sources.most_common()),
+            "offset_gps_conflicts": profile.offset_conflicts,
+            "offset_gps_conflict_examples": profile.conflict_examples,
             "late_night_items": profile.late_night_items,
             "gaps_minutes": {
                 "count": profile.gaps.count,

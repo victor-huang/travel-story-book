@@ -21,7 +21,7 @@ def profile(media_dir: Path, has_exiftool: bool):
 class TestScan:
     def test_finds_every_media_file(self, media_dir: Path) -> None:
         paths, _ = scan(media_dir)
-        assert len(paths) == 20
+        assert len(paths) == 25
 
     def test_skips_the_non_media_file(self, media_dir: Path) -> None:
         paths, _ = scan(media_dir)
@@ -81,7 +81,7 @@ class TestReadMetadata:
 
 class TestRunOnFixtures:
     def test_counts_images(self, profile) -> None:
-        assert profile.images == 18
+        assert profile.images == 23
 
     def test_counts_videos(self, profile) -> None:
         assert profile.videos == 2
@@ -153,7 +153,7 @@ class TestProfileJson:
 class TestDegradesWithoutExiftool:
     def test_still_counts_files(self, media_dir: Path, mocker) -> None:
         mocker.patch("story_book.profile.shutil.which", return_value=None)
-        assert run(media_dir).total == 20
+        assert run(media_dir).total == 25
 
     def test_reports_exiftool_as_unavailable(self, media_dir: Path, mocker) -> None:
         mocker.patch("story_book.profile.shutil.which", return_value=None)
@@ -174,3 +174,28 @@ class TestEmptyFolder:
         from story_book.profile import suggestions
 
         assert suggestions(run(tmp_path)) == []
+
+
+class TestOffsetGpsConflict:
+    """The offset_gps_conflict fixture is Vienna coordinates tagged -07:00 -- nine hours wrong,
+    which would place it on the wrong day. Real exports contain these.
+    """
+
+    def test_the_conflict_is_detected(self, profile) -> None:
+        assert profile.offset_conflicts >= 1
+
+    def test_the_offending_file_is_named(self, profile) -> None:
+        assert "offset_gps_conflict.jpg" in profile.conflict_examples
+
+    def test_it_is_warned_about(self, profile) -> None:
+        from story_book.profile import warnings
+
+        assert any("disagrees" in w for w in warnings(profile))
+
+    def test_the_warning_names_t12(self, profile) -> None:
+        from story_book.profile import warnings
+
+        assert any("T12" in w for w in warnings(profile))
+
+    def test_the_json_reports_it(self, profile) -> None:
+        assert profile_to_dict(profile)["time"]["offset_gps_conflicts"] >= 1

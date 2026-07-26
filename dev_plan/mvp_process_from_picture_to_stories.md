@@ -166,11 +166,36 @@ orientation, dimensions, duration, `SubSecTimeOriginal`.
 corrupts the primary organizing axis: day boundaries land in the wrong place and photos
 from two devices interleave incorrectly.
 
-Resolution order per item:
-1. `OffsetTimeOriginal` if present (modern iPhones write it).
-2. Timezone looked up from GPS coordinates via `timezonefinder` (offline).
+Resolution order per item — **revised after P01 against real data**:
+
+1. `OffsetTimeOriginal`, **but only if it agrees with the offset implied by the item's own GPS
+   coordinates.**
+2. Timezone from GPS via `timezonefinder` (offline). **This wins any disagreement with the EXIF
+   offset**, and the conflict is recorded and reported.
 3. Timezone inferred from the nearest-in-time GPS-bearing item on the same device.
 4. Trip default timezone from config.
+
+The original draft trusted `OffsetTimeOriginal` unconditionally at step 1. P01 on a real
+286-item export found **7 items whose EXIF offset was 9 hours away from the offset their own GPS
+implies** — enough to land them on the adjacent day. An edited or re-exported photo can carry the
+*editing machine's* offset rather than the camera's, so the tag is a hint, not ground truth. GPS
+is physical evidence and must outrank it. See
+[`p01_profile_findings.md`](./p01_profile_findings.md).
+
+### Video capture time is in a different field
+
+Also from P01: on Photos-exported `.mov`, `QuickTime:CreateDate`, `MediaCreateDate`, and every
+`Track*CreateDate` hold the **export** time, not the capture time. Only
+`QuickTime:Keys:CreationDate` holds the real capture time — and it carries the original UTC
+offset. Reading the conventional field put all 9 clips on the day they were exported, inventing a
+phantom fifth day and a 5.9-day gap in a 4-day trip.
+
+Field priority must therefore differ by kind:
+- **video:** `Keys:CreationDate` → `DateTimeOriginal` → `CreateDate` → `MediaCreateDate`
+- **image:** `DateTimeOriginal` → `CreationDate` → `CreateDate` → `MediaCreateDate`
+
+Record which field supplied the timestamp, and warn when anything falls back to
+`CreateDate`/`MediaCreateDate` on a video, since that value is probably an export artifact.
 
 Store both the naive local time *and* a resolved UTC instant. Order by UTC; display and
 split days by local time. Provide a per-device clock-offset override in config

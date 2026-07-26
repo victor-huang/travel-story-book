@@ -315,7 +315,8 @@ exiftool.
 redefining one — that module is shared so the scanner and profiler cannot disagree about what
 counts as media. T10 may extend it; do not fork it.
 
-Still open as **P01**: run it on the real trip and fold the numbers into `config.toml`.
+P01 complete — see [`p01_profile_findings.md`](./p01_profile_findings.md) for the observed
+numbers and derived config (anonymized; no paths, places, coordinates, or dates).
 
 ### T18 — Truth set format & eval harness
 Define the labeled-truth-set file format (event boundaries, duplicate groups, preferred pick
@@ -454,7 +455,7 @@ From Phase 0 in the plan doc. Neither is a coding task; both are cheap and can s
 
 | ID | Task | Status | Owner |
 | --- | --- | --- | --- |
-| P01 | Run `profile` on the real trip; retune threshold defaults | todo | — |
+| P01 | Run `profile` on the real trip; retune threshold defaults | done | claude (main) — [findings](./p01_profile_findings.md) |
 | P02 | Hand-test the ChatGPT handoff on one real day | todo | — |
 | P03 | Label ~200 photos: event bounds, dup groups, preferred picks | todo | — |
 
@@ -482,6 +483,9 @@ let code silently diverge.
 | --- | --- | --- | --- |
 | 2026-07-26 | T04 | Added a third stage shape, `BatchStage`, alongside per-item and whole-trip. CLIP and vision APIs are far cheaper in batches, and recording a cache result per item within a batch keeps partial-batch resume correct. An item the batch silently drops is recorded as **failed**, so a provider that quietly skips an image cannot pass as success. | no -- implementation detail below the plan's altitude |
 | 2026-07-26 | T03 | Added `phash` and `meta` tables not in the plan's schema list: pHash needs its own store separate from CLIP `embedding`, and `meta` holds `schema_version`. | no |
+| 2026-07-26 | P01 | **Timezone fallback order reversed.** `OffsetTimeOriginal` no longer wins unconditionally: when it disagrees with the offset implied by the item's own GPS, **GPS wins** and the conflict is reported. Real data had 7 items whose EXIF offset sat 9 hours from the offset their own GPS implies, enough to move them to the adjacent day. **Binding on T12.** | yes — Module 2 |
+| 2026-07-26 | P01 | **Video capture time comes from `QuickTime:Keys:CreationDate`,** not `CreateDate`/`MediaCreateDate`, which hold the *export* time on Photos-exported `.mov`. Field priority now differs by media kind, and the source field is recorded so export artifacts can be warned about. **Binding on T11 and T15.** | yes — Module 2 |
+| 2026-07-26 | T17 | Offset-crossing counting requires a **sustained run** (3+ consecutive items) rather than any A→B change. On real data 13 interleaved mis-tagged items read as "14 crossings"; the true count is 2. | no — refinement of a metric the plan doesn't specify |
 
 # Log
 
@@ -490,6 +494,8 @@ decision made.
 
 | Date | Who | Entry |
 | --- | --- | --- |
+| 2026-07-26 | claude | **P01 done** on a 286-item / 1.9 GB real export. Two bugs and one bad heuristic found, both plan amendments above. Corrected numbers: 4-day span (not 10), largest gap 0.49 days (not 5.88), 2 offset changes (not 14). `config.toml` written locally (gitignored) with `events.gap_minutes = 45` — **half the guessed default of 90**, because this library is shot in dense bursts (p50 gap = 1 min). |
+| 2026-07-26 | claude | Fixture set extended for the above: timezone crossing is now 3 items per side (a real crossing is sustained), plus a new `offset_gps_conflict.jpg`. 26 fixtures, 338 tests. |
 | 2026-07-26 | claude | **T17 done.** `story-book profile` ships with warnings + a suggested-config table computed from observed data, and `--json`. 308 tests pass. Shared extension allowlist added at `story_book/media_types.py` — **T10 must import it, not fork it**. |
 | 2026-07-26 | claude | Retro: `exiftool -fast2` silently zeroed video durations by skipping the moov atom. Flag removed; regression test added. A speed flag that changes how much of a file is read is a correctness flag. |
 | 2026-07-26 | claude | Pushed to https://github.com/victor-huang/travel-story-book (public). CI runs on macOS + Linux. |

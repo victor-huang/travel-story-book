@@ -25,8 +25,13 @@ IMAGE_FIXTURES = [
     "receipt.jpg",
     "overexposed.jpg",
     "underexposed.jpg",
-    "tz_before.jpg",
-    "tz_after.jpg",
+    "tz_before_1.jpg",
+    "tz_before_2.jpg",
+    "tz_before_3.jpg",
+    "tz_after_1.jpg",
+    "tz_after_2.jpg",
+    "tz_after_3.jpg",
+    "offset_gps_conflict.jpg",
 ]
 
 

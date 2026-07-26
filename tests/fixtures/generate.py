@@ -343,30 +343,50 @@ def main() -> None:
     save_jpeg(flat_image((250, 250, 250)), MEDIA_DIR / "overexposed.jpg")
     save_jpeg(flat_image((6, 6, 8)), MEDIA_DIR / "underexposed.jpg")
 
-    # Timezone crossing: same clock hour, two zones, an hour apart in real time.
-    # Vienna +02:00 at 23:30 local, then Istanbul +03:00 at 00:30 local the next day.
+    # Timezone crossing: Vienna +02:00 late evening, then Istanbul +03:00 after midnight.
+    # Three items each side deliberately. A real crossing is sustained, and code that treats a
+    # single offset outlier as a crossing misreads ordinary libraries -- an edited or re-exported
+    # photo can carry the editing machine's offset. Three is the smallest run that separates the
+    # two cases.
+    for index in range(3):
+        save_jpeg(
+            scene(9 + index),
+            MEDIA_DIR / f"tz_before_{index + 1}.jpg",
+            exif_bytes(
+                taken=f"2026:07:19 23:{10 + index * 10}:00",
+                make="Apple",
+                model="iPhone 16 Pro",
+                offset="+02:00",
+                lat=VIENNA[0],
+                lon=VIENNA[1],
+            ),
+        )
+    for index in range(3):
+        save_jpeg(
+            scene(20 + index),
+            MEDIA_DIR / f"tz_after_{index + 1}.jpg",
+            exif_bytes(
+                taken=f"2026:07:20 00:{10 + index * 10}:00",
+                make="Apple",
+                model="iPhone 16 Pro",
+                offset="+03:00",
+                lat=41.0082,
+                lon=28.9784,
+            ),
+        )
+
+    # An offset that disagrees with its GPS: Vienna coordinates tagged -07:00. Real exports
+    # contain these, and they place the photo nine hours off, on the wrong day.
     save_jpeg(
-        scene(9),
-        MEDIA_DIR / "tz_before.jpg",
+        scene(31),
+        MEDIA_DIR / "offset_gps_conflict.jpg",
         exif_bytes(
-            taken="2026:07:19 23:30:00",
+            taken="2026:07:19 06:15:00",
             make="Apple",
             model="iPhone 16 Pro",
-            offset="+02:00",
+            offset="-07:00",
             lat=VIENNA[0],
             lon=VIENNA[1],
-        ),
-    )
-    save_jpeg(
-        scene(10),
-        MEDIA_DIR / "tz_after.jpg",
-        exif_bytes(
-            taken="2026:07:20 00:30:00",
-            make="Apple",
-            model="iPhone 16 Pro",
-            offset="+03:00",
-            lat=41.0082,
-            lon=28.9784,
         ),
     )
 

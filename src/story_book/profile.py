@@ -18,6 +18,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from story_book.db.models import MediaKind
 from story_book.media_types import IGNORED_NAMES, classify, is_hidden
@@ -29,6 +30,10 @@ EXIFTOOL_FIELDS = [
     "-Model",
     "-DateTimeOriginal",
     "-OffsetTimeOriginal",
+    # QuickTime Keys:CreationDate. For Apple video this is the only trustworthy capture time --
+    # CreateDate/MediaCreateDate hold the *export* time on Photos-exported .mov files, and it
+    # carries the original UTC offset. Prefer it for video.
+    "-CreationDate",
     "-CreateDate",
     "-MediaCreateDate",
     "-GPSLatitude",
@@ -38,6 +43,10 @@ EXIFTOOL_FIELDS = [
     "-ImageHeight",
 ]
 EXIFTOOL_CHUNK = 500
+
+# An offset must hold for this many consecutive items to count as a real timezone change rather
+# than one mis-tagged photo. Without it, 13 interleaved outliers read as 14 "crossings".
+SUSTAINED_OFFSET_RUN = 3
 
 
 @dataclass(slots=True)
@@ -49,8 +58,11 @@ class Item:
     bytes: int
     device: str | None = None
     taken: datetime | None = None
+    time_source: str | None = None
     utc_offset_minutes: int | None = None
     has_gps: bool = False
+    lat: float | None = None
+    lon: float | None = None
     duration: float | None = None
 
     @property
@@ -92,6 +104,9 @@ class Profile:
     late_night_items: int = 0
     video_seconds: float = 0.0
     gaps: GapStats = field(default_factory=GapStats)
+    time_sources: Counter[str] = field(default_factory=Counter)
+    offset_conflicts: int = 0
+    conflict_examples: list[str] = field(default_factory=list)
     exiftool_available: bool = True
 
     @property
@@ -190,18 +205,40 @@ def _parse_offset(value: object) -> int | None:
     return -total if value[0] == "-" else total
 
 
+def _embedded_offset(value: object) -> int | None:
+    """Offset carried inside a timestamp string, e.g. '2026:07:18 11:37:58+02:00'."""
+    if not isinstance(value, str) or len(value) < 25:
+        return None
+    return _parse_offset(value[19:25])
+
+
 def build_item(path: Path, meta: dict, size: int) -> Item:
     kind = classify(path) or MediaKind.IMAGE
     make = (meta.get("Make") or "").strip()
     model = (meta.get("Model") or "").strip()
     device = " ".join(part for part in (make, model) if part) or None
 
-    taken = _parse_exif_datetime(meta.get("DateTimeOriginal"))
-    if taken is None:
-        taken = _parse_exif_datetime(meta.get("CreateDate"))
-    if taken is None:
-        taken = _parse_exif_datetime(meta.get("MediaCreateDate"))
+    # Field priority differs by kind. For Apple video, CreateDate is the export time and only
+    # Keys:CreationDate is the capture time -- reading the wrong one puts every clip on the
+    # day it was exported.
+    if kind is MediaKind.VIDEO:
+        candidates = ("CreationDate", "DateTimeOriginal", "CreateDate", "MediaCreateDate")
+    else:
+        candidates = ("DateTimeOriginal", "CreationDate", "CreateDate", "MediaCreateDate")
 
+    taken = None
+    source_field = None
+    for field_name in candidates:
+        taken = _parse_exif_datetime(meta.get(field_name))
+        if taken is not None:
+            source_field = field_name
+            break
+
+    offset = _parse_offset(meta.get("OffsetTimeOriginal"))
+    if offset is None and source_field is not None:
+        offset = _embedded_offset(meta.get(source_field))
+
+    latitude, longitude = meta.get("GPSLatitude"), meta.get("GPSLongitude")
     duration = meta.get("Duration")
     return Item(
         path=path,
@@ -209,8 +246,11 @@ def build_item(path: Path, meta: dict, size: int) -> Item:
         bytes=size,
         device=device,
         taken=taken,
-        utc_offset_minutes=_parse_offset(meta.get("OffsetTimeOriginal")),
-        has_gps=meta.get("GPSLatitude") is not None and meta.get("GPSLongitude") is not None,
+        time_source=source_field,
+        utc_offset_minutes=offset,
+        has_gps=latitude is not None and longitude is not None,
+        lat=latitude if isinstance(latitude, (int, float)) else None,
+        lon=longitude if isinstance(longitude, (int, float)) else None,
         duration=float(duration) if isinstance(duration, (int, float)) else None,
     )
 
@@ -246,6 +286,8 @@ def analyze(source: Path, items: list[Item], ignored: int, exiftool: bool) -> Pr
 
         if item.taken is None:
             profile.without_timestamp += 1
+        else:
+            profile.time_sources[item.time_source or "(unknown field)"] += 1
         if item.utc_offset_minutes is None:
             profile.offsets["(none)"] += 1
         else:
@@ -262,6 +304,9 @@ def analyze(source: Path, items: list[Item], ignored: int, exiftool: bool) -> Pr
         profile.gaps = _gap_stats(dated)
         profile.largest_day_gap_days = _largest_gap_days(dated)
         profile.timezone_crossings = _count_crossings(dated)
+        conflicts = _offset_conflicts(dated)
+        profile.offset_conflicts = len(conflicts)
+        profile.conflict_examples = [i.path.name for i in conflicts[:5]]
 
     return profile
 
@@ -298,10 +343,66 @@ def _largest_gap_days(dated: list[Item]) -> float:
     return largest.total_seconds() / 86400.0
 
 
-def _count_crossings(dated: list[Item]) -> int:
-    """Changes in UTC offset over time -- each one is a day-boundary risk."""
+def _count_crossings(dated: list[Item], min_run: int = SUSTAINED_OFFSET_RUN) -> int:
+    """Sustained changes in UTC offset -- each one is a real day-boundary risk.
+
+    Counts only offsets that hold for `min_run` consecutive items. A single mis-tagged photo
+    otherwise reads as two crossings, and real libraries contain plenty of those: an edited or
+    re-exported photo can carry the editing machine's offset rather than the camera's.
+    """
     offsets = [i.utc_offset_minutes for i in dated if i.utc_offset_minutes is not None]
-    return sum(1 for a, b in zip(offsets, offsets[1:], strict=False) if a != b)
+    if not offsets:
+        return 0
+
+    runs: list[int] = []
+    for offset in offsets:
+        if runs and runs[-1] == offset:
+            continue
+        runs.append(offset)
+
+    sustained: list[int] = []
+    index = 0
+    while index < len(offsets):
+        offset = offsets[index]
+        length = 0
+        while index + length < len(offsets) and offsets[index + length] == offset:
+            length += 1
+        if length >= min_run and (not sustained or sustained[-1] != offset):
+            sustained.append(offset)
+        index += length
+    return max(0, len(sustained) - 1)
+
+
+def _offset_conflicts(dated: list[Item]) -> list[Item]:
+    """Items whose EXIF offset disagrees with the offset their GPS location implies.
+
+    Real libraries contain these, and they matter: a photo taken in Vienna but tagged -07:00 is
+    nine hours wrong, which lands it on the wrong day. The plan's original fallback order trusted
+    OffsetTimeOriginal first; this check is the evidence that GPS must win a disagreement.
+    """
+    try:
+        from timezonefinder import TimezoneFinder
+    except ImportError:
+        return []
+
+    finder = TimezoneFinder()
+    conflicts: list[Item] = []
+    for item in dated:
+        if item.utc_offset_minutes is None or item.lat is None or item.lon is None:
+            continue
+        zone_name = finder.timezone_at(lat=item.lat, lng=item.lon)
+        if zone_name is None:
+            continue
+        try:
+            offset = ZoneInfo(zone_name).utcoffset(item.taken)
+        except (ZoneInfoNotFoundError, ValueError):
+            continue
+        if offset is None:
+            continue
+        expected = int(offset.total_seconds() // 60)
+        if expected != item.utc_offset_minutes:
+            conflicts.append(item)
+    return conflicts
 
 
 def suggestions(profile: Profile) -> list[tuple[str, str, str]]:
@@ -310,14 +411,17 @@ def suggestions(profile: Profile) -> list[tuple[str, str, str]]:
     gaps = profile.gaps
 
     if gaps.count:
-        # p90 separates "next shot at the same place" from "moved on"; round to a tidy number.
-        candidate = max(30.0, min(240.0, gaps.p90))
+        # Basis is p95, not p90. Event boundaries are *rare* relative to shots-within-an-event:
+        # a few hundred photos across a handful of days yield maybe 5% boundary gaps, so a p90
+        # basis systematically over-splits. Observed on real data: p90 was 15 min and p95 44 min,
+        # where the true boundaries sat near the latter.
+        candidate = max(30.0, min(240.0, gaps.p95))
         out.append(
             (
                 "events.gap_minutes",
                 f"{_round_to(candidate, 15):.0f}",
-                f"p90 of {gaps.count} inter-photo gaps is {gaps.p90:.0f} min "
-                f"(p50 {gaps.p50:.0f}, p99 {gaps.p99:.0f})",
+                f"p95 of {gaps.count} inter-photo gaps is {gaps.p95:.0f} min "
+                f"(p50 {gaps.p50:.0f}, p90 {gaps.p90:.0f}, p99 {gaps.p99:.0f})",
             )
         )
 
@@ -392,6 +496,24 @@ def warnings(profile: Profile) -> list[str]:
         out.append(
             f"{profile.without_timestamp} item(s) have no usable timestamp and cannot be placed "
             "on the timeline."
+        )
+    if profile.offset_conflicts:
+        share = profile.offset_conflicts / profile.total
+        examples = ", ".join(profile.conflict_examples)
+        out.append(
+            f"{profile.offset_conflicts} item(s) ({share:.0%}) carry a UTC offset that disagrees "
+            f"with what their GPS location implies (e.g. {examples}). Trust GPS over "
+            "OffsetTimeOriginal for these -- an edited or re-exported photo can carry the "
+            "editing machine's offset. Affects T12."
+        )
+    exported = profile.time_sources.get("CreateDate", 0) + profile.time_sources.get(
+        "MediaCreateDate", 0
+    )
+    if exported:
+        out.append(
+            f"{exported} item(s) fall back to CreateDate/MediaCreateDate. On Photos-exported "
+            "video these hold the *export* time, not the capture time. Verify before trusting "
+            "their day assignment."
         )
     for device, count in profile.devices.items():
         with_gps = profile.device_gps.get(device, 0)

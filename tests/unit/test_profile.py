@@ -181,21 +181,38 @@ class TestGapStats:
 
 
 class TestTimezoneCrossings:
+    """Only *sustained* offset changes count. Real libraries contain single mis-tagged photos --
+    an edited or re-exported image can carry the editing machine's offset -- and counting those
+    as crossings turned 13 outliers into '14 crossings' on real data.
+    """
+
     def test_a_single_offset_is_no_crossing(self) -> None:
-        items = [item(offset=120), item(offset=120)]
+        items = [item(offset=120)] * 5
         assert _count_crossings(items) == 0
 
-    def test_a_change_counts_as_one_crossing(self) -> None:
-        items = [item(offset=120), item(offset=180)]
+    def test_a_sustained_change_counts_as_one_crossing(self) -> None:
+        items = [item(offset=120)] * 3 + [item(offset=180)] * 3
         assert _count_crossings(items) == 1
 
-    def test_items_without_an_offset_are_ignored(self) -> None:
-        items = [item(offset=120), item(offset=None), item(offset=120)]
+    def test_a_lone_outlier_is_not_a_crossing(self) -> None:
+        items = [item(offset=120)] * 3 + [item(offset=-420)] + [item(offset=120)] * 3
         assert _count_crossings(items) == 0
 
-    def test_two_changes_count_separately(self) -> None:
-        items = [item(offset=120), item(offset=180), item(offset=120)]
+    def test_scattered_outliers_are_not_crossings(self) -> None:
+        items = [item(offset=120), item(offset=-420), item(offset=120), item(offset=-420)] * 3
+        assert _count_crossings(items) == 0
+
+    def test_items_without_an_offset_are_ignored(self) -> None:
+        items = [item(offset=120)] * 3 + [item(offset=None)] + [item(offset=120)] * 3
+        assert _count_crossings(items) == 0
+
+    def test_two_sustained_changes_count_separately(self) -> None:
+        items = [item(offset=120)] * 3 + [item(offset=180)] * 3 + [item(offset=120)] * 3
         assert _count_crossings(items) == 2
+
+    def test_min_run_is_adjustable(self) -> None:
+        items = [item(offset=120), item(offset=180)]
+        assert _count_crossings(items, min_run=1) == 1
 
 
 class TestAnalyze:
@@ -270,12 +287,17 @@ class TestWarnings:
         assert any("no importable media" in w for w in warnings(analyze(Path("/s"), [], 0, True)))
 
     def test_timezone_crossing_is_warned(self) -> None:
-        items = [
-            item(taken=datetime(2026, 7, 18, 9), offset=120),
-            item(taken=datetime(2026, 7, 18, 10), offset=180),
-        ]
+        items = [item(taken=datetime(2026, 7, 18, 9, m), offset=120) for m in range(3)]
+        items += [item(taken=datetime(2026, 7, 18, 10, m), offset=180) for m in range(3)]
         result = analyze(Path("/src"), items, 0, True)
         assert any("offset change" in w for w in warnings(result))
+
+    def test_a_lone_offset_outlier_is_not_warned_as_a_crossing(self) -> None:
+        items = [item(taken=datetime(2026, 7, 18, 9, m), offset=120) for m in range(3)]
+        items += [item(taken=datetime(2026, 7, 18, 9, 30), offset=-420)]
+        items += [item(taken=datetime(2026, 7, 18, 10, m), offset=120) for m in range(3)]
+        result = analyze(Path("/src"), items, 0, True)
+        assert not any("offset change" in w for w in warnings(result))
 
     def test_a_device_with_no_gps_at_all_is_warned(self) -> None:
         items = [item(device="Sony ILCE-7M4", gps=False) for _ in range(10)]
@@ -368,3 +390,38 @@ class TestRenderHelpers:
 
     def test_duration_in_hours(self) -> None:
         assert human_duration(7800) == "2h 10m"
+
+
+class TestVideoTimestampPriority:
+    """Photos-exported .mov files carry the *export* time in CreateDate and the real capture
+    time only in QuickTime Keys:CreationDate. Reading the wrong field puts every clip on the day
+    it was exported -- observed on real data, where 9 clips all landed on export day.
+    """
+
+    def test_video_prefers_creation_date_over_create_date(self) -> None:
+        meta = {"CreationDate": "2026:07:18 11:37:58+02:00", "CreateDate": "2026:07:26 18:43:20"}
+        assert build_item(Path("a.mov"), meta, 10).taken == datetime(2026, 7, 18, 11, 37, 58)
+
+    def test_video_records_which_field_it_used(self) -> None:
+        meta = {"CreationDate": "2026:07:18 11:37:58+02:00", "CreateDate": "2026:07:26 18:43:20"}
+        assert build_item(Path("a.mov"), meta, 10).time_source == "CreationDate"
+
+    def test_video_falls_back_to_create_date(self) -> None:
+        meta = {"CreateDate": "2026:07:26 18:43:20"}
+        assert build_item(Path("a.mov"), meta, 10).time_source == "CreateDate"
+
+    def test_image_still_prefers_date_time_original(self) -> None:
+        meta = {"DateTimeOriginal": "2026:07:18 09:20:00", "CreationDate": "2026:07:26 18:43:20"}
+        assert build_item(Path("a.jpg"), meta, 10).time_source == "DateTimeOriginal"
+
+    def test_offset_is_taken_from_the_embedded_timestamp(self) -> None:
+        meta = {"CreationDate": "2026:07:18 11:37:58+02:00"}
+        assert build_item(Path("a.mov"), meta, 10).utc_offset_minutes == 120
+
+    def test_explicit_offset_tag_wins_over_embedded(self) -> None:
+        meta = {
+            "DateTimeOriginal": "2026:07:18 09:20:00",
+            "OffsetTimeOriginal": "+03:00",
+            "CreationDate": "2026:07:18 11:37:58+02:00",
+        }
+        assert build_item(Path("a.jpg"), meta, 10).utc_offset_minutes == 180

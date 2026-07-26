@@ -106,8 +106,17 @@ def _render_time(profile: Profile, console: Console) -> None:
             f"p90 {profile.gaps.p90:.0f}m  p95 {profile.gaps.p95:.0f}m  "
             f"p99 {profile.gaps.p99:.0f}m  max {profile.gaps.largest / 60:.1f}h",
         )
+    if profile.offset_conflicts:
+        table.add_row(
+            "offset vs GPS",
+            f"[red]{profile.offset_conflicts:,} conflict(s)[/]  "
+            f"[dim]{', '.join(profile.conflict_examples)}[/]",
+        )
     table.add_row("largest gap", f"{profile.largest_day_gap_days:.2f} days")
     table.add_row("00:00-04:00 items", f"{profile.late_night_items:,}")
+    if profile.time_sources:
+        sources = ", ".join(f"{k} {v:,}" for k, v in profile.time_sources.most_common())
+        table.add_row("timestamp source", sources)
     console.print(table)
     console.print()
 
