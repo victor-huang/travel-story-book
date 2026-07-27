@@ -14,8 +14,8 @@ human hands to ChatGPT to write the travel journal.
 ## Commands
 
 ```bash
-uv sync                                          # deps; --extra vision/video/exif for heavy stages
-uv run pytest                                    # 753 tests, expect 0 failures 0 skips locally
+uv sync --extra vision --extra video --extra exif --extra geo   # a bare `uv sync` PRUNES these
+uv run pytest                                    # 1089 tests, expect 0 failures 0 skips locally
 uv run pytest tests/unit                         # fast, mocked, no DB
 uv run story-book build <src> --out <dir>        # the pipeline
 uv run story-book report --out <dir>             # re-render HTML only
@@ -82,6 +82,16 @@ Changing these breaks every parallel task. Amend only via the tracker's cross-ta
   - `always_run = True` for discovery and whole-media aggregates; see the integration rules below.
 - `config.py` — **every threshold lives here. No magic numbers in stage code.** Add a field
   instead.
+
+### Published identifiers
+
+`trip.json` is the canonical artifact; the report and the package render only from it and never
+read the DB. **Nothing derived from insertion order leaves the database.** `day`, `event` and
+`cluster` rows are deleted and rebuilt every run, so their rowids climb even when nothing changed
+— publishing one made two builds of an identical library differ. Every published id is a function
+of the media set: an asset is a prefix of its content hash, an event is `<date>#<seq>`, a cluster
+is its keeper's `asset_id`. Same reason `overrides.toml` addresses everything by filename. A test
+builds twice and diffs.
 
 ### Cache semantics, exactly
 

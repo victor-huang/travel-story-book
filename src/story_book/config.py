@@ -98,6 +98,25 @@ class SelectionConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class TimelineConfig:
+    """`trip.json`, the artifact both outputs render from."""
+
+    # A short prefix of the BLAKE2b content hash, used as the stable public id for a photo.
+    # Contact-sheet cell ids are positional and change whenever selection changes, so they
+    # cannot be an identity; this can. 8 hex digits give a ~1-in-10^6 collision chance across a
+    # 1,000-item trip, and the builder lengthens the prefix rather than emitting a duplicate.
+    asset_id_length: int = 8
+
+    # Douglas-Peucker tolerance for an event's walking path. Raw paths are one point per photo,
+    # which is 121 points for a single afternoon and mostly camera jitter at one spot.
+    path_simplify_meters: float = 25.0
+
+    # Below this end-to-end span an event is a *stop*, not a walk, and gets no path -- a
+    # scattering of points around one courtyard is noise, not movement.
+    path_min_span_meters: float = 100.0
+
+
+@dataclass(frozen=True, slots=True)
 class VideoConfig:
     transcribe: str = "auto"
     transcribe_min_seconds: float = 10.0
@@ -165,6 +184,7 @@ class Config:
     dedup: DedupConfig = field(default_factory=DedupConfig)
     quality: QualityConfig = field(default_factory=QualityConfig)
     selection: SelectionConfig = field(default_factory=SelectionConfig)
+    timeline: TimelineConfig = field(default_factory=TimelineConfig)
     video: VideoConfig = field(default_factory=VideoConfig)
     models: ModelConfig = field(default_factory=ModelConfig)
     geocode: GeocodeConfig = field(default_factory=GeocodeConfig)
@@ -240,6 +260,7 @@ _NESTED_TYPES: dict[str, type] = {
     "QualityConfig": QualityConfig,
     "QualityWeights": QualityWeights,
     "SelectionConfig": SelectionConfig,
+    "TimelineConfig": TimelineConfig,
     "VideoConfig": VideoConfig,
     "ModelConfig": ModelConfig,
     "GeocodeConfig": GeocodeConfig,

@@ -53,6 +53,10 @@ dev = [
     "pytest-mock>=3.14",
     "piexif>=1.1.3",
     "ruff>=0.8",
+    # Validates trip.json against src/story_book/trip_schema.json in tests. A dev dependency,
+    # not a runtime one: the schema is the artifact's published contract, and the pipeline that
+    # writes it should not also be the thing that decides it is valid.
+    "jsonschema>=4.23",
     "autoflake>=2.3",
 ]
 

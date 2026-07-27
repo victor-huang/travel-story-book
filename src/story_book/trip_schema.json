@@ -1,0 +1,840 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/victor-huang/travel-story-book/trip.schema.json",
+  "title": "story-book trip.json",
+  "description": "The canonical intermediate artifact. The HTML report and the ChatGPT package both render only from this file; neither reads the database. Absent data is null with a status field beside it, never an omitted key.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generator",
+    "trip",
+    "privacy",
+    "context",
+    "assets",
+    "days",
+    "trip_highlights"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "generator": {
+      "type": "object",
+      "required": [
+        "tool",
+        "version"
+      ],
+      "properties": {
+        "tool": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "trip": {
+      "type": "object",
+      "required": [
+        "name",
+        "start_local",
+        "end_local",
+        "counts"
+      ],
+      "properties": {
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "start_local": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "end_local": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "counts": {
+          "type": "object",
+          "required": [
+            "media",
+            "images",
+            "videos",
+            "days",
+            "events",
+            "undated",
+            "day_highlights",
+            "trip_highlights"
+          ],
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "privacy": {
+      "description": "A filter that did not run must not read as a filter that found nothing.",
+      "type": "object",
+      "required": [
+        "home_configured",
+        "exclusion_km",
+        "excluded_near_home"
+      ],
+      "properties": {
+        "home_configured": {
+          "type": "boolean"
+        },
+        "exclusion_km": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "excluded_near_home": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "context": {
+      "type": "object",
+      "required": [
+        "supplied",
+        "journal_voice",
+        "travelers",
+        "known_plans",
+        "notes"
+      ],
+      "properties": {
+        "supplied": {
+          "description": "False means no context file was given. A journal is impersonal because nothing was supplied, not because nothing was felt.",
+          "type": "boolean"
+        },
+        "journal_voice": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "travelers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "role",
+              "name"
+            ],
+            "properties": {
+              "role": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "known_plans": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "assets": {
+      "description": "Keyed by asset_id, a prefix of the BLAKE2b content hash. Stable across runs, unlike positional contact-sheet cell ids.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/asset"
+      }
+    },
+    "days": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/day"
+      }
+    },
+    "trip_highlights": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "coordinate": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "place": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "id",
+        "poi",
+        "city",
+        "region",
+        "country",
+        "lat",
+        "lon",
+        "source"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "poi": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "city": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "region": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "country": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lat": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "lon": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "source": {
+          "type": "string"
+        }
+      }
+    },
+    "landmark": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "confidence",
+        "description",
+        "source"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "type": "string"
+        }
+      }
+    },
+    "asset": {
+      "type": "object",
+      "required": [
+        "asset_id",
+        "content_hash",
+        "filename",
+        "kind",
+        "bytes",
+        "width",
+        "height",
+        "taken_local",
+        "taken_utc",
+        "timezone",
+        "day",
+        "event_id",
+        "location",
+        "near_home",
+        "quality",
+        "cluster",
+        "selected",
+        "landmark_ids"
+      ],
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "minLength": 4
+        },
+        "content_hash": {
+          "type": "string"
+        },
+        "filename": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "image",
+            "video"
+          ]
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "width": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "height": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "taken_local": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "taken_utc": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timezone": {
+          "type": "object",
+          "required": [
+            "name",
+            "source"
+          ],
+          "properties": {
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source": {
+              "type": "string"
+            }
+          }
+        },
+        "day": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "event_id": {
+          "description": "Derived as <date>#<seq>, not the database rowid: event rows are rebuilt every run, so a rowid would churn between identical builds.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "location": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "lat",
+            "lon",
+            "source",
+            "confidence",
+            "place"
+          ],
+          "properties": {
+            "lat": {
+              "type": "number"
+            },
+            "lon": {
+              "type": "number"
+            },
+            "source": {
+              "type": "string"
+            },
+            "confidence": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "place": {
+              "$ref": "#/$defs/place"
+            }
+          }
+        },
+        "near_home": {
+          "type": "boolean"
+        },
+        "quality": {
+          "description": "Only components the pipeline measures. Aesthetic and composition scores are deliberately absent.",
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "overall",
+            "sharpness",
+            "exposure",
+            "contrast",
+            "face_count",
+            "face_max_frac",
+            "content_class"
+          ],
+          "properties": {
+            "overall": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "sharpness": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "exposure": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "contrast": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "face_count": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "face_max_frac": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "content_class": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "cluster": {
+          "description": "Identified by the keeper's asset_id, not a rowid: clusters are rebuilt every run.",
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "id",
+            "kind",
+            "is_keeper"
+          ],
+          "properties": {
+            "id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "enum": [
+                "exact",
+                "burst",
+                "similar"
+              ]
+            },
+            "is_keeper": {
+              "type": "boolean"
+            }
+          }
+        },
+        "selected": {
+          "description": "Rank and reason per scope. No scope id: it is a rowid, and the asset already names its day and event.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "rank",
+              "reason"
+            ],
+            "properties": {
+              "rank": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "landmark_ids": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "video": {
+          "type": "object",
+          "required": [
+            "duration_seconds",
+            "fps",
+            "poster",
+            "keyframes",
+            "motion_score",
+            "mean_volume_db",
+            "transcript_status",
+            "transcript"
+          ],
+          "properties": {
+            "duration_seconds": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "fps": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "poster": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "keyframes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "motion_score": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "mean_volume_db": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "transcript_status": {
+              "description": "no_speech means processed and nothing found; not_processed means never attempted. Collapsing them would let a writer read silence as absence of work, or the reverse.",
+              "enum": [
+                "transcribed",
+                "no_speech",
+                "not_processed"
+              ]
+            },
+            "transcript": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "required": [
+                "model",
+                "text",
+                "segments"
+              ],
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "segments": {
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "video"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "video"
+            ]
+          }
+        }
+      ]
+    },
+    "event": {
+      "type": "object",
+      "required": [
+        "id",
+        "seq",
+        "label",
+        "start_local",
+        "end_local",
+        "duration_minutes",
+        "place",
+        "location",
+        "counts",
+        "landmarks",
+        "highlights",
+        "assets"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "start_local": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "end_local": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "duration_minutes": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "place": {
+          "$ref": "#/$defs/place"
+        },
+        "location": {
+          "description": "One averaged coordinate can place an event where nobody stood, so the shape is described too.",
+          "type": "object",
+          "required": [
+            "centroid",
+            "first",
+            "last",
+            "radius_m",
+            "gps_coverage",
+            "path"
+          ],
+          "properties": {
+            "centroid": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/coordinate"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "first": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/coordinate"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "last": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/coordinate"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "radius_m": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "gps_coverage": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "path": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "$ref": "#/$defs/coordinate"
+              }
+            }
+          }
+        },
+        "counts": {
+          "type": "object",
+          "required": [
+            "media",
+            "images",
+            "videos"
+          ],
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "landmarks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/landmark"
+          }
+        },
+        "highlights": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "assets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "day": {
+      "type": "object",
+      "required": [
+        "date",
+        "events",
+        "counts",
+        "gps_coverage",
+        "path",
+        "highlights"
+      ],
+      "properties": {
+        "date": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/event"
+          }
+        },
+        "counts": {
+          "type": "object",
+          "required": [
+            "media",
+            "images",
+            "videos",
+            "events"
+          ],
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "gps_coverage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "path": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/coordinate"
+          }
+        },
+        "highlights": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

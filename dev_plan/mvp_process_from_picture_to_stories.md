@@ -451,7 +451,25 @@ transcript excerpts. Plus a per-day path for the map and per-trip aggregate stat
 
 This is the canonical intermediate artifact — a versioned `trip.json` that both outputs
 (13 and 14) render from and that a future Phase 2/3 consumes. Version the schema from day
-one.
+one. The schema is published as `src/story_book/trip_schema.json` and validated in tests.
+
+Two rules make the artifact usable, and both were learned by building it.
+
+**Nothing in the file is a database rowid.** `day`, `event` and `cluster` rows are deleted and
+rebuilt on every run, so their autoincrement ids climb even when the library has not changed —
+two builds of an identical trip produced two different documents. Every published id is derived
+from the media set instead: an asset is a prefix of its BLAKE2b content hash, an event is
+`<date>#<seq>`, a cluster is its keeper's `asset_id`, and a selection carries rank and reason with
+no scope id, since the asset already names its day and event. A build of the same library is now
+byte-identical, which is what lets the report diff against it and lets a human cite a photo.
+
+**Absent data is `null` beside a status, never a missing key.** A video with no `transcript`
+could mean "we listened and heard nothing" or "we never processed it", and those lead a writer to
+opposite conclusions, so `transcript_status` distinguishes `transcribed` / `no_speech` /
+`not_processed`. The same reasoning gives the trip a `privacy` block that states whether a home
+was configured at all — zero exclusions with no home set is a gap, not a clean result — and gives
+`context` a `supplied` flag, because a journal is impersonal when nothing was supplied rather than
+because nothing was felt.
 
 ## 13. Static HTML report
 

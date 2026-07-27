@@ -34,6 +34,7 @@ from story_book.pipeline.quality import ContentClassStage, QualityStage
 from story_book.pipeline.runner import Runner
 from story_book.pipeline.scan import ScanStage
 from story_book.pipeline.selection import SelectionStage
+from story_book.pipeline.timeline import TimelineStage
 from story_book.pipeline.timezones import TimezoneStage
 from story_book.pipeline.video import VideoStage
 from story_book.profile_json import profile_to_dict
@@ -60,7 +61,7 @@ def build_stages(ctx: StageContext) -> list[Stage]:
              -> video, embeddings, quality, content_class                (independent)
              -> phash -> dedup -> selection
              -> landmarks
-             -> [timeline] -> [report, package]                          (Wave 3/4)
+             -> timeline -> [report, package]                            (Wave 4)
 
     Bracketed stages are not implemented yet. Every stage declares its own `available()`, so an
     absent binary, a missing optional dependency, or `--no-cloud` skips that stage and the run
@@ -86,6 +87,7 @@ def build_stages(ctx: StageContext) -> list[Stage]:
         DedupStage(),
         SelectionStage(),
         LandmarkStage(),
+        TimelineStage(),
     ]
 
 
@@ -217,6 +219,7 @@ def build(
         source_dir=source,
         no_cloud=config.no_cloud,
         overrides=overrides,
+        trip_context=trip_context,
     )
     stages = build_stages(ctx)
     console.print(f"trip: [bold]{trip_name}[/]  ({db.count_media(conn)} media known)")

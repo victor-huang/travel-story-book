@@ -26,6 +26,7 @@ from typing import Any
 from story_book.config import Config
 from story_book.db.models import Media
 from story_book.overrides import Overrides
+from story_book.trip_context import TripContext
 
 TRIP_SENTINEL = "__trip__"
 """Cache key for whole-trip stages, which have no single media hash."""
@@ -63,6 +64,7 @@ class StageContext:
     source_dir: Path
     no_cloud: bool = False
     overrides: Overrides = field(default_factory=Overrides)
+    trip_context: TripContext = field(default_factory=TripContext)
 
     @property
     def cache_dir(self) -> Path:
