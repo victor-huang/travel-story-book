@@ -54,6 +54,11 @@ CREATE TABLE IF NOT EXISTS media (
     -- stage overwrite its own input, so a second run silently produced a different (worse)
     -- answer than the first.
     exif_offset_minutes INTEGER,
+    -- The raw DateTimeOriginal wall reading, exactly as the camera wrote it. Timezone resolution
+    -- *rewrites* taken_local when the offset tag and GPS disagree, so it cannot also read from it:
+    -- doing so re-applied the correction to its own previous output and drifted dates by nine
+    -- hours per run. Source data and derived data do not share storage.
+    exif_local      TEXT,
     lat             REAL,
     lon             REAL,
     altitude        REAL,

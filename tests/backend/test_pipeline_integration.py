@@ -292,3 +292,59 @@ class TestWave2Seams:
             for table in ("media", "place", "day")
         }
         assert before == after
+
+
+class TestTimezoneResolutionIsIdempotent:
+    """The bug that reached real data twice, in two different fields.
+
+    Timezone resolution *rewrites* `taken_local` when the offset tag and GPS disagree. It therefore
+    cannot also read from it: each run re-applies the correction to its own previous output. On the
+    real trip that drifted photos nine hours per build, and after enough runs a photo taken on the
+    18th was dated the 21st -- inventing three days that never existed and scattering the trip
+    across them.
+
+    The first version of this bug was the raw offset sharing `tz_offset_minutes`. Fixing that and
+    not noticing `taken_local` had the identical shape is why this test exists rather than a
+    comment.
+    """
+
+    @pytest.fixture
+    def prepared(self, ctx: StageContext, has_exiftool: bool) -> StageContext:
+        if not has_exiftool:
+            pytest.skip("exiftool not installed")
+        ScanStage().run(ctx)
+        stage = MetadataStage()
+        for media in stage.select(ctx):
+            stage.process_batch(ctx, [media])
+        return ctx
+
+    def _conflict(self, ctx: StageContext):
+        return _by_name(ctx.conn, "offset_gps_conflict.jpg")
+
+    def test_the_raw_wall_reading_is_preserved(self, prepared: StageContext) -> None:
+        assert self._conflict(prepared).exif_local == "2026-07-19T06:15:00"
+
+    def test_resolution_does_not_alter_the_raw_reading(self, prepared: StageContext) -> None:
+        TimezoneStage().run(prepared)
+        assert self._conflict(prepared).exif_local == "2026-07-19T06:15:00"
+
+    def test_five_runs_produce_the_same_local_time(self, prepared: StageContext) -> None:
+        seen = set()
+        for _ in range(5):
+            TimezoneStage().run(prepared)
+            seen.add(self._conflict(prepared).taken_local)
+        assert seen == {"2026-07-19T15:15:00"}
+
+    def test_five_runs_produce_the_same_instant(self, prepared: StageContext) -> None:
+        seen = set()
+        for _ in range(5):
+            TimezoneStage().run(prepared)
+            seen.add(self._conflict(prepared).taken_utc)
+        assert len(seen) == 1
+
+    def test_no_photo_drifts_to_a_day_that_never_existed(self, prepared: StageContext) -> None:
+        """The visible symptom: days appearing in the output that the trip never spanned."""
+        for _ in range(5):
+            TimezoneStage().run(prepared)
+        dates = {m.taken_local[:10] for m in db.iter_media(prepared.conn) if m.taken_local}
+        assert dates <= {"2026-07-18", "2026-07-19", "2026-07-20", "2026-07-26"}

@@ -32,6 +32,7 @@ from story_book.pipeline.metadata import MetadataStage
 from story_book.pipeline.quality import ContentClassStage, QualityStage
 from story_book.pipeline.runner import Runner
 from story_book.pipeline.scan import ScanStage
+from story_book.pipeline.selection import SelectionStage
 from story_book.pipeline.timezones import TimezoneStage
 from story_book.pipeline.video import VideoStage
 from story_book.profile_json import profile_to_dict
@@ -56,7 +57,7 @@ def build_stages(ctx: StageContext) -> list[Stage]:
         scan -> metadata -> timezones
              -> gps_backfill -> geocode -> days -> events -> home_filter
              -> video, embeddings, quality, content_class                (independent)
-             -> phash -> dedup -> [selection]                            (Wave 3)
+             -> phash -> dedup -> selection
              -> landmarks
              -> [timeline] -> [report, package]                          (Wave 3/4)
 
@@ -82,6 +83,7 @@ def build_stages(ctx: StageContext) -> list[Stage]:
         ContentClassStage(),
         PhashStage(),
         DedupStage(),
+        SelectionStage(),
         LandmarkStage(),
     ]
 

@@ -125,7 +125,9 @@ def _resolve_gps_backed(
     media: Media, config: Config, finder: TimezoneFinderLike, clock_offset: int
 ) -> tuple[datetime, datetime, str | None, int, TzSource]:
     """Level 1 (validated) / level 2. `media` has its own GPS fix."""
-    corrected_local = _parse_local(media.taken_local) + timedelta(minutes=clock_offset)
+    corrected_local = _parse_local(media.exif_local or media.taken_local) + timedelta(
+        minutes=clock_offset
+    )
 
     zone_name = _gps_zone(finder, media)
     if zone_name is None:
@@ -202,7 +204,9 @@ def _resolve_without_gps(
     device_anchors: list[_Anchor],
 ) -> tuple[datetime, datetime, str | None, int, TzSource]:
     """Levels 3/4. `media` has no GPS fix of its own."""
-    corrected_local = _parse_local(media.taken_local) + timedelta(minutes=clock_offset)
+    corrected_local = _parse_local(media.exif_local or media.taken_local) + timedelta(
+        minutes=clock_offset
+    )
 
     neighbor = _nearest_anchor(device_anchors, corrected_local) if media.device_id else None
     if neighbor is not None:

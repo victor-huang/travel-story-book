@@ -10,7 +10,7 @@ from pathlib import Path
 
 from story_book.db.models import Media, StageResult, StageStatus
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 DB_FILENAME = "story.db"
 
 
@@ -68,12 +68,13 @@ def upsert_media(conn: sqlite3.Connection, media: Media) -> None:
         """
         INSERT INTO media (
             hash, path, kind, bytes, mtime, width, height, duration, device_id,
-            taken_local, taken_utc, tz_name, tz_offset_minutes, tz_source, exif_offset_minutes,
+            taken_local, taken_utc, tz_name, tz_offset_minutes, tz_source,
+            exif_offset_minutes, exif_local,
             lat, lon, altitude, gps_source, gps_confidence, place_id, is_near_home
         ) VALUES (
             :hash, :path, :kind, :bytes, :mtime, :width, :height, :duration, :device_id,
             :taken_local, :taken_utc, :tz_name, :tz_offset_minutes, :tz_source,
-            :exif_offset_minutes,
+            :exif_offset_minutes, :exif_local,
             :lat, :lon, :altitude, :gps_source, :gps_confidence, :place_id, :is_near_home
         )
         ON CONFLICT (hash) DO UPDATE SET
@@ -90,6 +91,7 @@ def upsert_media(conn: sqlite3.Connection, media: Media) -> None:
             tz_offset_minutes = excluded.tz_offset_minutes,
             tz_source = excluded.tz_source,
             exif_offset_minutes = excluded.exif_offset_minutes,
+            exif_local = excluded.exif_local,
             lat = excluded.lat,
             lon = excluded.lon,
             altitude = excluded.altitude,
@@ -114,6 +116,7 @@ def upsert_media(conn: sqlite3.Connection, media: Media) -> None:
             "tz_offset_minutes": media.tz_offset_minutes,
             "tz_source": str(media.tz_source),
             "exif_offset_minutes": media.exif_offset_minutes,
+            "exif_local": media.exif_local,
             "lat": media.lat,
             "lon": media.lon,
             "altitude": media.altitude,

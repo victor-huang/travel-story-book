@@ -68,6 +68,9 @@ class MetadataStage(BatchStage):
     def _apply(self, conn: sqlite3.Connection, media: Media, meta: dict) -> None:
         timestamp = extract_timestamp(meta, media.kind)
         media.taken_local = timestamp.dt.isoformat() if timestamp.dt is not None else None
+        # The immutable record of what the camera actually wrote. Timezone resolution rewrites
+        # taken_local, so it needs a source that its own output cannot contaminate.
+        media.exif_local = media.taken_local
 
         # Hand the raw EXIF offset to T12 through the two fields the frozen Media model has for
         # it. Without this the offset was parsed and discarded, tz_source stayed UNKNOWN, and
