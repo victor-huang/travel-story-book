@@ -275,8 +275,28 @@ second refinement pass after Module 11 may merge or rename events using landmark
 
 Both thresholds are config-tunable, and the truth set from Phase 0 is what tunes them.
 
-**Acceptance:** on the labeled day set, event boundaries match hand-labeled boundaries with
-≥80% precision and recall (a merged pair counts as one miss).
+**Acceptance — restated after P03, because the original measured a category error.** Events are
+an **internal scoping concept**: they bound deduplication, selection and landmark sampling, and are
+never shown to a reader. The chapters a reader sees are proposed by the AI from the contact sheets
+and edited in `overrides.toml`.
+
+The original criterion — ≥80% precision/recall against hand-labelled boundaries — silently assumed
+the human and the algorithm mean the same thing by "event". They do not. Measured against real
+labels: human boundaries fell after a **2-minute** and an **8-minute** gap while the pipeline's
+fell at 17–57 minutes (*anti-correlated*), and those boundaries sat **10 m** and **230 m** from the
+nearest previous point in the same event, while ordinary within-event movement reached **2.8 km**.
+A grid search over every threshold topped out at F1 57%; adding CLIP content distance made it worse
+(33%). The signal is not in the metadata, and "this is the concert we came for" is knowledge about
+the trip rather than about the pixels.
+
+So the criterion is now: **every dated item belongs to exactly one cluster; clusters never span a
+day; near-duplicates are never split across clusters** (the property deduplication depends on); and
+a re-run is idempotent. Chapter quality is judged by the reader, on the book.
+
+There is deliberately **no maximum-duration rule**. One existed to stop a user-facing event
+spanning nine hours; a long cluster is harmless now that clusters are internal, and *safer* for
+deduplication — near-duplicates can only be found within a cluster, so under-splitting costs
+comparisons while over-splitting loses duplicates outright.
 
 ## 7. Near-duplicate clustering
 
