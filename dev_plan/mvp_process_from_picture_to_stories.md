@@ -396,6 +396,27 @@ This is the whole "editing" story for Phase 1: **edit a text file, re-run, refre
 browser.** It's less pleasant than clicking, but it costs a day instead of three weeks, and
 overrides end up version-controllable and diffable.
 
+**Everything is addressed by filename**, never by cluster or event id. Those ids are assigned
+fresh on every run, so an override naming one would come to mean a different group of photos as
+soon as the library changed. Events are addressed by naming a photo inside them. A name matching
+nothing, or matching two files, is a hard error: an override that quietly does nothing is
+indistinguishable from one that failed.
+
+The file is not a convenience. Reviewing one real trip's 31 highlights produced 19 labelled
+decisions, and **the quality score does not separate them** — the 16 requested additions average
+0.742 against 0.713 for the 3 requested removals, with 7 of the 16 falling inside the removals'
+range. A sweep over day quota, minimum time spacing and the diversity threshold recovered at most
+7 of 16, and only by doubling the book to 61 photos. Face presence is *anti*-correlated with the
+requests; a CLIP landmark-vs-generic margin does not separate them either. What the 16 share is
+apparent only by looking at them: one photo each of sixteen named things — the Hofburg, the Opera,
+the Musikverein, a Klimt. Two of them rank 89th and 62nd of 121 in their own event, because a
+couple standing in a busy plaza scores badly on sharpness and contrast, and they are the two most
+obviously book-worthy photos on the sheet.
+
+So the pin list is not a workaround for an untuned threshold. It is the mechanism for the part of
+the judgement that is not in the pixels, and the pins are *additional* to the day's quota rather
+than deducted from it.
+
 ## 11. Landmark recognition (cloud, representatives only)
 
 **P02 data point worth checking before spending on this.** Given only coordinates and contact-sheet

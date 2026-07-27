@@ -52,6 +52,7 @@ from math import asin, cos, radians, sin, sqrt
 from story_book.config import Config, EventConfig
 from story_book.db.connection import iter_media
 from story_book.db.models import Media
+from story_book.overrides import ResolvedOverrides, resolve
 from story_book.pipeline.base import StageContext, WholeTripStage
 from story_book.pipeline.days import assign_days
 
@@ -147,12 +148,15 @@ def starts_new_event(
     return False, ""
 
 
-def detect_events(media_list: list[Media], config: Config) -> list[DetectedEvent]:
+def detect_events(
+    media_list: list[Media], config: Config, overrides: ResolvedOverrides | None = None
+) -> list[DetectedEvent]:
     """Split each day's media into events. Pure: no DB, no filesystem.
 
     Undated items are excluded -- they cannot be placed in a chronology, and inventing a position
     for them would put a photo in a story it may not belong to. The caller counts them.
     """
+    overrides = overrides or ResolvedOverrides()
     day_by_hash = assign_days(media_list, config.time.day_start_hour)
     dated = [m for m in media_list if m.hash in day_by_hash and m.taken_utc]
     dated.sort(key=lambda m: (m.taken_utc or "", m.hash))
@@ -166,7 +170,10 @@ def detect_events(media_list: list[Media], config: Config) -> list[DetectedEvent
         current: list[Media] = []
         seq = 1
         for media in by_day[local_date]:
-            split, reason = starts_new_event(current, media, config)
+            if media.hash in overrides.split_before:
+                split, reason = bool(current), "override"
+            else:
+                split, reason = starts_new_event(current, media, config)
             if split:
                 events.append(DetectedEvent(local_date, seq, current))
                 logger.debug("event %s#%d ended: %s", local_date, seq, reason)
@@ -176,6 +183,42 @@ def detect_events(media_list: list[Media], config: Config) -> list[DetectedEvent
                 current.append(media)
         if current:
             events.append(DetectedEvent(local_date, seq, current))
+    return apply_merges(events, overrides)
+
+
+def apply_merges(events: list[DetectedEvent], overrides: ResolvedOverrides) -> list[DetectedEvent]:
+    """Join the events named by each `merge_events` group into one, then renumber each day.
+
+    A merge names *photos*, and the events holding them are joined. Events between two named
+    ones are swept in too: a merge that left a gap in the middle would produce two events
+    interleaved in time, which nothing downstream expects.
+    """
+    if not overrides.merge_groups:
+        return events
+
+    for group in overrides.merge_groups:
+        indices = sorted(
+            index
+            for index, event in enumerate(events)
+            if any(member.hash in group for member in event.members)
+        )
+        if len(indices) < 2:
+            continue
+        span = events[indices[0] : indices[-1] + 1]
+        if len({event.local_date for event in span}) > 1:
+            logger.warning("overrides: skipping a merge that would join events across days")
+            continue
+        merged = DetectedEvent(
+            span[0].local_date,
+            span[0].seq,
+            [member for event in span for member in event.members],
+        )
+        events = events[: indices[0]] + [merged] + events[indices[-1] + 1 :]
+
+    by_day: dict[str, int] = {}
+    for event in events:
+        by_day[event.local_date] = by_day.get(event.local_date, 0) + 1
+        event.seq = by_day[event.local_date]
     return events
 
 
@@ -197,7 +240,8 @@ class EventStage(WholeTripStage):
                 "events: %d item(s) have no usable timestamp and belong to no event", undated
             )
 
-        events = detect_events(media_list, ctx.config)
+        overrides = resolve(ctx.overrides, ctx.conn)
+        events = detect_events(media_list, ctx.config, overrides)
         day_ids = _day_ids(ctx.conn)
         missing_days = {e.local_date for e in events} - set(day_ids)
         if missing_days:
@@ -206,7 +250,7 @@ class EventStage(WholeTripStage):
                 ", ".join(sorted(missing_days)),
             )
 
-        _replace_events(ctx.conn, events, day_ids)
+        _replace_events(ctx.conn, events, day_ids, overrides)
         logger.info("events: %d event(s) across %d day(s)", len(events), len(day_ids))
 
 
@@ -218,7 +262,10 @@ def _day_ids(conn: sqlite3.Connection) -> dict[str, int]:
 
 
 def _replace_events(
-    conn: sqlite3.Connection, events: list[DetectedEvent], day_ids: dict[str, int]
+    conn: sqlite3.Connection,
+    events: list[DetectedEvent],
+    day_ids: dict[str, int],
+    overrides: ResolvedOverrides | None = None,
 ) -> None:
     """Rewrite the event rows for this trip.
 
@@ -227,6 +274,7 @@ def _replace_events(
     reconcile against. `media_event` cascades on delete. Anything that later hangs off an event id
     (clusters) is rebuilt by its own always-run stage for the same reason.
     """
+    labels = (overrides or ResolvedOverrides()).event_labels
     conn.execute(
         "DELETE FROM event WHERE day_id IN (SELECT id FROM day WHERE trip_id = 1)",
     )
@@ -235,11 +283,14 @@ def _replace_events(
         if day_id is None:
             continue
         centroid_lat, centroid_lon = event.centroid
+        label = next(
+            (labels[member.hash] for member in event.members if member.hash in labels), None
+        )
         cursor = conn.execute(
             """
             INSERT INTO event (day_id, seq, start_utc, end_utc, centroid_lat, centroid_lon,
                                place_id, label)
-            VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 day_id,
@@ -249,6 +300,7 @@ def _replace_events(
                 centroid_lat,
                 centroid_lon,
                 event.place_id,
+                label,
             ),
         )
         event_id = cursor.lastrowid

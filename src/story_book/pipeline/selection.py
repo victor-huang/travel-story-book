@@ -40,6 +40,7 @@ from typing import Any
 
 from story_book.config import Config
 from story_book.db.models import Media, SelectionScope
+from story_book.overrides import ResolvedOverrides, resolve
 from story_book.pipeline.base import StageContext, WholeTripStage
 from story_book.pipeline.home_filter import should_exclude_from_export
 
@@ -75,10 +76,22 @@ def keeper_sort_key(candidate: Candidate) -> tuple:
     )
 
 
-def is_eligible(candidate: Candidate, config: Config) -> bool:
-    """Whether a photo may appear in the book at all."""
+def is_eligible(
+    candidate: Candidate, config: Config, overrides: ResolvedOverrides | None = None
+) -> bool:
+    """Whether a photo may appear in the book at all.
+
+    A human override outranks every automatic test except the privacy one. Being near home is
+    not a quality judgement that can be overruled -- it is the guarantee in the plan, and a
+    pinned photo must not become the hole in it.
+    """
     if should_exclude_from_export(candidate.media, config.home):
         return False
+    if overrides is not None:
+        if candidate.media.hash in overrides.reject:
+            return False
+        if candidate.media.hash in overrides.pin:
+            return True
     if candidate.content_class in config.quality.reject_content_classes:
         return False
     return candidate.overall >= config.quality.min_overall_for_highlight
@@ -158,28 +171,40 @@ class SelectionStage(WholeTripStage):
             logger.info("selection: nothing scored yet")
             return
 
+        overrides = resolve(ctx.overrides, ctx.conn)
         _clear(ctx.conn)
-        keepers = self._choose_keepers(ctx, candidates)
+        keepers = self._choose_keepers(ctx, candidates, overrides)
         eligible = [
             c
             for c in candidates
-            if is_eligible(c, ctx.config)
-            and (c.cluster_id is None or keepers.get(c.cluster_id) == c.media.hash)
+            if is_eligible(c, ctx.config, overrides)
+            and (
+                c.cluster_id is None
+                or keepers.get(c.cluster_id) == c.media.hash
+                or c.media.hash in overrides.pin
+            )
         ]
         excluded = len(candidates) - len(eligible)
 
         self._choose_event_representatives(ctx, eligible)
-        day_picks = self._choose_day_highlights(ctx, eligible)
+        day_picks = self._choose_day_highlights(ctx, eligible, overrides)
         self._choose_trip_highlights(ctx, day_picks)
 
         logger.info(
-            "selection: %d keeper(s), %d day highlight(s); %d candidate(s) not eligible",
+            "selection: %d keeper(s), %d day highlight(s); %d candidate(s) not eligible%s",
             len(keepers),
             len(day_picks),
             excluded,
+            (
+                f"; overrides pinned {len(overrides.pin)}, rejected {len(overrides.reject)}"
+                if not overrides.is_empty
+                else ""
+            ),
         )
 
-    def _choose_keepers(self, ctx: StageContext, candidates: list[Candidate]) -> dict[int, str]:
+    def _choose_keepers(
+        self, ctx: StageContext, candidates: list[Candidate], overrides: ResolvedOverrides
+    ) -> dict[int, str]:
         by_cluster: dict[int, list[Candidate]] = {}
         for candidate in candidates:
             if candidate.cluster_id is not None:
@@ -187,7 +212,8 @@ class SelectionStage(WholeTripStage):
 
         keepers: dict[int, str] = {}
         for cluster_id, members in by_cluster.items():
-            best = min(members, key=keeper_sort_key)
+            forced = [m for m in members if m.media.hash in overrides.keeper]
+            best = forced[0] if forced else min(members, key=keeper_sort_key)
             keepers[cluster_id] = best.media.hash
             ctx.conn.execute(
                 "UPDATE cluster SET keeper_hash = ? WHERE id = ?", (best.media.hash, cluster_id)
@@ -208,7 +234,7 @@ class SelectionStage(WholeTripStage):
                 _record(ctx.conn, candidate, SelectionScope.EVENT, event_id, rank, "event sample")
 
     def _choose_day_highlights(
-        self, ctx: StageContext, eligible: list[Candidate]
+        self, ctx: StageContext, eligible: list[Candidate], overrides: ResolvedOverrides
     ) -> list[Candidate]:
         by_day: dict[int, list[Candidate]] = {}
         for candidate in eligible:
@@ -219,18 +245,25 @@ class SelectionStage(WholeTripStage):
         picked: list[Candidate] = []
 
         for day_id, members in by_day.items():
+            # Pinned photos are additional to the quota, not deducted from it. A human naming
+            # thirteen photos on one day is asking for those *as well as* a representative
+            # spread, not asking to spend the day's whole budget on them.
+            pinned = [c for c in members if c.media.hash in overrides.pin]
+            automatic = [c for c in members if c.media.hash not in overrides.pin]
+
             by_event: dict[int, list[Candidate]] = {}
-            for candidate in members:
+            for candidate in automatic:
                 by_event.setdefault(candidate.event_id, []).append(candidate)
 
             allocation = allocate({e: len(m) for e, m in by_event.items()}, quota)
-            chosen: list[Candidate] = []
+            chosen: list[Candidate] = list(pinned)
             for event_id, slots in allocation.items():
                 chosen.extend(pick_diverse(by_event[event_id], slots, distance))
 
             chosen.sort(key=lambda c: c.media.taken_utc or "")
             for rank, candidate in enumerate(chosen, start=1):
-                _record(ctx.conn, candidate, SelectionScope.DAY, day_id, rank, "day highlight")
+                reason = "pinned" if candidate.media.hash in overrides.pin else "day highlight"
+                _record(ctx.conn, candidate, SelectionScope.DAY, day_id, rank, reason)
             picked.extend(chosen)
         return picked
 

@@ -19,6 +19,7 @@ from story_book import profile as story_profile
 from story_book.config import Config, ConfigError
 from story_book.db import connection as db
 from story_book.eval import evaluate_truth_set_file, render_report
+from story_book.overrides import OverrideError, Overrides
 from story_book.pipeline.base import Stage, StageContext
 from story_book.pipeline.days import DaysStage
 from story_book.pipeline.dedup import DedupStage, PhashStage
@@ -96,6 +97,29 @@ def _load_config(config_path: Path | None) -> Config:
         raise typer.Exit(2) from exc
 
 
+def _overrides_path(explicit: Path | None, config_path: Path | None) -> Path | None:
+    """Where to look for corrections: the flag, else `overrides.toml` beside the config.
+
+    An explicit `--overrides` that does not exist is an error rather than a silent no-op -- the
+    user asked for a specific file, and quietly ignoring it looks identical to an override that
+    failed to take effect. The implicit one is optional by design.
+
+    The implicit lookup is anchored to the config, never to the current directory. Falling back
+    to the cwd makes the same command mean different things depending on where it is run, which
+    is how a stray `overrides.toml` in a checkout ends up silently applied to an unrelated trip.
+    With no `--config`, corrections must be named explicitly.
+    """
+    if explicit is not None:
+        if not explicit.exists():
+            console.print(f"[red]overrides error:[/] file not found: {explicit}")
+            raise typer.Exit(2)
+        return explicit
+    if config_path is None:
+        return None
+    beside = config_path.parent / "overrides.toml"
+    return beside if beside.exists() else None
+
+
 def _version_callback(value: bool) -> None:
     if value:
         console.print(f"story-book {__version__}")
@@ -138,6 +162,12 @@ def build(
         Path | None,
         typer.Option("--context", help="Trip context TOML: travellers, voice, plans, notes."),
     ] = None,
+    overrides_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--overrides", help="Corrections TOML. Defaults to overrides.toml if present."
+        ),
+    ] = None,
 ) -> None:
     """Run the pipeline. Safe to interrupt and re-run: finished work is not recomputed."""
     config = _load_config(config_path)
@@ -165,6 +195,17 @@ def build(
     else:
         console.print(f"trip context: {len(trip_context.travelers)} traveller(s) described")
 
+    try:
+        overrides = Overrides.load(_overrides_path(overrides_path, config_path))
+    except OverrideError as exc:
+        console.print(f"[red]overrides error:[/] {exc}")
+        raise typer.Exit(2) from exc
+    if not overrides.is_empty:
+        console.print(
+            f"overrides: {len(overrides.pin)} pinned, {len(overrides.reject)} rejected, "
+            f"{len(overrides.keeper)} forced keeper(s)"
+        )
+
     trip_name = config.trip_name or source.name
     conn = db.connect(out / db.DB_FILENAME)
     db.ensure_trip(conn, trip_name)
@@ -175,6 +216,7 @@ def build(
         out_dir=out,
         source_dir=source,
         no_cloud=config.no_cloud,
+        overrides=overrides,
     )
     stages = build_stages(ctx)
     console.print(f"trip: [bold]{trip_name}[/]  ({db.count_media(conn)} media known)")

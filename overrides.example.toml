@@ -1,0 +1,71 @@
+# Human corrections, applied on the next `build`.
+#
+# Copy to `overrides.toml` next to your config and edit. `build` picks it up automatically, or
+# point at it with `--overrides`. Because every expensive stage is cached by content hash,
+# re-running after an edit takes seconds: nothing is recomputed, only the aggregate stages
+# (events, dedup, selection) re-derive, and those are cheap.
+#
+# **Everything is addressed by filename.** Cluster and event ids are assigned fresh on every run,
+# so an override naming one would come to mean a different group of photos as soon as the library
+# changed. Filenames are stable, and the extension is optional -- "IMG_1880" and "IMG_1880.jpeg"
+# both work. A name that matches nothing, or matches two files, is an error rather than a silent
+# no-op: a correction that quietly does nothing is indistinguishable from one that failed.
+
+override_version = 1
+
+# --- which photos reach the book -------------------------------------------------------------
+#
+# Why this exists: selection ranks photos on *technical* quality -- sharpness, exposure, contrast,
+# faces. A person ranks them on what the photo is of. On a real trip, 19 hand-labelled decisions
+# could not be reproduced by any setting of the quota, time-spacing or diversity thresholds:
+# the best combination recovered 7 of 16 requested photos and only by doubling the book. So the
+# last word is a list, not a threshold.
+
+# Always include these, whatever the score says. Pinned photos are *additional* to the day's
+# quota, not deducted from it -- naming twelve photos on one day asks for those as well as a
+# representative spread, not instead of it. A pin also overrides the content-class filter and
+# the minimum-quality floor, but never the home-exclusion rule: that one is a privacy guarantee,
+# not a quality judgement.
+pin = [
+  "IMG_1880",
+  "IMG_1881",
+]
+
+# Never include these.
+reject = [
+  "IMG_2071",
+]
+
+# Within its near-duplicate cluster, keep this frame rather than the highest-scoring one.
+# Technical quality genuinely cannot separate two frames of one burst -- the real difference is
+# expression, and whether someone blinked.
+keeper = [
+  "IMG_1855",
+]
+
+# --- events -----------------------------------------------------------------------------------
+#
+# Events are internal scoping (dedup, selection, landmark sampling), not the chapters a reader
+# sees. Correct them when a stop got split down the middle or two got run together.
+
+# Start a new event at this photo.
+[[split_event]]
+before = "IMG_1899"
+
+# Join the events holding these photos into one. Events falling between the named ones are
+# swept in too, so the result stays contiguous in time.
+[[merge_events]]
+photos = ["IMG_2071", "IMG_2076"]
+
+# Name the event containing this photo.
+[[label_event]]
+photo = "IMG_1914"
+label = "Concert at the Musikverein"
+
+# --- landmarks ----------------------------------------------------------------------------------
+#
+# Rename what the vision provider called something. Applied as the row is written, so two spellings
+# from two requests collapse into one landmark rather than two.
+[[label_landmark]]
+name = "Stephansdom"
+label = "St Stephen's Cathedral"

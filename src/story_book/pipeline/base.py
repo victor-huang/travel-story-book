@@ -18,13 +18,14 @@ from __future__ import annotations
 
 import sqlite3
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 from story_book.config import Config
 from story_book.db.models import Media
+from story_book.overrides import Overrides
 
 TRIP_SENTINEL = "__trip__"
 """Cache key for whole-trip stages, which have no single media hash."""
@@ -61,6 +62,7 @@ class StageContext:
     out_dir: Path
     source_dir: Path
     no_cloud: bool = False
+    overrides: Overrides = field(default_factory=Overrides)
 
     @property
     def cache_dir(self) -> Path:

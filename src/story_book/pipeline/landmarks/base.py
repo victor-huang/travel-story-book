@@ -27,6 +27,7 @@ from typing import Any
 from story_book.config import LandmarkConfig
 from story_book.db import connection as db
 from story_book.db.models import Media
+from story_book.overrides import resolve
 from story_book.pipeline.base import BatchStage, StageContext
 
 logger = logging.getLogger(__name__)
@@ -216,7 +217,15 @@ def _persist(
     source: str,
     prompt_version: int,
     identification: LandmarkIdentification,
+    renames: dict[str, str] | None = None,
 ) -> None:
+    """Store one identification. `renames` applies `[[label_landmark]]` from `overrides.toml`.
+
+    The rename happens here rather than at read time so the stored name is the corrected one:
+    a provider that returns "Stephansdom" on one photo and "St. Stephen's" on the next would
+    otherwise create two landmarks that no downstream join can reunite.
+    """
+    name = (renames or {}).get(identification.name, identification.name)
     conn.execute(
         """
         INSERT INTO landmark (name, confidence, description, source, prompt_version)
@@ -226,7 +235,7 @@ def _persist(
             description = excluded.description
         """,
         {
-            "name": identification.name,
+            "name": name,
             "confidence": identification.confidence,
             "description": _describe(identification),
             "source": source,
@@ -235,7 +244,7 @@ def _persist(
     )
     row = conn.execute(
         "SELECT id FROM landmark WHERE name = ? AND source = ? AND prompt_version = ?",
-        (identification.name, source, prompt_version),
+        (name, source, prompt_version),
     ).fetchone()
     conn.execute(
         "INSERT OR IGNORE INTO media_landmark (media_hash, landmark_id) VALUES (?, ?)",
@@ -307,6 +316,7 @@ class LandmarkStage(BatchStage):
             return {}
 
         results: dict[str, Any] = {}
+        renames = resolve(ctx.overrides, ctx.conn).landmark_labels
         step = max(config.images_per_request, 1)
         for start in range(0, len(batch), step):
             group = batch[start : start + step]
@@ -315,6 +325,13 @@ class LandmarkStage(BatchStage):
                 continue
             identifications = provider.identify(contexts)
             for media_hash, identification in identifications.items():
-                _persist(ctx.conn, media_hash, provider.name, config.prompt_version, identification)
+                _persist(
+                    ctx.conn,
+                    media_hash,
+                    provider.name,
+                    config.prompt_version,
+                    identification,
+                    renames,
+                )
                 results[media_hash] = identification
         return results

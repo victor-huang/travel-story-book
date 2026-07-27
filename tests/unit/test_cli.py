@@ -4,10 +4,11 @@ import json
 from pathlib import Path
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 from story_book import __version__
-from story_book.cli import app
+from story_book.cli import _overrides_path, app
 
 runner = CliRunner()
 
@@ -130,3 +131,36 @@ class TestProfileOutput:
         target = tmp_path / "profile.json"
         runner.invoke(app, ["profile", str(media_dir), "--json", str(target)])
         assert json.loads(target.read_text())["media"]["total"] > 0
+
+
+class TestOverridesDiscovery:
+    """Where `build` looks for corrections when `--overrides` is not given.
+
+    Anchored to the config, never to the current directory: a stray `overrides.toml` in a
+    checkout must not silently apply itself to an unrelated trip. This was a real bug -- the
+    repo's own overrides file leaked into the CLI tests.
+    """
+
+    def test_nothing_is_found_without_a_config(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "overrides.toml").write_text('pin = ["IMG_1.jpeg"]\n')
+
+        assert _overrides_path(None, None) is None
+
+    def test_a_file_beside_the_config_is_found(self, tmp_path: Path) -> None:
+        config = tmp_path / "config.toml"
+        config.write_text("")
+        beside = tmp_path / "overrides.toml"
+        beside.write_text('pin = ["IMG_1.jpeg"]\n')
+
+        assert _overrides_path(None, config) == beside
+
+    def test_an_absent_file_beside_the_config_is_not_an_error(self, tmp_path: Path) -> None:
+        config = tmp_path / "config.toml"
+        config.write_text("")
+
+        assert _overrides_path(None, config) is None
+
+    def test_an_explicit_missing_file_exits_rather_than_being_ignored(self, tmp_path: Path) -> None:
+        with pytest.raises(typer.Exit):
+            _overrides_path(tmp_path / "absent.toml", None)
