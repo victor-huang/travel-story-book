@@ -53,29 +53,24 @@ class EventConfig:
 
 @dataclass(frozen=True, slots=True)
 class DedupConfig:
-    # Calibrated twice, and the second time by looking at the pictures.
-    #
-    # The distance distribution over 11,709 real within-event pairs is centred at 31.3 (spread
-    # 4.2), with 12 pairs at <=14, 19 at <=16, 27 at <=18 and 100 at <=20. That pointed at 18, and
-    # against the hand-labelled pairs 18 scored 100% precision -- but only 8 pairs fell inside the
-    # labelled days, far too few to see the failure. Rendering all 23 resulting clusters and
-    # looking at them showed four of the first six were nonsense: two different composer busts, a
-    # bust merged with a cathedral tower, a stage set merged with an organ loft.
-    #
-    # Sorted by distance the split is total: every cluster at <=14 is a burst or a tight retake,
-    # every cluster at >=16 is a "similar" pair, and every one of those inspected was wrong. So 14.
-    # It costs the two loosest labelled duplicates (at 16 and 20) -- the right trade, since the
-    # plan is explicit that a false merge costs more than a missed duplicate.
-    phash_max_distance: int = 14
+    """Both signals must agree before two photos are called duplicates -- see `classify_pair`."""
+
+    # pHash *proposes*. Distances over 11,709 real within-event pairs centre on 31.3 (spread 4.2),
+    # with 12 pairs at <=14, 19 at <=16, 27 at <=18 and 100 at <=20, so 18 sits just under the
+    # noise floor. The original guess of 6 caught one of nine real duplicates.
+    phash_max_distance: int = 18
+
     burst_max_seconds: float = 3.0
 
-    # Deliberately above anything CLIP cosine can resolve here. On the same labelled pairs the
-    # two classes *overlap*: duplicates ran 0.836-0.956 while distinct pairs ran 0.838-0.929, so a
-    # distinct pair was more similar than a duplicate one. At 0.92 -- the original guess -- the
-    # 0.929 distinct pair would be falsely merged, and the plan is explicit that a false merge is
-    # worse than a missed duplicate. Set high enough that pHash decides, with the knob kept for
-    # libraries whose characteristics differ.
-    similar_min_cosine: float = 0.96
+    # CLIP *confirms*. pHash sees low-frequency structure, so it happily merges two different
+    # composer busts lit identically, or two different paintings in matching frames -- all at
+    # Hamming 14-18. At that ambiguous band real duplicates scored 0.931-0.952 while those false
+    # merges scored 0.838 and 0.625, which is a clean gap.
+    #
+    # Note this threshold is only meaningful *given* a pHash match. CLIP on its own cannot separate
+    # the classes at all (duplicates 0.836-0.956, distinct 0.838-0.929), which is why the plan's
+    # original "pHash OR CLIP" design fails and conjunction is used instead.
+    confirm_min_cosine: float = 0.90
 
 
 @dataclass(frozen=True, slots=True)

@@ -41,17 +41,18 @@ min_items = 2
 
 
 [dedup]
-# Hamming distance between perceptual hashes. Calibrated on 11,709 real within-event pairs and
-# then corrected by eye: sorted by distance, every cluster at <=14 is a burst or a tight retake
-# while every cluster at >=16 was a false merge (two different busts, a bust with a cathedral
-# tower). A guessed 6 caught 1 of 9 real duplicates; 18 looked perfect on a too-small sample.
-phash_max_distance = 14
+# Two photos are duplicates only if BOTH signals agree. pHash proposes (it sees low-frequency
+# structure) and CLIP confirms (it sees subject). Either alone fails: pHash merges two different
+# composer busts lit identically, and CLIP alone cannot separate the classes at all.
+
+# Calibrated on 11,709 real within-event pairs: 19 fall at <=16, 27 at <=18, then 100 at <=20,
+# so 18 is just under the noise floor.
+phash_max_distance = 18
 burst_max_seconds = 3.0
 
-# CLIP cosine could not separate the two classes on real data -- duplicates 0.836-0.956, distinct
-# 0.838-0.929 -- so this sits above anything it resolves and pHash decides. Lower it only with
-# evidence: the plan is explicit that a false merge costs more than a missed duplicate.
-similar_min_cosine = 0.96
+# The confirmation gate, meaningful only given a pHash match. At the ambiguous Hamming band of
+# 13-16, real duplicates scored 0.931-0.952 and false merges 0.838 and 0.625.
+confirm_min_cosine = 0.90
 
 [quality]
 # Content classes never eligible to be a highlight.

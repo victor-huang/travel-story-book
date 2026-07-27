@@ -71,15 +71,29 @@ class TestClassifyPair:
         left, right = _candidate(1, bits=0), _candidate(2, bits=(1 << 40) - 1)
         assert classify_pair(left, right, _config(phash_max_distance=18)) is None
 
-    def test_clip_can_match_when_phash_is_missing(self) -> None:
+    def test_clip_alone_can_never_match(self) -> None:
+        """CLIP confirms a pHash match; it never proposes one. Alone it cannot separate the
+        classes at all -- real duplicates scored 0.836-0.956 and distinct pairs 0.838-0.929."""
         left = _Candidate(_candidate(1, bits=0).media, None, np.asarray([1.0, 0.0]), None)
-        right = _Candidate(_candidate(2, bits=0).media, None, np.asarray([0.99, 0.141]), None)
-        assert classify_pair(left, right, _config(similar_min_cosine=0.96)) is ClusterKind.SIMILAR
+        right = _Candidate(_candidate(2, bits=0).media, None, np.asarray([1.0, 0.0]), None)
+        assert classify_pair(left, right, _config()) is None
 
-    def test_clip_below_threshold_does_not_match(self) -> None:
-        left = _Candidate(_candidate(1, bits=0).media, None, np.asarray([1.0, 0.0]), None)
-        right = _Candidate(_candidate(2, bits=0).media, None, np.asarray([0.7, 0.714]), None)
-        assert classify_pair(left, right, _config(similar_min_cosine=0.96)) is None
+    def test_clip_vetoes_a_phash_match_on_a_different_subject(self) -> None:
+        """The failure this catches: two different composer busts, or two different paintings in
+        matching frames -- structurally alike at Hamming 14-18, obviously distinct to a person."""
+        left = _candidate(1, bits=0b0000, vector=[1.0, 0.0])
+        right = _candidate(2, bits=0b0011, vector=[0.7, 0.714])
+        assert classify_pair(left, right, _config(phash_max_distance=18)) is None
+
+    def test_clip_confirms_a_phash_match_on_the_same_subject(self) -> None:
+        left = _candidate(1, bits=0b0000, vector=[1.0, 0.0])
+        right = _candidate(2, bits=0b0011, vector=[0.99, 0.141])
+        assert classify_pair(left, right, _config(phash_max_distance=18)) is not None
+
+    def test_without_embeddings_phash_decides_alone(self) -> None:
+        """The clip extra is optional; the stage degrades rather than refusing to cluster."""
+        left, right = _candidate(1, bits=0b0000), _candidate(2, bits=0b0011)
+        assert classify_pair(left, right, _config(phash_max_distance=18)) is not None
 
     def test_nothing_to_compare_is_no_match(self) -> None:
         left = _Candidate(_candidate(1, bits=0).media, None, None, None)
@@ -152,13 +166,10 @@ class TestFalseMergesAreTheExpensiveError:
         assert tight <= loose
 
     def test_default_threshold_sits_below_the_noise_floor(self) -> None:
-        """14, not 18. The distance distribution alone suggested 18 and it scored 100% precision
-        against the labelled pairs -- but only 8 pairs fell in the labelled days. Rendering all 23
-        resulting clusters showed four of the first six were nonsense (two different composer
-        busts; a bust merged with a cathedral tower). Sorted by distance the split is total: <=14
-        is bursts and tight retakes, >=16 was false merges."""
-        assert DedupConfig().phash_max_distance == 14
+        """Measured on 11,709 real within-event pairs: 19 at <=16, 27 at <=18, then 100 at <=20."""
+        assert DedupConfig().phash_max_distance == 18
 
-    def test_default_cosine_is_above_what_clip_can_resolve(self) -> None:
-        """Real duplicates ran 0.836-0.956 and distinct pairs 0.838-0.929 -- they overlap."""
-        assert DedupConfig().similar_min_cosine > 0.929
+    def test_the_confirmation_gate_sits_in_the_measured_gap(self) -> None:
+        """At the ambiguous Hamming band of 13-16, real duplicates scored 0.931-0.952 and the
+        false merges a human flagged scored 0.838 and 0.625."""
+        assert 0.838 < DedupConfig().confirm_min_cosine < 0.931

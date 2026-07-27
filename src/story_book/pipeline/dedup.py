@@ -176,27 +176,48 @@ def _complete_linkage(
 
 
 def classify_pair(left: _Candidate, right: _Candidate, config: Config) -> ClusterKind | None:
-    """How (or whether) two photos in the same event are duplicates of each other."""
+    """How (or whether) two photos in the same event are duplicates of each other.
+
+    Both signals must agree. pHash proposes -- it measures low-frequency structure, so it sees
+    "same layout, same tones" -- and CLIP confirms, because it sees *subject*. Either alone is
+    insufficient, and the measurement is unambiguous about which mistake each one makes:
+
+    * **pHash alone** merges genuinely different pictures that share a composition. Two different
+      composer busts lit the same way on the same plinth; a bust and a cathedral tower; two
+      different paintings in the same gilt frame on the same gallery wall. All at Hamming 14-18,
+      inside any threshold loose enough to catch real duplicates.
+    * **CLIP alone** cannot separate the classes at all: real duplicate pairs scored 0.836-0.956
+      and genuinely distinct pairs 0.838-0.929, overlapping almost entirely.
+
+    Together they are decisive. At the ambiguous Hamming band of 13-16, real duplicates scored
+    0.931-0.952 while the false merges scored 0.838 and 0.625 -- a clean gap. The plan proposed
+    these as two independent paths (pHash *or* CLIP); on real data that is the worst of both, and
+    conjunction is what works.
+
+    When CLIP is unavailable (the `clip` extra is optional) there is nothing to confirm with, so
+    pHash decides alone and the caller is warned -- the stage degrades rather than silently
+    lowering its standards.
+    """
     dedup = config.dedup
+    if left.phash is None or right.phash is None:
+        return None
 
-    if left.phash is not None and right.phash is not None:
-        distance = hamming(left.phash, right.phash)
-        if distance == 0:
-            return ClusterKind.EXACT
-        if distance <= dedup.phash_max_distance:
-            seconds = _seconds_between(left, right)
-            # A tight visual match *and* shot moments apart is a burst. The same match minutes
-            # apart is a deliberate retake, which is still a duplicate but not a burst.
-            if seconds is not None and seconds <= dedup.burst_max_seconds:
-                return ClusterKind.BURST
-            return ClusterKind.SIMILAR
+    distance = hamming(left.phash, right.phash)
+    if distance > dedup.phash_max_distance:
+        return None
 
-    if left.vector is not None and right.vector is not None:
-        cosine = float(np.dot(left.vector, right.vector))
-        if cosine >= dedup.similar_min_cosine:
-            return ClusterKind.SIMILAR
+    both_embedded = left.vector is not None and right.vector is not None
+    if both_embedded and float(np.dot(left.vector, right.vector)) < dedup.confirm_min_cosine:
+        return None  # structurally alike, different subject.
 
-    return None
+    if distance == 0:
+        return ClusterKind.EXACT
+    seconds = _seconds_between(left, right)
+    # A tight visual match *and* shot moments apart is a burst. The same match minutes apart is a
+    # deliberate retake -- still a duplicate, not a burst.
+    if seconds is not None and seconds <= dedup.burst_max_seconds:
+        return ClusterKind.BURST
+    return ClusterKind.SIMILAR
 
 
 def _seconds_between(left: _Candidate, right: _Candidate) -> float | None:
