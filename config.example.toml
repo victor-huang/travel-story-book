@@ -41,11 +41,16 @@ min_items = 2
 
 
 [dedup]
-# Tight threshold: near-exact duplicates and burst frames.
-phash_max_distance = 6
+# Hamming distance between perceptual hashes. Calibrated on 11,709 real within-event pairs: the
+# count at or below a threshold runs 19 (<=16), 27 (<=18), then 100 (<=20), and that jump is where
+# random collisions take over. A guessed 6 caught 1 of 9 real duplicates.
+phash_max_distance = 18
 burst_max_seconds = 3.0
-# Looser threshold: semantically similar shots of the same subject.
-similar_min_cosine = 0.92
+
+# CLIP cosine could not separate the two classes on real data -- duplicates 0.836-0.956, distinct
+# 0.838-0.929 -- so this sits above anything it resolves and pHash decides. Lower it only with
+# evidence: the plan is explicit that a false merge costs more than a missed duplicate.
+similar_min_cosine = 0.96
 
 [quality]
 # Content classes never eligible to be a highlight.

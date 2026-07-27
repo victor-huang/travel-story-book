@@ -53,9 +53,22 @@ class EventConfig:
 
 @dataclass(frozen=True, slots=True)
 class DedupConfig:
-    phash_max_distance: int = 6
+    # Calibrated on 11,709 real within-event pairs, not guessed. Their distances are centred at
+    # 31.3 with a 4.2 spread, and the count at or below a threshold runs 12 (<=14), 19 (<=16),
+    # 27 (<=18), then **100** (<=20) -- the jump to 100 is where random collisions start to
+    # dominate. Eight of nine hand-labelled duplicate pairs sit at <=16 and the ninth at 20, so 18
+    # takes almost all of them while staying below the noise floor. The original guess of 6 caught
+    # one of the nine.
+    phash_max_distance: int = 18
     burst_max_seconds: float = 3.0
-    similar_min_cosine: float = 0.92
+
+    # Deliberately above anything CLIP cosine can resolve here. On the same labelled pairs the
+    # two classes *overlap*: duplicates ran 0.836-0.956 while distinct pairs ran 0.838-0.929, so a
+    # distinct pair was more similar than a duplicate one. At 0.92 -- the original guess -- the
+    # 0.929 distinct pair would be falsely merged, and the plan is explicit that a false merge is
+    # worse than a missed duplicate. Set high enough that pHash decides, with the knob kept for
+    # libraries whose characteristics differ.
+    similar_min_cosine: float = 0.96
 
 
 @dataclass(frozen=True, slots=True)

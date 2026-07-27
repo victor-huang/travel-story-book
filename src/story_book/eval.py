@@ -347,6 +347,17 @@ def score_keeper_agreement(records: list[KeeperRecord]) -> KeeperScore:
             total=len(records),
             note="no resolvable duplicate groups with a preferred pick",
         )
+
+    # "The selection stage has not run" is not "the selection stage chose wrongly". Reporting 0%
+    # [NOT MET] for an unbuilt stage is a false alarm, and the whole point of `computed=False`
+    # elsewhere in this module is to keep absent from masquerading as bad.
+    if all(r.predicted_keep is None for r in resolvable):
+        return KeeperScore(
+            computed=False,
+            total=len(resolvable),
+            note="clusters exist but none has a keeper yet -- the selection stage has not run",
+        )
+
     matched = sum(1 for r in resolvable if r.predicted_keep == r.true_keep)
     agreement = matched / len(resolvable)
     return KeeperScore(

@@ -21,6 +21,7 @@ from story_book.db import connection as db
 from story_book.eval import evaluate_truth_set_file, render_report
 from story_book.pipeline.base import Stage, StageContext
 from story_book.pipeline.days import DaysStage
+from story_book.pipeline.dedup import DedupStage, PhashStage
 from story_book.pipeline.embeddings import EmbeddingStage
 from story_book.pipeline.events import EventStage
 from story_book.pipeline.geocode import GeocodeStage
@@ -55,7 +56,7 @@ def build_stages(ctx: StageContext) -> list[Stage]:
         scan -> metadata -> timezones
              -> gps_backfill -> geocode -> days -> events -> home_filter
              -> video, embeddings, quality, content_class                (independent)
-             -> [dedup] -> [selection]                                   (Wave 3)
+             -> phash -> dedup -> [selection]                            (Wave 3)
              -> landmarks
              -> [timeline] -> [report, package]                          (Wave 3/4)
 
@@ -79,6 +80,8 @@ def build_stages(ctx: StageContext) -> list[Stage]:
         EmbeddingStage(),
         QualityStage(),
         ContentClassStage(),
+        PhashStage(),
+        DedupStage(),
         LandmarkStage(),
     ]
 
