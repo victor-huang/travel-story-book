@@ -159,6 +159,17 @@ lived in places a per-stage test cannot reach.
 - Remote: `github.com/victor-huang/travel-story-book` (public). CI runs macOS + Linux.
 - Commit or push only when asked. End commit messages with the `Co-Authored-By` trailer.
 
+## Reporting numbers
+
+Quote a metric with its **sample size** and, where the decision is close, its **margin**. This
+project has produced "100% precision" over 8 pairs (four visible false merges in the unlabelled
+remainder) and "67% keeper agreement" over 6 groups where every decision turned on a 0.001-0.008
+score gap. Both were arithmetically correct and told the reader nothing true.
+
+And **look at the output**. Rendering contact sheets has three times found in seconds what the eval
+harness could not find at all: flat quality scores, chained clusters, and a selection full of
+parked vans.
+
 ## After a dev/test cycle
 
 Add a retro entry to `retro/agentic_coding/YYYY-MM-DD-<slug>.md` for anything that cost real

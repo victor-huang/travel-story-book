@@ -43,6 +43,19 @@ teaches something.
 is set up (a lint rule, a test, a CLAUDE.md line), say so and do it.
 ```
 
+## Write it while it is still cheap
+
+The one cadence rule worth stating: **write the entry before starting the next cycle.** In practice
+the discipline holds during slow, deliberate work and collapses during fast, error-dense stretches
+-- which is exactly backwards, because the fast stretches generate the most lessons and the least
+memory of them. One entry here had to be reconstructed from nine commit messages, and only survived
+because those messages happened to be detailed.
+
+A related limit worth being honest about: **a retro is a record, not a control.** One bug in this
+folder recurred twice *after* its lesson was written down. When a bug turns out to be an instance
+of a class, sweeping the whole codebase for that class at the moment of discovery is what prevents
+recurrence; the write-up only helps whoever thinks to read it.
+
 ## Conventions
 
 - Written after the fact, by whoever hit the problem — agent or human.
@@ -63,3 +76,4 @@ is set up (a lint rule, a test, a CLAUDE.md line), say so and do it.
 | P02 — ChatGPT handoff | [2026-07-26-p02-chatgpt-handoff.md](./2026-07-26-p02-chatgpt-handoff.md) | 4 + pushback |
 | T24 — events | [2026-07-26-t24-events.md](./2026-07-26-t24-events.md) | 1 (a wrong diagnosis) |
 | P03 — first labels | [2026-07-26-p03-labels.md](./2026-07-26-p03-labels.md) | 3 |
+| Wave 3 — dedup, selection | [2026-07-26-wave-3-dedup-selection.md](./2026-07-26-wave-3-dedup-selection.md) | 6 + a lapse |
