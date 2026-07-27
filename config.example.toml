@@ -28,6 +28,10 @@ default_timezone = "UTC"
 # Refuse to interpolate a location across a time gap larger than this.
 gps_interpolation_window_minutes = 120.0
 
+# Events are an INTERNAL scoping concept: they bound deduplication, selection and landmark
+# sampling. They are not the chapters you see in the book -- those are proposed by the AI from the
+# contact sheets and edited in overrides.toml. P03 measured why: real chapter boundaries sat at
+# 2-minute gaps and 10 metres, invisible to any time or location rule.
 [events]
 # Start a new event after this long without a photo...
 gap_minutes = 90.0
@@ -35,10 +39,6 @@ gap_minutes = 90.0
 jump_km = 1.5
 min_items = 2
 
-# The rule that actually breaks up a long day. Wandering a city centre triggers neither the gap
-# nor the jump rule -- shots are minutes apart and every position sits within jump_km of the
-# running centroid. On a real 141-item day this alone took 4 events to 7.
-max_minutes = 150.0
 
 [dedup]
 # Tight threshold: near-exact duplicates and burst frames.

@@ -13,24 +13,31 @@ while landmark recognition ran three modules later -- a circular dependency. Eve
 time and position only. Landmark labels may *name* or *refine* an event on a later pass; they never
 create one.
 
-**A maximum duration is what actually breaks up a long day.** P02 found a real day where 129
-items spanning 11:31-20:15 collapsed into a single "event". The first diagnosis blamed the
-centroid rule -- the theory being that a whole-event centroid converges on the average of
-everything so far, so movement stops registering -- and proposed comparing against only the most
-recent items instead.
+**Events are internal, and that is a deliberate decision backed by measurement.** They scope
+deduplication, selection and landmark sampling. They are *not* the chapters a reader sees; those
+are proposed by the AI from the contact sheets and edited in `overrides.toml`.
 
-**That theory was tested and is wrong.** On the real day, a recent window of 6, 12, or 1000 items
-produces identical results; the entire 4-to-7 event improvement came from the duration backstop.
-Worse, on synthetic gradual drift the recent window is actively *worse*: it follows you, so you
-are never far from it and it never splits, while a whole-event centroid lags behind the drift and
-does eventually notice. So this module keeps the simple whole-event centroid and adds
-`events.max_minutes`.
+P03 settled this. Hand-labelled chapter boundaries on a real day fell after a **2-minute** gap and
+an **8-minute** gap, while the pipeline's fell at 17-57 minutes -- *anti-correlated*. Measured
+against the nearest previous point in the same event, those boundaries were **10 metres** and
+**230 metres** apart, while ordinary within-event movement reached **2.8 km**. So the boundaries
+are an order of magnitude closer together than normal movement inside an event: the photographer
+was standing still, walking out of one building and into another.
 
-The honest description of the remaining gap: wandering a city centre for nine hours triggers
-neither rule, because shots are minutes apart and every position sits within `jump_km` of a
-central point. Only the clock catches it. Whether `jump_km` itself should be smaller is a tuning
-question that needs the P03 labelled set -- guessing at it here is what this project keeps
-learning not to do.
+A grid search over gap, jump and duration could not exceed F1 57%. Adding CLIP content distance
+made it *worse* (33%): the three real boundaries sit at cosine distances 0.74/0.66/0.57 against a
+within-event median of 0.32 -- top tail, but 27 of 154 within-event pairs are at least as distant.
+
+The conclusion is not that the thresholds need more work. The information is not in the metadata
+or in visual similarity: "this is the concert we came for" is knowledge about the trip. So the
+pipeline stops trying to infer it, produces honest time-and-location clusters, and leaves
+semantics to the human and the model.
+
+There is no maximum-duration rule. One was added earlier to stop a user-facing "event" spanning
+nine hours -- on a diagnosis measurement later disproved -- and a long cluster is harmless now
+that clusters are internal. It is in fact *safer* for deduplication: near-duplicates can only be
+found within a cluster, so under-splitting costs some comparisons while over-splitting loses
+duplicates outright.
 """
 
 from __future__ import annotations
@@ -136,9 +143,6 @@ def starts_new_event(
             distance = haversine_km(centroid, (candidate.lat, candidate.lon))
             if distance > events.jump_km:
                 return True, "gps_jump"
-
-    if _minutes_between(current[0], candidate) > events.max_minutes:
-        return True, "max_duration"
 
     return False, ""
 

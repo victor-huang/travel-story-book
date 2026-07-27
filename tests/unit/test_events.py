@@ -92,15 +92,6 @@ class TestStartsNewEvent:
         candidate = _media(2, at=datetime(2026, 7, 18, 9, 5), lat=48.2090, lon=16.3740)
         assert starts_new_event(current, candidate, _config(jump_km=1.5))[0] is False
 
-    def test_an_overlong_event_splits_on_the_backstop(self) -> None:
-        start = datetime(2026, 7, 18, 9)
-        current = [_media(i, at=start + timedelta(minutes=i)) for i in range(30)]
-        candidate = _media(99, at=start + timedelta(minutes=200))
-        split, reason = starts_new_event(
-            current, candidate, _config(gap_minutes=600, max_minutes=150)
-        )
-        assert (split, reason) == (True, "max_duration")
-
     def test_an_item_without_coordinates_cannot_trigger_a_jump(self) -> None:
         current = [_media(1, at=datetime(2026, 7, 18, 9))]
         candidate = _media(2, at=datetime(2026, 7, 18, 9, 5), lat=None, lon=None)
@@ -116,43 +107,39 @@ class TestStartsNewEvent:
         assert starts_new_event(current, candidate, _config(jump_km=1.5))[0] is True
 
 
-class TestWhatActuallySplitsALongDay:
-    """The P02 finding, corrected by measurement.
+class TestClustersAreDeliberatelyCoarse:
+    """Events are internal scoping, not chapters -- see the module docstring.
 
-    The first diagnosis blamed the centroid rule and proposed comparing against only recent items.
-    Measured on the real day, a window of 6, 12 or 1000 gives identical results -- the whole
-    improvement came from the duration backstop. On synthetic gradual drift the recent window is
-    actively worse, because it follows you and therefore never notices you left. These tests pin
-    the behaviour that measurement actually supports.
+    P03 measured that real chapter boundaries fall at 2-minute gaps and 10 metres, invisible to
+    any time or location rule. Rather than chase them, this stage produces honest time-and-location
+    clusters and leaves semantics to the human and the model. There is deliberately no
+    maximum-duration rule: a long cluster is harmless when clusters are internal, and *safer* for
+    deduplication, since near-duplicates can only be found within a cluster.
     """
 
     def test_gradual_drift_is_eventually_noticed(self) -> None:
-        """A whole-event centroid lags behind steady drift, which is what lets it fire."""
         items = _walk(datetime(2026, 7, 18, 9), 60, minutes=2.0, drift_km=0.2)
-        events = detect_events(items, _config(gap_minutes=999, jump_km=1.5, max_minutes=99999))
-        assert len(events) > 1
+        assert len(detect_events(items, _config(gap_minutes=999, jump_km=1.5))) > 1
 
     def test_staying_put_produces_one_event(self) -> None:
         items = _walk(datetime(2026, 7, 18, 9), 20, minutes=2.0, drift_km=0.0)
-        events = detect_events(items, _config(gap_minutes=45, jump_km=1.5, max_minutes=9999))
-        assert len(events) == 1
+        assert len(detect_events(items, _config(gap_minutes=45, jump_km=1.5))) == 1
 
-    def test_the_backstop_caps_a_continuous_burst(self) -> None:
-        """Nine hours in one neighbourhood trips neither the gap nor the jump rule."""
+    def test_a_long_stationary_burst_stays_one_cluster(self) -> None:
+        """Nine hours in one spot is one cluster, on purpose -- it keeps duplicates comparable."""
         items = _walk(datetime(2026, 7, 18, 9), 200, minutes=2.0, drift_km=0.0)
-        events = detect_events(items, _config(gap_minutes=45, jump_km=1.5, max_minutes=150))
-        assert len(events) >= 3
-
-    def test_without_the_backstop_that_burst_is_one_event(self) -> None:
-        """States the failure the backstop exists to prevent."""
-        items = _walk(datetime(2026, 7, 18, 9), 200, minutes=2.0, drift_km=0.0)
-        events = detect_events(items, _config(gap_minutes=45, jump_km=1.5, max_minutes=99999))
-        assert len(events) == 1
+        assert len(detect_events(items, _config(gap_minutes=45, jump_km=1.5))) == 1
 
     def test_a_fast_move_still_splits_on_position(self) -> None:
         items = _walk(datetime(2026, 7, 18, 9), 20, minutes=2.0, drift_km=1.0)
-        events = detect_events(items, _config(gap_minutes=999, jump_km=1.5, max_minutes=99999))
-        assert len(events) > 5
+        assert len(detect_events(items, _config(gap_minutes=999, jump_km=1.5))) > 5
+
+    def test_a_long_pause_still_splits_on_time(self) -> None:
+        items = _walk(datetime(2026, 7, 18, 9), 3, minutes=1.0)
+        items += _walk(datetime(2026, 7, 18, 15), 3, minutes=1.0)
+        for index, media in enumerate(items):
+            media.hash = f"h{index:04d}"
+        assert len(detect_events(items, _config(gap_minutes=45, jump_km=1.5))) == 2
 
 
 class TestDetectEvents:
