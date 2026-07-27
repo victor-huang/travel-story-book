@@ -106,6 +106,7 @@ class Runner:
 
             if not self.dry_run and (stage.name in self.force or "all" in self.force):
                 cleared = db.clear_stage(self.ctx.conn, stage.name)
+                cleared += stage.clear_derived(self.ctx)
                 self.console.print(
                     f"[cyan]force[/] {stage.name}: cleared {cleared} cached result(s)"
                 )

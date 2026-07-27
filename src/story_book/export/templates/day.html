@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}{{ day.date }} — {{ trip.name or "Trip" }}{% endblock %}
+{% block body %}
+<header class="day">
+  <p class="crumb"><a href="../index.html">← {{ trip.name or "Trip" }}</a></p>
+  <h1>{{ day.date }}</h1>
+  <p class="counts">{{ day.counts.media }} items · {{ day.counts.events }} stops
+     · {{ "%.0f%%" | format(day.gps_coverage * 100) }} located</p>
+</header>
+
+<main>
+  <div class="mapwrap">
+    {{ map_svg }}
+    {% if marks %}
+    <p class="legend">
+      <span class="key dot"></span> measured
+      <span class="key dot interpolated"></span> interpolated ({{ interpolated_count }})
+    </p>
+    {% endif %}
+    {% if osm_url %}
+    <a class="osm" href="{{ osm_url }}" rel="noreferrer">Open this area in OpenStreetMap
+      (needs a connection)</a>
+    {% endif %}
+  </div>
+
+  <h2 class="section">Stops</h2>
+  {% for event in day.events %}
+  <section class="event">
+    <header>
+      <h3>{{ event.title }}</h3>
+      <p class="when">{{ event.start_local | clock }}–{{ event.end_local | clock }}
+        · {{ event.facts | join(" · ") }}</p>
+      {% if event.landmarks %}
+      <p class="landmarks">{{ event.landmarks | map(attribute="name") | join(", ") }}</p>
+      {% endif %}
+    </header>
+    <div class="strip">
+      {% for asset in event.highlight_assets %}{% include "_shot.html" %}{% else %}
+        <p class="empty">No highlight chosen here.</p>
+      {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+
+  <h2 class="section">Everything from this day ({{ day.counts.media }})</h2>
+  <div class="grid">
+    {% for asset in day.all_assets %}{% include "_shot.html" %}{% endfor %}
+  </div>
+</main>
+
+<nav class="pager">
+  {% if prev_day %}<a href="{{ prev_day }}.html">← {{ prev_day }}</a>{% else %}<span></span>{% endif %}
+  {% if next_day %}<a href="{{ next_day }}.html">{{ next_day }} →</a>{% endif %}
+</nav>
+{% endblock %}

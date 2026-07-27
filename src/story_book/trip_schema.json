@@ -301,7 +301,9 @@
         "quality",
         "cluster",
         "selected",
-        "landmark_ids"
+        "landmark_ids",
+        "thumbnail",
+        "preview"
       ],
       "properties": {
         "asset_id": {
@@ -617,6 +619,19 @@
               }
             }
           }
+        },
+        "thumbnail": {
+          "description": "Path relative to the output directory. Null means the derivative does not exist; the report renders a placeholder rather than a broken image.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "preview": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "allOf": [

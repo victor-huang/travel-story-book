@@ -421,10 +421,10 @@ need — no output reaches back into the DB.
 | ID | Task | Status | Owner | Depends on |
 | --- | --- | --- | --- | --- |
 | T33 | Trip context input (new, P02) | done | agent-context | — |
-| T40 | Static HTML report (M13) | todo | — | T31 |
-| T41 | ChatGPT package (M14) | todo | — | T31, T16 |
-| T42 | Non-destructiveness proof | todo | — | Wave 3 |
-| T43 | End-to-end acceptance on real trip | todo | — | T40, T41, T42 |
+| T40 | Static HTML report (M13) | done | claude (main) | T31 |
+| T41 | ChatGPT package (M14) | done | claude (main) | T31, T16 |
+| T42 | Non-destructiveness proof | done | claude (main) | Wave 3 |
+| T43 | End-to-end acceptance on real trip | done | claude (main) — [results](./t43_acceptance.md) | T40, T41, T42 |
 
 ### T40 — Static HTML report
 Jinja2 → self-contained dir: trip index, page per day, Leaflet + OSM day path (interpolated
@@ -525,7 +525,10 @@ Need a change in a file you don't own? Add a row. The owning agent (or the human
 | — | integrator | **Place identity was a coordinate cell, not a place.** 159 rows all saying "Vienna" for one trip, because rounding is ~11 m — and `event.place_id` points here, so two events in the same square would fragment. Now find-or-create by resolved content, with orphan cleanup so `--force` matches a fresh build. 159 → 3 rows. | resolved |
 | — | integrator | **`should_exclude_from_export` couldn't see the home config**, so it excluded every coordinate-less item even with no home set — silently dropping GPS-less camera/GoPro photos to guard a home that was never configured. Now takes `home`, plus `unknown_location_count()` so the drop is reportable. | resolved |
 | — | integrator | **Trip date range used `COALESCE`**, so it was written once and never revised: adding an earlier photo left `start_local` wrong forever. Now recomputed. The test asserting the old behaviour is replaced by one asserting the range extends. | resolved |
-| T21 | T41 | `place.country` stores the ISO alpha-2 code (`AT`), not a full name. P02's brief wants "Austria". Mapping is a presentation concern — T41's job, noted so it isn't forgotten. | open — T41 |
+| T43 | — | **`--force embeddings` was a silent no-op.** `clear_stage` drops `stage_result` rows, but `EmbeddingStage.select()` filters against the `embedding` table, so it selected nothing and rebuilt nothing — leaving 277 embeddings with 0 cache rows, permanently inconsistent. Fixed with a `Stage.clear_derived` hook that `--force` calls; any stage whose work list consults something other than the runner's cache must override it. Four regression tests. | resolved |
+| T43 | T30 | Keeper agreement is 67% over 6 groups against a ≥70% target, every decision inside a 0.001–0.008 score gap. Either label more groups or replace the criterion with one about the `overrides.toml` keeper path — the current number cannot distinguish capability from luck. | open — needs more labels |
+| T43 | **human** | Criterion 10 needs a real ChatGPT session on a generated day package, and criterion 11 needs `config.home` set to exercise home exclusion on real data. Neither is a code gap. | open — needs the user |
+| T21 | T41 | `place.country` stores the ISO alpha-2 code (`AT`), not a full name. P02's brief wants "Austria". Mapping is a presentation concern — T41's job, noted so it isn't forgotten. | resolved — `country_name` in `export/report.py`, used by both outputs |
 | P02 | T41 | **Format validated; seven additions required.** Manifest with stable asset IDs, video records with explicit `no_speech`, geocoded place candidates, trip context, structured output request, richer event location, component scores. See the T41 entry. | open — T41 |
 | P02 | T13/T30 | Content taxonomy should not be binary keep/reject — a ticket or menu is a scrapbook element, not trash. Four-way (`exclude`/`archive-only`/`scrapbook-candidate`/`story-evidence`) **deferred to Phase 2**; Phase 1's job is only keeping screenshots out of highlights. | deferred |
 | P02 | T24 | **Module 6's centroid rule amended** after 129 items over 8¾ hours became one event. | resolved — but see the correction below |

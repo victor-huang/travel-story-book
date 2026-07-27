@@ -43,12 +43,14 @@ import sqlite3
 from dataclasses import asdict
 from datetime import datetime
 from math import asin, cos, radians, sin, sqrt
+from pathlib import Path
 from typing import Any
 
 from story_book import __version__
 from story_book.config import Config, TimelineConfig
 from story_book.db.models import MediaKind, SelectionScope
 from story_book.pipeline.base import StageContext, WholeTripStage
+from story_book.pipeline.thumbnails import preview_relpath, thumbnail_relpath
 from story_book.trip_context import TripContext
 
 logger = logging.getLogger(__name__)
@@ -275,7 +277,29 @@ def public_event_id(local_date: str | None, seq: int | None) -> str | None:
     return f"{local_date}#{seq}"
 
 
-def _build_assets(conn: sqlite3.Connection, config: Config) -> dict[str, dict[str, Any]]:
+def _derived_images(
+    media_hash: str, kind: MediaKind, out_dir: Path | None, video_meta: dict[str, dict]
+) -> tuple[str | None, str | None]:
+    """Where the report and the package find pixels for this item.
+
+    A video has no thumbnail of its own -- its poster frame, already extracted by the video
+    stage, serves as both. Paths are relative to the output directory so the artifact stays
+    portable; `None` means the derivative genuinely does not exist, which the report renders as
+    a placeholder rather than a broken image.
+    """
+    if kind is MediaKind.VIDEO:
+        poster = (video_meta.get(media_hash) or {}).get("poster")
+        return poster, poster
+    thumb, preview = thumbnail_relpath(media_hash), preview_relpath(media_hash)
+    if out_dir is not None:
+        thumb = thumb if (out_dir / thumb).exists() else None
+        preview = preview if (out_dir / preview).exists() else None
+    return thumb, preview
+
+
+def _build_assets(
+    conn: sqlite3.Connection, config: Config, out_dir: Path | None = None
+) -> dict[str, dict[str, Any]]:
     places = _fetch_places(conn)
     _, landmarks_by_media = _fetch_landmarks(conn)
     video_meta = _fetch_video(conn)
@@ -349,6 +373,9 @@ def _build_assets(conn: sqlite3.Connection, config: Config) -> dict[str, dict[st
             "selected": selection.get(row["hash"], {}),
             "landmark_ids": landmarks_by_media.get(row["hash"], []),
         }
+        asset["thumbnail"], asset["preview"] = _derived_images(
+            row["hash"], kind, out_dir, video_meta
+        )
         if kind is MediaKind.VIDEO:
             asset["video"] = _video_block(
                 row["hash"],
@@ -508,12 +535,15 @@ def _context_block(context: TripContext) -> dict[str, Any]:
 
 
 def build_timeline(
-    conn: sqlite3.Connection, config: Config, context: TripContext | None = None
+    conn: sqlite3.Connection,
+    config: Config,
+    context: TripContext | None = None,
+    out_dir: Path | None = None,
 ) -> dict[str, Any]:
-    """Assemble the whole document. Reads the DB; writes nothing."""
+    """Assemble the whole document. Reads the DB and probes for derived images; writes nothing."""
     context = context or TripContext()
     trip_row = conn.execute("SELECT * FROM trip WHERE id = 1").fetchone()
-    assets = _build_assets(conn, config)
+    assets = _build_assets(conn, config, out_dir)
     days = _build_days(conn, assets, config)
 
     images = [a for a in assets.values() if a["kind"] == str(MediaKind.IMAGE)]
@@ -568,7 +598,7 @@ class TimelineStage(WholeTripStage):
     always_run = True
 
     def run(self, ctx: StageContext) -> None:
-        document = build_timeline(ctx.conn, ctx.config, ctx.trip_context)
+        document = build_timeline(ctx.conn, ctx.config, ctx.trip_context, ctx.out_dir)
         target = ctx.out_dir / TRIP_JSON_FILENAME
         target.write_text(json.dumps(document, indent=2, sort_keys=False) + "\n")
         counts = document["trip"]["counts"]

@@ -117,6 +117,20 @@ class TimelineConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ReportConfig:
+    """Derived images and the static HTML report."""
+
+    # Long edge in pixels. The thumbnail is a contact-sheet/grid cell; the preview is what a
+    # reader opens full-screen and what the package ships when it is not shipping originals.
+    thumbnail_long_edge: int = 480
+    preview_long_edge: int = 1600
+    jpeg_quality: int = 82
+
+    # Photos per day page before the gallery paginates. Purely presentational.
+    gallery_page_size: int = 240
+
+
+@dataclass(frozen=True, slots=True)
 class VideoConfig:
     transcribe: str = "auto"
     transcribe_min_seconds: float = 10.0
@@ -185,6 +199,7 @@ class Config:
     quality: QualityConfig = field(default_factory=QualityConfig)
     selection: SelectionConfig = field(default_factory=SelectionConfig)
     timeline: TimelineConfig = field(default_factory=TimelineConfig)
+    report: ReportConfig = field(default_factory=ReportConfig)
     video: VideoConfig = field(default_factory=VideoConfig)
     models: ModelConfig = field(default_factory=ModelConfig)
     geocode: GeocodeConfig = field(default_factory=GeocodeConfig)
@@ -261,6 +276,7 @@ _NESTED_TYPES: dict[str, type] = {
     "QualityWeights": QualityWeights,
     "SelectionConfig": SelectionConfig,
     "TimelineConfig": TimelineConfig,
+    "ReportConfig": ReportConfig,
     "VideoConfig": VideoConfig,
     "ModelConfig": ModelConfig,
     "GeocodeConfig": GeocodeConfig,

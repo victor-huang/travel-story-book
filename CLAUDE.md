@@ -15,11 +15,12 @@ human hands to ChatGPT to write the travel journal.
 
 ```bash
 uv sync --extra vision --extra video --extra exif --extra geo   # a bare `uv sync` PRUNES these
-uv run pytest                                    # 1089 tests, expect 0 failures 0 skips locally
+uv run pytest                                    # 1185 tests, expect 0 failures 0 skips locally
 uv run pytest tests/unit                         # fast, mocked, no DB
 uv run story-book build <src> --out <dir>        # the pipeline
 uv run story-book report --out <dir>             # re-render HTML only
 uv run story-book profile <src>                  # folder stats + suggested config
+uv run story-book package --out <dir>             # the ChatGPT upload package
 uv run story-book eval <truth.toml> --out <dir>   # score against a labelled truth set
 uv run python tests/fixtures/generate.py         # regenerate fixtures (deterministic)
 ```
@@ -54,9 +55,9 @@ Pipeline order (the plan doc's corrected order — note landmarks run *after* se
 only see a few hundred representatives, and event detection must **not** consume landmark labels):
 
 ```
-scan → metadata → timezones → gps_backfill → geocode → days → events
-     → (embeddings ∥ quality ∥ video) → dedup → selection → landmarks → timeline
-     → (html report ∥ chatgpt package)
+scan → metadata → timezones → gps_backfill → geocode → days → events → home_filter
+     → (embeddings ∥ quality ∥ video) → phash → dedup → selection → landmarks
+     → thumbnails → timeline → (html report ∥ chatgpt package)
 ```
 
 ### Frozen contracts — read, don't change
@@ -146,7 +147,18 @@ lived in places a per-stage test cannot reach.
   compressed to a 0.001 range, silently neutering the highest-weighted term in the score. Assert
   the *spread* of any component feeding a weighted sum.
 - **Look at real output.** A rendered contact sheet exposed the flat-score bug in seconds; no
-  assertion had.
+  assertion had. Loading the report found that every image 404'd while the HTML validated
+  perfectly — **when output references external files, resolve the references**, since the markup
+  cannot be checked against itself. Read generated prose (`brief.md`, `prompt.md`) in the role of
+  its consumer: field-presence tests pass on documents nobody could use.
+- **A test of a failure mode must be shown to fail.** T42 corrupts the source tree on purpose in
+  4 of its 16 tests. T43's resume check reported a pass three times without interrupting anything
+  — `uv run` swallows SIGINT, a non-interactive shell's background jobs ignore it, and the output
+  directory was never actually cleared. The exit code was the observation; everything else was
+  inference.
+- **If a stage's `select()` reads anything the runner doesn't know about, that is part of the
+  cache.** `--force embeddings` was a silent no-op for exactly this reason. Override
+  `Stage.clear_derived`.
 
 ### Hard-won gotchas
 

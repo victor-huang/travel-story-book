@@ -756,8 +756,16 @@ Measured on the real trip, not a toy sample:
    This replaces runtime as the hard performance requirement, and is worth explicitly
    testing (kill at three different stages).
 3. The source directory is provably unmodified (compare a full hash manifest before/after).
-4. Days and events match hand-labeled boundaries at ≥80% precision and recall.
-5. Duplicate groups are correct; the chosen keeper matches human preference ≥70% of the time.
+4. ~~Days and events match hand-labeled boundaries at ≥80% precision and recall.~~
+   **Superseded.** Events are internal scoping, not chapters; scoring them against human chapter
+   labels compares two different things. Measured 25%/29%, and a grid search cannot exceed F1 57%
+   because the information is not in the metadata. See P03 and `t43_acceptance.md`. Days are
+   correct and unambiguous, and remain asserted by test.
+5. Duplicate groups are correct (precision 100%, recall 89%); the chosen keeper matches human
+   preference ≥70% of the time. **Grouping passes; keeper agreement sits at 67% over 6 groups**,
+   every one decided by a 0.001–0.008 score gap — noise at that sample size. Technical quality
+   cannot tell two frames of one burst apart; `overrides.toml`'s `keeper` list is the answer for
+   Phase 1.
 6. Screenshots, receipts, and documents are kept out of highlights.
 7. Every trip item appears on the map, with interpolated locations visually distinguished.
 8. The HTML report is browsable offline with no server, and `story-book report` re-renders it

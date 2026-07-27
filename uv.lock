@@ -1650,6 +1650,7 @@ name = "travel-story-book"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "jinja2" },
     { name = "numpy" },
     { name = "pillow" },
     { name = "pillow-heif" },
@@ -1694,6 +1695,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "faster-whisper", marker = "extra == 'video'", specifier = ">=1.1" },
+    { name = "jinja2", specifier = ">=3.1" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "open-clip-torch", marker = "extra == 'clip'", specifier = ">=2.30" },
     { name = "opencv-python-headless", marker = "extra == 'images'", specifier = ">=4.10" },

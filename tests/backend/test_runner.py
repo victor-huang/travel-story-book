@@ -424,3 +424,48 @@ class TestAsyncExecutor:
     def test_every_item_is_processed(self, trip_ctx: StageContext) -> None:
         Runner(trip_ctx, [AsyncStage()]).run()
         assert len(db.completed_hashes(trip_ctx.conn, "async_stage", 1)) == 100
+
+
+class TestForceClearsDerivedRows:
+    """`--force` on a stage that filters against its own table must empty that table too.
+
+    Found in T43: `--force embeddings` cleared the cache, `select()` saw 277 embeddings already
+    present and selected nothing, and the DB was left holding 277 embeddings with zero cache
+    rows. The force was a silent no-op and the bookkeeping was permanently inconsistent.
+    """
+
+    def test_a_stage_with_no_derived_rows_reports_none(self, ctx: StageContext) -> None:
+        from story_book.pipeline.scan import ScanStage
+
+        assert ScanStage().clear_derived(ctx) == 0
+
+    def test_the_embedding_stage_empties_its_own_table(self, ctx: StageContext, make_media) -> None:
+        from story_book.db import connection as db_conn
+        from story_book.pipeline.embeddings import EmbeddingStage
+
+        db_conn.upsert_media(ctx.conn, make_media("h"))
+        ctx.conn.execute(
+            "INSERT INTO embedding (media_hash, model, dim, vector) VALUES ('h', 'm', 2, X'00')"
+        )
+        ctx.conn.commit()
+
+        assert EmbeddingStage().clear_derived(ctx) == 1
+        assert ctx.conn.execute("SELECT COUNT(*) AS n FROM embedding").fetchone()["n"] == 0
+
+    def test_the_runner_calls_it_when_forcing(self, ctx: StageContext, mocker) -> None:
+        from story_book.pipeline.embeddings import EmbeddingStage
+
+        stage = EmbeddingStage()
+        spy = mocker.patch.object(stage, "clear_derived", return_value=0)
+        Runner(ctx, [stage], force=("embeddings",)).run()
+
+        spy.assert_called_once()
+
+    def test_the_runner_does_not_call_it_without_force(self, ctx: StageContext, mocker) -> None:
+        from story_book.pipeline.embeddings import EmbeddingStage
+
+        stage = EmbeddingStage()
+        spy = mocker.patch.object(stage, "clear_derived", return_value=0)
+        Runner(ctx, [stage]).run()
+
+        spy.assert_not_called()

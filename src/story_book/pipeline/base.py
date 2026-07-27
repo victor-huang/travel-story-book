@@ -97,6 +97,19 @@ class Stage(ABC):
     so new items are picked up automatically.
     """
 
+    def clear_derived(self, ctx: StageContext) -> int:
+        """Drop this stage's *own* derived rows on `--force`. Return how many were removed.
+
+        `--force` deletes `stage_result` rows, which is enough for any stage whose only record of
+        having run is that cache. It is **not** enough for a stage that also filters its own work
+        list against a table it wrote: `--force embeddings` cleared the cache, `select()` then saw
+        277 embeddings already present and selected nothing, and the DB was left with 277
+        embeddings and zero cache rows -- permanently inconsistent, and the force silently a no-op.
+
+        Override this if `select()` consults anything other than the runner's cache.
+        """
+        return 0
+
     def available(self, ctx: StageContext) -> tuple[bool, str]:
         """Whether this stage can run. Return (False, reason) to skip it entirely.
 

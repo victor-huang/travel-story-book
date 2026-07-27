@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block body %}
+<header class="trip">
+  <h1>{{ trip.name or "Trip" }}</h1>
+  <p class="when">{{ trip.start_local[:10] if trip.start_local }} – {{ trip.end_local[:10] if trip.end_local }}</p>
+  <p class="counts">
+    {{ trip.counts.media }} items ({{ trip.counts.images }} photos, {{ trip.counts.videos }} videos)
+    · {{ trip.counts.days }} days · {{ trip.counts.events }} stops
+    · {{ trip.counts.day_highlights }} highlights
+  </p>
+  {#- Notes state what did *not* happen. A filter that never ran must not read as a clean result. -#}
+  {% if notes %}
+  <ul class="notes">
+    {% for note in notes %}<li>{{ note }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+</header>
+
+<main>
+  <h2 class="section">Days</h2>
+  <div class="days">
+    {% for day in days %}
+    <a class="daycard" href="days/{{ day.date }}.html">
+      {% if day.cover %}
+        <img src="{{ media_rel }}{{ day.cover.thumbnail }}" alt="" width="240" loading="lazy">
+      {% else %}
+        <div class="missing">—</div>
+      {% endif %}
+      <div>
+        <h2>{{ day.date }}</h2>
+        <p>{{ day.counts.media }} items · {{ day.counts.events }} stops
+           · {{ day.highlights | length }} highlights</p>
+        <p class="places">{{ day.places | join(" · ") }}</p>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+
+  <h2 class="section">Trip highlights</h2>
+  <div class="grid">
+    {% for asset in trip_highlights %}{% include "_shot.html" %}{% endfor %}
+  </div>
+</main>
+{% endblock %}

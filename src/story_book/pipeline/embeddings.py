@@ -225,6 +225,18 @@ class EmbeddingStage(BatchStage):
     def available(self, ctx: StageContext) -> tuple[bool, str]:
         return clip_importable()
 
+    def clear_derived(self, ctx: StageContext) -> int:
+        """`select()` filters against the `embedding` table, so `--force` must empty it too.
+
+        The filter is there so that changing `models.clip_name` re-embeds everything -- the
+        stage_result key carries no model tag and cannot express that on its own. The cost is
+        that this stage's work list is not derived purely from the runner's cache, which is
+        exactly the case `clear_derived` exists for.
+        """
+        cursor = ctx.conn.execute("DELETE FROM embedding")
+        ctx.conn.commit()
+        return cursor.rowcount
+
     def select(self, ctx: StageContext) -> list[Media]:
         self.batch_size = ctx.config.models.clip_batch_size
         model_tag = _model_tag(ctx.config.models.clip_name, ctx.config.models.clip_pretrained)

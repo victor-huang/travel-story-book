@@ -14,6 +14,9 @@ dependencies = [
     "timezonefinder>=6.5",
     # Used directly for image arrays, so declared directly rather than relied on transitively.
     "numpy>=2.0",
+    # The HTML report. Templates live in src/story_book/export/templates/ so the look can be
+    # edited without touching Python.
+    "jinja2>=3.1",
 ]
 
 [project.optional-dependencies]

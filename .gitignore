@@ -19,3 +19,6 @@ build/
 config.toml
 overrides.toml
 .env
+
+# Playwright MCP scratch output.
+.playwright-mcp/

@@ -1,0 +1,26 @@
+{#- One photo or video cell. `asset` and `rel` come from the caller. -#}
+<figure class="shot" id="a-{{ asset.asset_id }}">
+  {%- if asset.thumbnail -%}
+    {%- if asset.preview -%}<a href="{{ media_rel }}{{ asset.preview }}">{%- endif -%}
+    <img src="{{ media_rel }}{{ asset.thumbnail }}" alt="{{ asset.filename }}" loading="lazy" width="480">
+    {%- if asset.preview -%}</a>{%- endif -%}
+  {%- else -%}
+    <div class="missing">no preview<br><small>{{ asset.filename }}</small></div>
+  {%- endif -%}
+  <figcaption>
+    <code>{{ asset.asset_id }}</code>
+    {{ asset.taken_local | clock }}{% if asset.taken_local %} · {% endif %}{{ asset.filename }}
+    {%- if asset.selected.get("day", {}).get("reason") == "pinned" %}
+      <span class="badge" title="Pinned in overrides.toml">pinned</span>
+    {%- endif %}
+    {%- if asset.kind == "video" %}
+      <span class="badge video">video{% if asset.video.duration_seconds %}
+        {{ asset.video.duration_seconds | round | int }}s{% endif %}</span>
+      {%- if asset.video.transcript_status == "no_speech" %}
+        <span class="badge" title="Processed; no speech found">silent</span>
+      {%- elif asset.video.transcript_status == "not_processed" %}
+        <span class="badge" title="Never processed for speech">not analysed</span>
+      {%- endif %}
+    {%- endif %}
+  </figcaption>
+</figure>

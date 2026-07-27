@@ -7,6 +7,7 @@ as stages land.
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Annotated
@@ -18,7 +19,10 @@ from story_book import __version__, profile_render
 from story_book import profile as story_profile
 from story_book.config import Config, ConfigError
 from story_book.db import connection as db
-from story_book.eval import evaluate_truth_set_file, render_report
+from story_book.eval import evaluate_truth_set_file
+from story_book.eval import render_report as render_eval_report
+from story_book.export.package import ORIGINALS, PREVIEW, build_package
+from story_book.export.report import render_report
 from story_book.overrides import OverrideError, Overrides
 from story_book.pipeline.base import Stage, StageContext
 from story_book.pipeline.days import DaysStage
@@ -34,7 +38,8 @@ from story_book.pipeline.quality import ContentClassStage, QualityStage
 from story_book.pipeline.runner import Runner
 from story_book.pipeline.scan import ScanStage
 from story_book.pipeline.selection import SelectionStage
-from story_book.pipeline.timeline import TimelineStage
+from story_book.pipeline.thumbnails import ThumbnailStage
+from story_book.pipeline.timeline import TRIP_JSON_FILENAME, TimelineStage, build_timeline
 from story_book.pipeline.timezones import TimezoneStage
 from story_book.pipeline.video import VideoStage
 from story_book.profile_json import profile_to_dict
@@ -61,7 +66,7 @@ def build_stages(ctx: StageContext) -> list[Stage]:
              -> video, embeddings, quality, content_class                (independent)
              -> phash -> dedup -> selection
              -> landmarks
-             -> timeline -> [report, package]                            (Wave 4)
+             -> thumbnails -> timeline -> [report, package]              (Wave 4)
 
     Bracketed stages are not implemented yet. Every stage declares its own `available()`, so an
     absent binary, a missing optional dependency, or `--no-cloud` skips that stage and the run
@@ -87,6 +92,7 @@ def build_stages(ctx: StageContext) -> list[Stage]:
         DedupStage(),
         SelectionStage(),
         LandmarkStage(),
+        ThumbnailStage(),
         TimelineStage(),
     ]
 
@@ -235,6 +241,15 @@ def build(
     report = runner.run()
     if report.interrupted:
         raise typer.Exit(130)
+
+    # The report is the main deliverable and costs a fraction of a second, so `build` always
+    # leaves one behind. The package is not automatic: it duplicates media, and that should be
+    # an explicit request.
+    trip_json = out / TRIP_JSON_FILENAME
+    if trip_json.exists():
+        rendered = render_report(json.loads(trip_json.read_text()), out)
+        console.print(f"report: [bold]{rendered.index}[/]")
+
     if report.total_failed:
         raise typer.Exit(1)
 
@@ -243,17 +258,95 @@ def build(
 def report(
     out: Annotated[Path, typer.Option("--out", "-o", help="Output directory to re-render.")],
     config_path: Annotated[Path | None, typer.Option("--config", "-c")] = None,
+    context_path: Annotated[Path | None, typer.Option("--context")] = None,
 ) -> None:
-    """Re-render the HTML report from an existing database. Recomputes no pipeline stage."""
-    _load_config(config_path)
-    db_path = out.resolve() / db.DB_FILENAME
+    """Re-render the HTML report from an existing database. Recomputes no pipeline stage.
+
+    Rebuilds `trip.json` from the DB and renders from that, rather than reading a `trip.json`
+    that may predate the last `build`. Derived images are reused as they are -- this command is
+    for iterating on the report, and re-encoding thumbnails is exactly the expensive thing it
+    exists to avoid.
+    """
+    config = _load_config(config_path)
+    out = out.resolve()
+    db_path = out / db.DB_FILENAME
     if not db_path.exists():
         console.print(f"[red]no database at {db_path}[/] -- run `story-book build` first.")
         raise typer.Exit(2)
-    db.connect(db_path, create=False)
-    console.print(
-        "[yellow]Report rendering lands in T40.[/] See dev_plan/implementation_tracker.md."
+
+    try:
+        trip_context = TripContext.load(context_path)
+    except TripContextError as exc:
+        console.print(f"[red]trip context error:[/] {exc}")
+        raise typer.Exit(2) from exc
+
+    started = time.monotonic()
+    conn = db.connect(db_path, create=False)
+    document = build_timeline(conn, config, trip_context, out)
+    (out / TRIP_JSON_FILENAME).write_text(json.dumps(document, indent=2) + "\n")
+    rendered = render_report(document, out)
+    elapsed = time.monotonic() - started
+
+    missing = sum(1 for a in document["assets"].values() if not a["thumbnail"])
+    if missing:
+        console.print(
+            f"[yellow]{missing} item(s) have no thumbnail[/] -- run `story-book build` to "
+            "generate them."
+        )
+    console.print(f"{rendered.page_count} page(s) in {elapsed:.1f}s -> [bold]{rendered.index}[/]")
+
+
+@app.command()
+def package(
+    out: Annotated[Path, typer.Option("--out", "-o", help="Output directory holding story.db.")],
+    config_path: Annotated[Path | None, typer.Option("--config", "-c")] = None,
+    context_path: Annotated[Path | None, typer.Option("--context")] = None,
+    originals: Annotated[
+        bool,
+        typer.Option(
+            "--originals",
+            help="Ship full-resolution originals instead of previews. Hardlinks where possible.",
+        ),
+    ] = False,
+) -> None:
+    """Build the ChatGPT upload package: contact sheets, brief, prompt, and a manifest.
+
+    Previews by default. Originals are only worth the disk when someone needs to judge focus or
+    crop headroom, and the manifest states which kind the package holds either way.
+    """
+    config = _load_config(config_path)
+    out = out.resolve()
+    db_path = out / db.DB_FILENAME
+    if not db_path.exists():
+        console.print(f"[red]no database at {db_path}[/] -- run `story-book build` first.")
+        raise typer.Exit(2)
+
+    try:
+        trip_context = TripContext.load(context_path)
+    except TripContextError as exc:
+        console.print(f"[red]trip context error:[/] {exc}")
+        raise typer.Exit(2) from exc
+
+    conn = db.connect(db_path, create=False)
+    document = build_timeline(conn, config, trip_context, out)
+    # trip.json deliberately carries no absolute paths -- it is a thing you hand to someone
+    # else -- so the mapping to originals is assembled here, where the DB is in reach.
+    sources = {
+        asset["asset_id"]: Path(row["path"])
+        for asset in document["assets"].values()
+        for row in conn.execute("SELECT path FROM media WHERE hash = ?", (asset["content_hash"],))
+    }
+    built = build_package(
+        document, out, mode=ORIGINALS if originals else PREVIEW, source_for=sources
     )
+
+    for skipped_name, reason in built.skipped:
+        console.print(f"[yellow]skipped[/] {skipped_name}: {reason}")
+    console.print(
+        f"{len(built.days)} day(s), {sum(len(d.sheets) for d in built.days)} contact sheet(s) "
+        f"[{built.mode}] -> [bold]{built.root}[/]"
+    )
+    console.print("Open a fresh chat per day; attach the sheets and brief.md, paste prompt.md.")
 
 
 @app.command(name="eval")
@@ -276,7 +369,7 @@ def eval_command(
 
     conn = db.connect(db_path, create=False)
     report = evaluate_truth_set_file(conn, truth_set)
-    console.print(render_report(report))
+    console.print(render_eval_report(report))
 
 
 @app.command()
