@@ -82,10 +82,7 @@ def _media_from_fixture(conn: sqlite3.Connection, path: Path, media_hash: str, d
         lat=parsed["lat"],
         lon=parsed["lon"],
         gps_source=GpsSource.EXIF if parsed["lat"] is not None else GpsSource.NONE,
-        tz_offset_minutes=parsed["offset_minutes"],
-        tz_source=TzSource.EXIF_OFFSET
-        if parsed["offset_minutes"] is not None
-        else TzSource.UNKNOWN,
+        exif_offset_minutes=parsed["offset_minutes"],
     )
     db.upsert_media(conn, media)
 
@@ -140,26 +137,58 @@ class TestSustainedTimezoneCrossingFromRealFixtures:
 
 
 class TestOffsetGpsConflictRegressionFromRealFixture:
-    """`offset_gps_conflict.jpg`: Vienna coordinates tagged with an offset 9 hours off. GPS
-    must win, not the tag -- the whole point of the revised resolution order."""
+    """`offset_gps_conflict.jpg`: Vienna coordinates tagged `-07:00`, nine hours from the zone.
 
-    def test_gps_wins_and_the_item_lands_on_the_correct_day(
+    The two signals answer different questions, and an earlier version discarded one of them.
+    The tag says which zone the camera's clock was reading, so it is the best evidence for the
+    UTC *instant*. GPS says where the photo was taken, so it decides the zone to *display* in.
+
+    Reading the wall time as GPS-local instead -- the earlier behaviour, which these tests used
+    to assert -- silently shifts the photo by the size of the disagreement. Hand-labelling (P03)
+    caught it on real data: a phone still set to its home zone recorded `08:26 -07:00` in Vienna,
+    and reading that as 08:26 Vienna put it nine hours from its own filename neighbours, frames
+    shot seconds apart.
+
+    Fixture arithmetic: `06:15 -07:00` = `13:15Z` = `15:15` in Vienna.
+    """
+
+    def test_the_zone_comes_from_gps(self, ctx: StageContext, media_dir: Path) -> None:
+        _media_from_fixture(
+            ctx.conn, media_dir / "offset_gps_conflict.jpg", "conflict", "Apple iPhone 16 Pro"
+        )
+        TimezoneStage().run(ctx)
+        media = db.get_media(ctx.conn, "conflict")
+        assert (media.tz_source, media.tz_name) == (TzSource.GPS, "Europe/Vienna")
+
+    def test_the_instant_comes_from_the_tag(self, ctx: StageContext, media_dir: Path) -> None:
+        _media_from_fixture(
+            ctx.conn, media_dir / "offset_gps_conflict.jpg", "conflict", "Apple iPhone 16 Pro"
+        )
+        before = db.get_media(ctx.conn, "conflict")
+        assert before.exif_offset_minutes == -420, "fixture precondition: tag disagrees with GPS"
+
+        TimezoneStage().run(ctx)
+
+        assert db.get_media(ctx.conn, "conflict").taken_utc == "2026-07-19T13:15:00+00:00"
+
+    def test_the_local_time_is_re_rendered_in_the_gps_zone(
+        self, ctx: StageContext, media_dir: Path
+    ) -> None:
+        """Not left as the raw wall reading -- that is what put a photo on the wrong day."""
+        _media_from_fixture(
+            ctx.conn, media_dir / "offset_gps_conflict.jpg", "conflict", "Apple iPhone 16 Pro"
+        )
+        TimezoneStage().run(ctx)
+        assert db.get_media(ctx.conn, "conflict").taken_local == "2026-07-19T15:15:00"
+
+    def test_the_displayed_offset_is_the_gps_zone_offset(
         self, ctx: StageContext, media_dir: Path
     ) -> None:
         _media_from_fixture(
             ctx.conn, media_dir / "offset_gps_conflict.jpg", "conflict", "Apple iPhone 16 Pro"
         )
-        before = db.get_media(ctx.conn, "conflict")
-        assert before.tz_offset_minutes == -420, "fixture precondition: tag disagrees with GPS"
-
         TimezoneStage().run(ctx)
-
-        media = db.get_media(ctx.conn, "conflict")
-        assert media.tz_source == TzSource.GPS
-        assert media.tz_name == "Europe/Vienna"
-        assert media.tz_offset_minutes == 120
-        assert media.taken_local == "2026-07-19T06:15:00"
-        assert media.taken_utc == "2026-07-19T04:15:00+00:00"
+        assert db.get_media(ctx.conn, "conflict").tz_offset_minutes == 120
 
 
 class TestDeviceNeighborFallbackViaRealDb:

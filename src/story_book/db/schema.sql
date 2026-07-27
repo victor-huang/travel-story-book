@@ -49,6 +49,11 @@ CREATE TABLE IF NOT EXISTS media (
     tz_name         TEXT,
     tz_offset_minutes INTEGER,
     tz_source       TEXT CHECK (tz_source IN ('exif_offset', 'gps', 'device_neighbor', 'config', 'unknown')),
+    -- The raw OffsetTimeOriginal tag, kept separate from the *resolved* tz_offset_minutes.
+    -- Timezone resolution reads this and writes the resolved fields; sharing one column made the
+    -- stage overwrite its own input, so a second run silently produced a different (worse)
+    -- answer than the first.
+    exif_offset_minutes INTEGER,
     lat             REAL,
     lon             REAL,
     altitude        REAL,

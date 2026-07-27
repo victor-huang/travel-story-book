@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from story_book.db import connection as db
-from story_book.db.models import GpsSource, Media, TzSource
+from story_book.db.models import GpsSource, Media
 from story_book.exif import exiftool_available, extract_timestamp, run_exiftool
 from story_book.pipeline.base import BatchStage, StageContext
 
@@ -74,9 +74,10 @@ class MetadataStage(BatchStage):
         # level 1 of the timezone resolution order (validated EXIF offset) could never fire --
         # every item silently fell through to GPS. TimezoneStage re-validates this against GPS
         # and overrides it on disagreement; recording it is not the same as trusting it.
-        if timestamp.offset_minutes is not None:
-            media.tz_offset_minutes = timestamp.offset_minutes
-            media.tz_source = TzSource.EXIF_OFFSET
+        # Into its own column, not the resolved ones. Timezone resolution reads this and writes
+        # tz_*; sharing a column meant that stage overwrote its own input and a re-run produced a
+        # different, worse answer than the first run.
+        media.exif_offset_minutes = timestamp.offset_minutes
 
         media.width = _as_int(meta.get("ImageWidth"))
         media.height = _as_int(meta.get("ImageHeight"))

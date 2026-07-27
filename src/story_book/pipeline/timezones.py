@@ -139,25 +139,54 @@ def _resolve_gps_backed(
         zone_name = config.time.default_timezone
     gps_offset = _offset_minutes_for(zone_name, corrected_local)
 
-    candidate_offset = media.tz_offset_minutes if media.tz_source == TzSource.EXIF_OFFSET else None
+    candidate_offset = media.exif_offset_minutes
     if candidate_offset is not None and candidate_offset == gps_offset:
-        tz_source = TzSource.EXIF_OFFSET
-        resolved_offset = candidate_offset
-    else:
-        if candidate_offset is not None:
-            logger.warning(
-                "timezones: %s -- EXIF offset %+d min disagrees with the offset its own GPS "
-                "implies (%+d min, %s). GPS wins.",
-                media.hash,
-                candidate_offset,
-                gps_offset,
-                zone_name,
-            )
-        tz_source = TzSource.GPS
-        resolved_offset = gps_offset
+        return (
+            corrected_local,
+            corrected_local - timedelta(minutes=gps_offset),
+            zone_name,
+            gps_offset,
+            TzSource.EXIF_OFFSET,
+        )
 
-    taken_utc = corrected_local - timedelta(minutes=resolved_offset)
-    return corrected_local, taken_utc, zone_name, resolved_offset, tz_source
+    if candidate_offset is None:
+        # No tag at all. The wall reading is the best we have; read it in the GPS zone.
+        return (
+            corrected_local,
+            corrected_local - timedelta(minutes=gps_offset),
+            zone_name,
+            gps_offset,
+            TzSource.GPS,
+        )
+
+    # Tag and GPS disagree. The two signals answer *different questions*, and the earlier version
+    # of this code threw one of them away:
+    #
+    #   * The offset tag says which zone the camera's clock was reading -- so it is the best
+    #     evidence for the true UTC instant, even when it is "wrong" about where you were.
+    #   * GPS says where the photo was taken -- so it decides which zone to *display* in.
+    #
+    # Discarding the tag and reading the wall time as GPS-local silently shifts the photo by the
+    # size of the disagreement. Found by hand-labelling (P03): a phone still set to its home zone
+    # recorded 08:26 -07:00 in Vienna. Reading that as 08:26 Vienna put it nine hours from its own
+    # filename neighbours -- IMG_1880 at 17:26, IMG_1881 at 08:26, IMG_1883 at 17:26 -- for frames
+    # shot seconds apart. The correct instant is 08:26 -07:00 = 15:26 UTC = 17:26 Vienna.
+    #
+    # So: take the instant from the tag, take the zone from GPS, and re-render the local time.
+    taken_utc = corrected_local - timedelta(minutes=candidate_offset)
+    display_offset = _offset_minutes_for(zone_name, taken_utc + timedelta(minutes=gps_offset))
+    display_local = taken_utc + timedelta(minutes=display_offset)
+    logger.warning(
+        "timezones: %s -- EXIF offset %+d min disagrees with its GPS zone %s (%+d min). Using the "
+        "tag for the instant and GPS for the zone: %s -> %s local.",
+        media.hash,
+        candidate_offset,
+        zone_name,
+        gps_offset,
+        corrected_local.isoformat(timespec="minutes"),
+        display_local.isoformat(timespec="minutes"),
+    )
+    return display_local, taken_utc, zone_name, display_offset, TzSource.GPS
 
 
 def _nearest_anchor(anchors: list[_Anchor], local_time: datetime) -> _Anchor | None:

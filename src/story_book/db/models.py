@@ -71,6 +71,8 @@ class Media:
     tz_name: str | None = None
     tz_offset_minutes: int | None = None
     tz_source: TzSource = TzSource.UNKNOWN
+    exif_offset_minutes: int | None = None
+    """The raw `OffsetTimeOriginal` tag, as read. Never overwritten by resolution."""
     lat: float | None = None
     lon: float | None = None
     altitude: float | None = None
@@ -100,6 +102,7 @@ class Media:
             tz_name=row["tz_name"],
             tz_offset_minutes=row["tz_offset_minutes"],
             tz_source=TzSource(row["tz_source"] or TzSource.UNKNOWN),
+            exif_offset_minutes=row["exif_offset_minutes"],
             lat=row["lat"],
             lon=row["lon"],
             altitude=row["altitude"],

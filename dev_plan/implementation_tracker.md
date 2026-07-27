@@ -497,7 +497,7 @@ From Phase 0 in the plan doc. Neither is a coding task; both are cheap and can s
 | --- | --- | --- | --- |
 | P01 | Run `profile` on the real trip; retune threshold defaults | done | claude (main) — [findings](./p01_profile_findings.md) |
 | P02 | Hand-test the ChatGPT handoff on one real day | **done** | claude + human |
-| P03 | Label ~200 photos: event bounds, dup groups, preferred picks | **kit ready** | human — `~/Desktop/p03_labelling_kit` |
+| P03 | Label ~200 photos: event bounds, dup groups, preferred picks | **done** | human — 175 photos, 5 events, 7 dup groups |
 
 P02 is the make-or-break check: if a hand-assembled contact sheet + brief doesn't produce a
 journal worth keeping, every upstream module is aimed at the wrong target. Do it before Wave 1
@@ -530,7 +530,10 @@ Need a change in a file you don't own? Add a row. The owning agent (or the human
 | P02 | T13/T30 | Content taxonomy should not be binary keep/reject — a ticket or menu is a scrapbook element, not trash. Four-way (`exclude`/`archive-only`/`scrapbook-candidate`/`story-evidence`) **deferred to Phase 2**; Phase 1's job is only keeping screenshots out of highlights. | deferred |
 | P02 | T24 | **Module 6's centroid rule amended** after 129 items over 8¾ hours became one event. | resolved — but see the correction below |
 | T24 | plan doc | **The P02 diagnosis was wrong and measurement caught it.** Recent-window comparison makes *no difference* on the real day (6, 12 and 1000 give identical results) and is *worse* on synthetic gradual drift, because it follows you. The entire 4→7 improvement came from `events.max_minutes`. `recent_window` was removed rather than shipped; the plan doc now records the disproof alongside the original claim. | resolved |
-| T24 | P03 | Whether `jump_km` should be below 1.5 km is a genuine open question that needs labels, not intuition. Wandering a city centre trips neither the gap nor the jump rule today. | open — needs P03 |
+| T24 | P03 | Whether `jump_km` should be below 1.5 km needed labels. **Answered: no threshold works.** A grid search over gap/jump/duration tops out at F1 57%. | resolved — see below |
+| P03 | T12 | **Nine-hour timestamp bug found by hand-labelling.** Conflict resolution discarded the EXIF offset and read the wall time as GPS-local; the tag is the best evidence for the *instant*, GPS for the *zone*. Two photos sat 9h from their own filename neighbours. Fixed; labels are contiguous after it. | resolved |
+| P03 | T12 | **The stage overwrote its own input** — it read the raw tag from the same columns it wrote resolved values to, so `--force` silently produced a worse answer than a fresh run. `media.exif_offset_minutes` added (schema v3). | resolved |
+| P03 | **human** | **Clusters vs chapters, now measured.** Human boundaries sit at 2- and 8-minute gaps; the pipeline's at 17-57 minutes. They are anti-correlated, so no temporal threshold can reconcile them. CLIP distance is suggestive (boundaries at 0.74/0.66/0.57 vs median 0.32) but not separable (27/154 within-event pairs as distant). **Needs a product decision on target granularity before T24 is tuned further.** | OPEN — blocks T24 sign-off |
 | P02 | T30 | Selection needs **temporal spread within an event**, not just embedding diversity. On the mega-event it returned five photos from a fifteen-minute span to represent nine hours. Partly a symptom of the event bug, but worth an explicit constraint. | open — T30 |
 | P02 | T15 | **Whisper hallucinated on every real clip** — fluent German, Chinese, Greek and Tibetan invented from concert music and street noise. A fabricated quote in a journal is a fabricated memory. Fixed: VAD, language-confidence, avg_logprob and no-speech gates, all configurable; stale rows now deleted on rejection. All 8 bogus transcripts dropped. | resolved |
 | — | integrator | **Content classifier was badly miscalibrated.** Bare-word CLIP labels labelled **209 of 277** real travel photos `screenshot` — a *rejected* class — which would have thrown out three quarters of the trip. Fixed with natural-language prompt ensembles: rejected share fell to 6%. | resolved |

@@ -62,8 +62,7 @@ class TestExifOffsetLevel:
             taken_local="2026-07-18T09:20:00",
             lat=VIENNA[0],
             lon=VIENNA[1],
-            tz_offset_minutes=120,
-            tz_source=TzSource.EXIF_OFFSET,
+            exif_offset_minutes=120,
         )
 
         [resolved] = resolve_timezones([media], Config(), finder)
@@ -80,8 +79,7 @@ class TestExifOffsetLevel:
             taken_local="2026-07-18T09:20:00",
             lat=VIENNA[0],
             lon=VIENNA[1],
-            tz_offset_minutes=120,
-            tz_source=TzSource.EXIF_OFFSET,
+            exif_offset_minutes=120,
         )
 
         [resolved] = resolve_timezones([media], Config(), finder)
@@ -110,8 +108,7 @@ class TestGpsLevel:
             taken_local="2026-07-19T06:15:00",
             lat=VIENNA[0],
             lon=VIENNA[1],
-            tz_offset_minutes=-420,
-            tz_source=TzSource.EXIF_OFFSET,
+            exif_offset_minutes=-420,
         )
 
         with caplog.at_level(logging.WARNING):

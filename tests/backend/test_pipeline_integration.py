@@ -49,19 +49,26 @@ def _by_name(conn: sqlite3.Connection, filename: str):
 
 
 class TestMetadataHandsOffTheExifOffset:
-    """The regression. Before the fix these fields were left at their defaults."""
+    """The original regression: metadata parsed the offset and threw it away, so the timezone
+    stage could never take its level-1 path.
 
-    def test_offset_is_persisted(self, scanned: StageContext) -> None:
+    The handoff now has its own column. It used to reuse `tz_offset_minutes`/`tz_source`, which
+    meant the timezone stage overwrote the very input it reads -- so a second run saw no tag and
+    silently produced a worse answer than the first.
+    """
+
+    def test_the_raw_tag_is_persisted(self, scanned: StageContext) -> None:
         media = _by_name(scanned.conn, "heic_gps_offset.heic")
-        assert media.tz_offset_minutes == 120
+        assert media.exif_offset_minutes == 120
 
-    def test_tz_source_marks_it_as_an_exif_offset(self, scanned: StageContext) -> None:
+    def test_metadata_leaves_resolution_alone(self, scanned: StageContext) -> None:
+        """Reading and writing must stay in separate columns, or a re-run degrades."""
         media = _by_name(scanned.conn, "heic_gps_offset.heic")
-        assert media.tz_source is TzSource.EXIF_OFFSET
-
-    def test_a_file_without_an_offset_tag_is_left_unknown(self, scanned: StageContext) -> None:
-        media = _by_name(scanned.conn, "jpeg_gps_no_offset.jpg")
         assert media.tz_source is TzSource.UNKNOWN
+
+    def test_a_file_without_an_offset_tag_has_no_raw_tag(self, scanned: StageContext) -> None:
+        media = _by_name(scanned.conn, "jpeg_gps_no_offset.jpg")
+        assert media.exif_offset_minutes is None
 
 
 class TestTimezoneResolutionUsesTheHandoff:
