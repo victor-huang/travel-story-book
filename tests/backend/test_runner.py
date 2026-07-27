@@ -453,19 +453,40 @@ class TestForceClearsDerivedRows:
         assert ctx.conn.execute("SELECT COUNT(*) AS n FROM embedding").fetchone()["n"] == 0
 
     def test_the_runner_calls_it_when_forcing(self, ctx: StageContext, mocker) -> None:
-        from story_book.pipeline.embeddings import EmbeddingStage
+        """Uses a locally defined stage, not EmbeddingStage.
 
-        stage = EmbeddingStage()
+        CI installs no CLIP extra, so `EmbeddingStage.available()` is false there and the runner
+        skips it before reaching the force branch -- the first version of this test passed locally
+        and failed on both CI runners for a reason that had nothing to do with the behaviour.
+        """
+        stage = _AlwaysAvailableStage()
         spy = mocker.patch.object(stage, "clear_derived", return_value=0)
-        Runner(ctx, [stage], force=("embeddings",)).run()
+        Runner(ctx, [stage], force=(stage.name,)).run()
 
         spy.assert_called_once()
 
     def test_the_runner_does_not_call_it_without_force(self, ctx: StageContext, mocker) -> None:
-        from story_book.pipeline.embeddings import EmbeddingStage
-
-        stage = EmbeddingStage()
+        stage = _AlwaysAvailableStage()
         spy = mocker.patch.object(stage, "clear_derived", return_value=0)
         Runner(ctx, [stage]).run()
 
         spy.assert_not_called()
+
+    def test_an_unavailable_stage_is_not_cleared(self, ctx: StageContext, mocker) -> None:
+        """Forcing a stage whose dependency is missing must not destroy what it cannot rebuild."""
+        stage = _AlwaysAvailableStage()
+        mocker.patch.object(stage, "available", return_value=(False, "dependency missing"))
+        spy = mocker.patch.object(stage, "clear_derived", return_value=0)
+        Runner(ctx, [stage], force=(stage.name,)).run()
+
+        spy.assert_not_called()
+
+
+class _AlwaysAvailableStage(WholeTripStage):
+    """A do-nothing stage with no optional dependency, for testing runner behaviour itself."""
+
+    name = "always_available"
+    version = 1
+
+    def run(self, ctx: StageContext) -> None:
+        return None

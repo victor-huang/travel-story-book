@@ -127,6 +127,31 @@ saying so.
 
 ---
 
+### A test that could only pass on my machine
+
+**Category:** process
+**Cost:** one red CI run, caught before it sat there unnoticed
+
+**Symptom.** The new `--force` regression test spied on `EmbeddingStage.clear_derived` and asserted
+the runner called it. Green locally, red on both CI runners.
+
+**Root cause.** CI installs no CLIP extra, so `EmbeddingStage.available()` returns false and the
+runner skips the stage before it ever reaches the force branch. The behaviour under test was fine;
+the test had picked the one stage in the pipeline whose availability differs between my machine
+and CI.
+
+Worth noting the code is right, and deliberately so: forcing a stage whose dependency is missing
+must *not* clear its derived rows, because that would destroy data nothing can regenerate. That is
+now its own test.
+
+**Lesson.** A test of *runner* behaviour should not depend on a *stage's* optional dependency.
+Rewritten against a locally defined no-dependency stage. The general form: when testing a
+framework, use a fixture double, not the most convenient real implementation — the real one drags
+its environment in with it. This also cost a red CI run because I pushed and moved on; checking
+the run is part of pushing.
+
+---
+
 ## Encoded as project rules
 
 - Any test asserting survival of a failure must be watched to fail first. T42 does this with four
