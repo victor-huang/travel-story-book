@@ -7,6 +7,9 @@ dist/
 build/
 *.egg-info/
 
+# Model weights: fetched by the user, not vendored. See config.example.toml.
+/models/
+
 # Never commit real trip data, output, or secrets.
 /out/
 /output/

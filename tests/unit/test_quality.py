@@ -475,3 +475,46 @@ class TestSharpnessCalibration:
         big = _noisy_gray(seed=19, size=(1000, 2000))
         resized = quality._resize_short_edge(big, 500)
         assert resized.shape[1] / resized.shape[0] == pytest.approx(2.0, abs=0.05)
+
+
+class TestFaceComponentNeverPenalises:
+    """A face is a bonus, never a defect.
+
+    The first version returned `largest_frac / saturation` outright, so a street scene with seven
+    distant tourists scored 0.02 -- worse than the same street with nobody in it, which got the
+    0.5 neutral. Background faces are not a flaw; they are simply not the subject.
+    """
+
+    def test_background_faces_score_no_worse_than_an_empty_scene(self) -> None:
+        crowd = quality._face_component((7, 0.0025))
+        empty = quality._face_component((0, 0.0))
+        assert crowd >= empty
+
+    def test_a_prominent_face_scores_above_neutral(self) -> None:
+        assert quality._face_component((1, 0.02)) > quality.FACE_NEUTRAL_SCORE
+
+    def test_a_prominent_face_saturates_at_one(self) -> None:
+        assert quality._face_component((1, 0.10)) == 1.0
+
+    def test_no_detector_still_drops_the_term(self) -> None:
+        assert quality._face_component(None) is None
+
+    def test_the_saturation_point_is_reachable_by_real_photos(self) -> None:
+        """0.15 was unreachable: across a real library the largest face was 0.023 of the frame,
+        so the signal never fired even on the shots it exists to favour."""
+        assert quality.FACE_FRAC_SATURATION <= 0.03
+
+
+class TestFaceDetectionWorkingResolution:
+    """YuNet finds nothing on a 24-megapixel frame and finds the subject at 1280px."""
+
+    def test_a_large_image_is_downscaled(self) -> None:
+        big = _noisy_gray(seed=3, size=(4284, 5712))
+        assert max(quality._resize_long_edge(big, 1280).shape[:2]) == 1280
+
+    def test_a_small_image_is_left_alone(self) -> None:
+        small = _noisy_gray(seed=5, size=(400, 600))
+        assert quality._resize_long_edge(small, 1280).shape == small.shape
+
+    def test_the_working_edge_is_within_the_detector_range(self) -> None:
+        assert 640 <= quality.FACE_WORKING_EDGE <= 2048

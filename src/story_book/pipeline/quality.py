@@ -111,6 +111,13 @@ default).
 
 # --- sharpness --------------------------------------------------------------------------
 
+FACE_WORKING_EDGE = 1280
+"""Long edge, in pixels, that face detection runs at.
+
+YuNet finds nothing on a 24-megapixel frame -- literally zero faces on a photo where a person is
+plainly the subject -- and one face on the same image resized to 1280. Detectors are trained at a
+scale; handing them native phone resolution is out of distribution. Same lesson as sharpness."""
+
 SHARPNESS_WORKING_EDGE = 512
 """Short edge, in pixels, that sharpness is measured at.
 
@@ -148,7 +155,13 @@ FACE_MIN_NEIGHBORS = 5
 FACE_MIN_SIZE_PX = 24
 
 # A face filling this fraction of the frame or more saturates the face-presence score at 1.0.
-FACE_FRAC_SATURATION = 0.15
+#
+# 0.02, not the 0.15 first guessed. Measured across a real library, the largest face in any photo
+# reached 0.023 of the frame and the median photo-with-faces sat at 0.004-0.008 -- travel photos
+# are people in front of things, not studio portraits, so 0.15 was unreachable and the signal
+# never fired even on the shots it exists to favour. At 0.02 a face occupying ~1% of the frame
+# clears the neutral score and 2% saturates.
+FACE_FRAC_SATURATION = 0.02
 
 # Absence of a face is not evidence of a bad photo -- many travel highlights are landscapes
 # or food with nobody in frame -- so a faceless photo gets a neutral score rather than 0.
@@ -273,15 +286,19 @@ def _face_signal(image: Any, config: Config) -> tuple[int, float] | None:
 
     None is deliberately distinct from (0, 0.0): "we could not look" is not "there is nobody
     here", and conflating them is what let a missing detector masquerade as a real measurement.
+
+    Detection runs on a resized copy. The fraction is scale-invariant, so measuring it at 1280px
+    and applying it to the full frame is exact.
     """
     detector = _get_face_detector(config)
     if detector is None:
         return None
 
-    height, width = image.shape[:2]
+    work = _resize_long_edge(image, FACE_WORKING_EDGE)
+    height, width = work.shape[:2]
     detector.setInputSize((width, height))
     try:
-        _, faces = detector.detect(image)
+        _, faces = detector.detect(work)
     except cv2.error:
         return None
     if faces is None or len(faces) == 0:
@@ -292,14 +309,28 @@ def _face_signal(image: Any, config: Config) -> tuple[int, float] | None:
     return len(faces), (largest / frame_area if frame_area else 0.0)
 
 
+def _resize_long_edge(image: Any, edge: int) -> Any:
+    longest = max(image.shape[:2])
+    if longest <= edge:
+        return image
+    scale = edge / longest
+    size = (max(1, int(image.shape[1] * scale)), max(1, int(image.shape[0] * scale)))
+    return cv2.resize(image, size, interpolation=cv2.INTER_AREA)
+
+
 def _face_component(signal: tuple[int, float] | None) -> float | None:
-    """None propagates "no detector" through to the score, which drops the term entirely."""
+    """None propagates "no detector" through to the score, which drops the term entirely.
+
+    A face never *penalises* a photo. The first version returned `largest_frac / saturation`
+    outright, so a street scene with seven distant tourists scored 0.02 -- far worse than the same
+    street with nobody in it, which got the 0.5 neutral. Background faces are not a defect; they
+    are simply not the subject. So the component is the better of neutral and the boost.
+    """
     if signal is None:
         return None
-    face_count, face_max_frac = signal
-    if face_count == 0:
-        return FACE_NEUTRAL_SCORE
-    return min(1.0, face_max_frac / FACE_FRAC_SATURATION)
+    _face_count, face_max_frac = signal
+    boost = min(1.0, face_max_frac / FACE_FRAC_SATURATION)
+    return max(FACE_NEUTRAL_SCORE, boost)
 
 
 def _overall_score(

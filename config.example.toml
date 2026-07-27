@@ -97,7 +97,11 @@ device = "auto"
 #
 # Unset simply means the face signal is unavailable. The quality score then renormalizes over
 # its remaining components rather than feeding in a constant, so nothing is silently diluted.
-# face_detector_model = "~/models/face_detection_yunet_2023mar.onnx"
+# face_detector_model = "models/face_detection_yunet_2023mar.onnx"
+#
+# Fetch it once (it is ~230 KB and not committed):
+#   curl -sLo models/face_detection_yunet_2023mar.onnx \
+#     https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
 
 [geocode]
 # Offline city/region lookup always works. Nominatim adds POI-level names but is
