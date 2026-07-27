@@ -152,8 +152,12 @@ class TestFalseMergesAreTheExpensiveError:
         assert tight <= loose
 
     def test_default_threshold_sits_below_the_noise_floor(self) -> None:
-        """Measured on 11,709 real pairs: 27 fall at <=18, then 100 at <=20."""
-        assert DedupConfig().phash_max_distance == 18
+        """14, not 18. The distance distribution alone suggested 18 and it scored 100% precision
+        against the labelled pairs -- but only 8 pairs fell in the labelled days. Rendering all 23
+        resulting clusters showed four of the first six were nonsense (two different composer
+        busts; a bust merged with a cathedral tower). Sorted by distance the split is total: <=14
+        is bursts and tight retakes, >=16 was false merges."""
+        assert DedupConfig().phash_max_distance == 14
 
     def test_default_cosine_is_above_what_clip_can_resolve(self) -> None:
         """Real duplicates ran 0.836-0.956 and distinct pairs 0.838-0.929 -- they overlap."""

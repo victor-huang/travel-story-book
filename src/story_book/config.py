@@ -53,13 +53,20 @@ class EventConfig:
 
 @dataclass(frozen=True, slots=True)
 class DedupConfig:
-    # Calibrated on 11,709 real within-event pairs, not guessed. Their distances are centred at
-    # 31.3 with a 4.2 spread, and the count at or below a threshold runs 12 (<=14), 19 (<=16),
-    # 27 (<=18), then **100** (<=20) -- the jump to 100 is where random collisions start to
-    # dominate. Eight of nine hand-labelled duplicate pairs sit at <=16 and the ninth at 20, so 18
-    # takes almost all of them while staying below the noise floor. The original guess of 6 caught
-    # one of the nine.
-    phash_max_distance: int = 18
+    # Calibrated twice, and the second time by looking at the pictures.
+    #
+    # The distance distribution over 11,709 real within-event pairs is centred at 31.3 (spread
+    # 4.2), with 12 pairs at <=14, 19 at <=16, 27 at <=18 and 100 at <=20. That pointed at 18, and
+    # against the hand-labelled pairs 18 scored 100% precision -- but only 8 pairs fell inside the
+    # labelled days, far too few to see the failure. Rendering all 23 resulting clusters and
+    # looking at them showed four of the first six were nonsense: two different composer busts, a
+    # bust merged with a cathedral tower, a stage set merged with an organ loft.
+    #
+    # Sorted by distance the split is total: every cluster at <=14 is a burst or a tight retake,
+    # every cluster at >=16 is a "similar" pair, and every one of those inspected was wrong. So 14.
+    # It costs the two loosest labelled duplicates (at 16 and 20) -- the right trade, since the
+    # plan is explicit that a false merge costs more than a missed duplicate.
+    phash_max_distance: int = 14
     burst_max_seconds: float = 3.0
 
     # Deliberately above anything CLIP cosine can resolve here. On the same labelled pairs the
