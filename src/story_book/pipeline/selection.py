@@ -116,9 +116,7 @@ def allocate(counts: dict[int, int], quota: int) -> dict[int, int]:
     return allocation
 
 
-def pick_diverse(
-    candidates: list[Candidate], limit: int, min_distance: float
-) -> list[Candidate]:
+def pick_diverse(candidates: list[Candidate], limit: int, min_distance: float) -> list[Candidate]:
     """Best-quality first, skipping anything too close to an already-chosen photo.
 
     Quality alone returns near-identical frames: the sharpest five shots of one façade all score
@@ -181,9 +179,7 @@ class SelectionStage(WholeTripStage):
             excluded,
         )
 
-    def _choose_keepers(
-        self, ctx: StageContext, candidates: list[Candidate]
-    ) -> dict[int, str]:
+    def _choose_keepers(self, ctx: StageContext, candidates: list[Candidate]) -> dict[int, str]:
         by_cluster: dict[int, list[Candidate]] = {}
         for candidate in candidates:
             if candidate.cluster_id is not None:
@@ -199,9 +195,7 @@ class SelectionStage(WholeTripStage):
             _record(ctx.conn, best, SelectionScope.CLUSTER, cluster_id, 1, "best in cluster")
         return keepers
 
-    def _choose_event_representatives(
-        self, ctx: StageContext, eligible: list[Candidate]
-    ) -> None:
+    def _choose_event_representatives(self, ctx: StageContext, eligible: list[Candidate]) -> None:
         """A few per internal cluster, used to sample landmark recognition cheaply."""
         by_event: dict[int, list[Candidate]] = {}
         for candidate in eligible:
