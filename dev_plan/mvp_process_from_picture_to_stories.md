@@ -366,6 +366,21 @@ re-running re-transcribes at most one clip.
 - Per event, N **highlights** (default 5) chosen for quality *and diversity* — greedily
   maximize CLIP-embedding distance among high scorers so you get five different shots of
   the castle grounds rather than five near-identical façades.
+- **Weight the allocation by photo density, and spread across the day.** Two findings drive this.
+  P02: a coarse cluster returned five highlights all taken within fifteen minutes to represent
+  nine hours. P03: density is a real and measurable signal of what mattered — on one day, seven
+  ~100 m cells held above-average photo counts, topping out at 28 photos in one cell, and those
+  are exactly the places the photographer cared about.
+
+  Density was first proposed as a *segmentation* rule (hotspots ≥500 m apart become separate
+  events). Measured against real labels, that does not work: distances between hotspots in
+  different labelled events run 133–953 m while hotspots *within* one event run 71–586 m, so the
+  distributions overlap almost entirely and no threshold separates them. Worse, the same cell is
+  often revisited — one was photographed at 11:37, again at 21:15, and again at 22:44, landing in
+  different events — so spatial clustering merges visits that are hours apart.
+
+  The signal is real; segmentation is the wrong job for it. **"We took 28 photos here" is evidence
+  of importance, not of a boundary**, so it belongs in how many highlights a place earns.
 - Per day and per trip, a "best of" roll-up drawn from event highlights.
 - Everything not selected stays in the DB, tagged, and is exportable with
   `--include-all` — the user must always be able to overrule the algorithm.
