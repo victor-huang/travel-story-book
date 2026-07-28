@@ -13,6 +13,7 @@ from pathlib import Path
 
 import jsonschema
 import pytest
+from PIL import Image
 
 from story_book.db import connection as db
 from story_book.db.models import MediaKind
@@ -93,10 +94,25 @@ def _add_video(ctx: StageContext, make_media, *, processed: bool, text: str | No
         ),
     )
     if processed:
+        # A real poster file on disk: without one the asset has nothing to export and the video
+        # path under test is never exercised.
+        poster = ctx.out_dir / "cache" / "poster.jpg"
+        poster.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (64, 48), "grey").save(poster, format="JPEG")
+        frames = []
+        for index in range(5):
+            frame = ctx.out_dir / "cache" / f"frame{index}.jpg"
+            Image.new("RGB", (64, 48), "grey").save(frame, format="JPEG")
+            frames.append(str(frame.relative_to(ctx.out_dir)))
         ctx.conn.execute(
             "INSERT INTO video_meta (media_hash, fps, poster_path, keyframe_paths, motion_score,"
-            " mean_volume_db, has_speech) VALUES (?, 30.0, NULL, '[]', 0.3, -30.0, ?)",
-            (media_hash, int(text is not None)),
+            " mean_volume_db, has_speech) VALUES (?, 30.0, ?, ?, 0.3, -30.0, ?)",
+            (
+                media_hash,
+                str(poster.relative_to(ctx.out_dir)),
+                json.dumps(frames),
+                int(text is not None),
+            ),
         )
         ctx.conn.execute(
             "INSERT INTO stage_result (media_hash, stage, stage_version, status, computed_at) "
@@ -436,7 +452,8 @@ class TestEmptyStopsAreListed:
                 "place": "Somewhere else",
                 "start_local": "2026-07-18T20:00:00",
                 "end_local": "2026-07-18T20:05:00",
-                "duration": "5 min",
+                "duration_seconds": 300,
+                "duration_display": "5 min",
                 "counts": {"media": 4, "images": 4, "videos": 0},
                 "location": {
                     "centroid": None,
@@ -466,7 +483,8 @@ class TestEmptyStopsAreListed:
                 "place": None,
                 "start_local": None,
                 "end_local": None,
-                "duration": "",
+                "duration_seconds": None,
+                "duration_display": "",
                 "counts": {"media": 1, "images": 1, "videos": 0},
                 "location": {
                     "centroid": None,
@@ -615,3 +633,272 @@ class TestCleanArchive:
         first = write_archive(built)
         count = len(zipfile.ZipFile(first).namelist())
         assert len(zipfile.ZipFile(write_archive(built)).namelist()) == count
+
+
+class TestExportedFilesAreWhatTheyClaim:
+    """P06's critical finding: video exports were JPEGs written under `.mov` names.
+
+    The manifest advertised nine playable clips and shipped nine still images. A consumer decoding
+    them fails; one that trusts the manifest believes it has footage it does not have.
+    """
+
+    def test_a_video_poster_is_named_and_typed_as_an_image(
+        self, seeded: StageContext, make_media
+    ) -> None:
+        _add_video(seeded, make_media, processed=True, text=None)
+        built = build_package(_document(seeded), seeded.out_dir)
+        manifest = json.loads(built.manifest.read_text())
+        video = next(a for day in manifest["days"] for a in day["assets"] if a["kind"] == "video")
+        assert video["export_path"].endswith("_poster.jpg")
+        assert video["export_media_type"] == "image/jpeg"
+        assert video["export_role"] == "poster_frame"
+
+    def test_no_export_path_carries_a_video_extension_without_video_content(
+        self, seeded: StageContext, make_media
+    ) -> None:
+        _add_video(seeded, make_media, processed=True, text=None)
+        built = build_package(_document(seeded), seeded.out_dir)
+        manifest = json.loads(built.manifest.read_text())
+        for day in manifest["days"]:
+            for a in day["assets"]:
+                if a["export_media_type"] == "image/jpeg":
+                    assert not a["export_path"].lower().endswith((".mov", ".mp4", ".m4v"))
+
+    def test_a_preview_only_package_says_no_proxy_is_included(
+        self, seeded: StageContext, make_media
+    ) -> None:
+        _add_video(seeded, make_media, processed=True, text=None)
+        manifest = build_manifest(_document(seeded), PREVIEW, False)
+        assert manifest["package"]["video_proxies_included"] is False
+        assert "No playable video" in manifest["package"]["video_note"]
+
+    def test_a_photo_export_keeps_its_own_filename(self, seeded: StageContext) -> None:
+        built = build_package(_document(seeded), seeded.out_dir)
+        manifest = json.loads(built.manifest.read_text())
+        image = next(a for day in manifest["days"] for a in day["assets"] if a["kind"] == "image")
+        assert image["source_filename"] in image["export_path"]
+
+
+class TestShortClipsAreMarked:
+    def test_a_sub_two_second_clip_is_labelled_short(
+        self, seeded: StageContext, make_media
+    ) -> None:
+        media_hash = _add_video(seeded, make_media, processed=True, text=None)
+        seeded.conn.execute("UPDATE media SET duration = 0.4 WHERE hash = ?", (media_hash,))
+        seeded.conn.commit()
+        video = next(
+            a
+            for day in build_manifest(_document(seeded), PREVIEW)["days"]
+            for a in day["assets"]
+            if a["kind"] == "video"
+        )
+        assert video["video"]["subtype"] == "short_clip"
+
+    def test_a_short_clip_is_not_a_storyboard_candidate(
+        self, seeded: StageContext, make_media
+    ) -> None:
+        media_hash = _add_video(seeded, make_media, processed=True, text=None)
+        seeded.conn.execute("UPDATE media SET duration = 0.4 WHERE hash = ?", (media_hash,))
+        seeded.conn.commit()
+        video = next(
+            a
+            for day in build_manifest(_document(seeded), PREVIEW)["days"]
+            for a in day["assets"]
+            if a["kind"] == "video"
+        )
+        assert video["video"]["storyboard_candidate"] is False
+
+    def test_a_short_clip_ships_one_keyframe_not_five(
+        self, seeded: StageContext, make_media
+    ) -> None:
+        """Five frames sampled across 0.4 seconds are five views of one instant."""
+        media_hash = _add_video(seeded, make_media, processed=True, text=None)
+        seeded.conn.execute("UPDATE media SET duration = 0.4 WHERE hash = ?", (media_hash,))
+        seeded.conn.commit()
+        video = next(
+            a
+            for day in build_manifest(_document(seeded), PREVIEW)["days"]
+            for a in day["assets"]
+            if a["kind"] == "video"
+        )
+        assert len(video["video"]["keyframes"]) <= 1
+
+    def test_a_normal_clip_remains_a_candidate(self, seeded: StageContext, make_media) -> None:
+        _add_video(seeded, make_media, processed=True, text=None)
+        video = next(
+            a
+            for day in build_manifest(_document(seeded), PREVIEW)["days"]
+            for a in day["assets"]
+            if a["kind"] == "video"
+        )
+        assert video["video"]["storyboard_candidate"] is True
+
+    def test_the_brief_flags_a_short_clip(self, seeded: StageContext, make_media) -> None:
+        media_hash = _add_video(seeded, make_media, processed=True, text=None)
+        seeded.conn.execute("UPDATE media SET duration = 0.4 WHERE hash = ?", (media_hash,))
+        seeded.conn.commit()
+        built = build_package(_document(seeded), seeded.out_dir)
+        assert "too short for a storyboard" in built.days[0].brief.read_text()
+
+
+class TestPromptDoesNotManufacturePrecision:
+    def test_without_proxies_ranges_are_called_estimates(
+        self, seeded: StageContext, make_media
+    ) -> None:
+        """Five stills from a 112-second clip cannot support a confident choice of seconds 43-51."""
+        _add_video(seeded, make_media, processed=True, text=None)
+        built = build_package(_document(seeded), seeded.out_dir)
+        text = built.days[0].prompt.read_text()
+        assert "No playable footage is included" in text and "estimates" in text
+
+    def test_without_proxies_the_model_is_told_to_anchor_to_a_keyframe(
+        self, seeded: StageContext, make_media
+    ) -> None:
+        _add_video(seeded, make_media, processed=True, text=None)
+        built = build_package(_document(seeded), seeded.out_dir)
+        assert "anchor them" in built.days[0].prompt.read_text()
+
+    def test_a_day_with_no_footage_says_so(self, seeded: StageContext) -> None:
+        built = build_package(_document(seeded), seeded.out_dir)
+        assert "no footage" in built.days[0].prompt.read_text()
+
+
+class TestAfterMidnightIsExplicit:
+    def test_an_asset_reports_the_calendar_date_it_was_taken_on(
+        self, seeded: StageContext, make_media
+    ) -> None:
+        record = build_manifest(_document(seeded), PREVIEW)["days"][0]["assets"][0]
+        assert record["calendar_date"] == "2026-07-18"
+
+    def test_the_day_assignment_rule_is_stated(self, seeded: StageContext) -> None:
+        rule = build_manifest(_document(seeded), PREVIEW)["trip"]["day_assignment_rule"]
+        assert "04:00" in rule
+
+    def test_a_past_midnight_stop_shows_its_calendar_date(self, seeded: StageContext) -> None:
+        from story_book.export.package import _stamp
+
+        after = {"taken_local": "2026-07-20T00:59:12+02:00", "calendar_date": "2026-07-20"}
+        assert _stamp(after, "2026-07-19") == "00:59 (2026-07-20)"
+
+    def test_a_same_day_stop_shows_only_the_clock(self, seeded: StageContext) -> None:
+        from story_book.export.package import _stamp
+
+        same = {"taken_local": "2026-07-19T15:46:00+02:00", "calendar_date": "2026-07-19"}
+        assert _stamp(same, "2026-07-19") == "15:46"
+
+
+class TestNoDuplicatedState:
+    def test_pinned_by_human_lives_only_inside_selection(self, seeded: StageContext) -> None:
+        """Two places for one fact is one place eventually wrong."""
+        record = build_manifest(_document(seeded), PREVIEW)["days"][0]["assets"][0]
+        assert "pinned_by_human" not in record
+        assert "pinned_by_human" in record["selection"]
+
+
+class TestMachineReadableDurations:
+    def test_an_event_reports_seconds_and_a_display_string(self, seeded: StageContext) -> None:
+        event = build_manifest(_document(seeded), PREVIEW)["days"][0]["events"][0]
+        assert isinstance(event["duration_seconds"], int)
+        assert isinstance(event["duration_display"], str)
+
+    def test_the_two_agree(self, seeded: StageContext) -> None:
+        event = build_manifest(_document(seeded), PREVIEW)["days"][0]["events"][0]
+        assert f"{event['duration_seconds'] // 60} min" == event["duration_display"]
+
+
+class TestTripBoundsAreUnambiguous:
+    def test_the_trip_start_carries_its_offset(self, seeded: StageContext) -> None:
+        seeded.conn.execute("UPDATE media SET tz_offset_minutes = 120")
+        seeded.conn.commit()
+        assert build_manifest(_document(seeded), PREVIEW)["trip"]["start_local"].endswith("+02:00")
+
+    def test_utc_bounds_are_reported(self, seeded: StageContext) -> None:
+        trip = build_manifest(_document(seeded), PREVIEW)["trip"]
+        assert trip["start_utc"] and trip["end_utc"]
+
+    def test_bounds_are_ordered_by_utc_not_by_the_local_string(self) -> None:
+        """`...T09:00+02:00` sorts after `...T08:00+01:00` while being the earlier instant."""
+        from story_book.pipeline.timeline import _trip_bound
+
+        assets = {
+            "a": {
+                "taken_utc": "2026-07-18T07:00:00+00:00",
+                "taken_local": "2026-07-18T09:00:00+02:00",
+            },
+            "b": {
+                "taken_utc": "2026-07-18T06:00:00+00:00",
+                "taken_local": "2026-07-18T07:00:00+01:00",
+            },
+        }
+        assert _trip_bound(assets, "min") == "2026-07-18T07:00:00+01:00"
+
+
+class TestVideoProxies:
+    """The mode that makes an exact source range answerable rather than invented."""
+
+    @pytest.mark.needs_ffmpeg
+    def test_a_proxy_is_a_real_playable_mp4(
+        self, seeded: StageContext, make_media, media_dir: Path
+    ) -> None:
+        clip = next((p for p in media_dir.glob("*.mov")), None)
+        assert clip is not None, "fixture video missing"
+        media_hash = _add_video(seeded, make_media, processed=True, text=None)
+        seeded.conn.execute("UPDATE media SET path = ? WHERE hash = ?", (str(clip), media_hash))
+        seeded.conn.commit()
+
+        document = _document(seeded)
+        sources = {
+            a["asset_id"]: Path(
+                seeded.conn.execute(
+                    "SELECT path FROM media WHERE hash = ?", (a["content_hash"],)
+                ).fetchone()["path"]
+            )
+            for a in document["assets"].values()
+        }
+        built = build_package(document, seeded.out_dir, source_for=sources, video_proxies=True)
+        manifest = json.loads(built.manifest.read_text())
+        video = next(a for d in manifest["days"] for a in d["assets"] if a["kind"] == "video")
+
+        assert video["export_media_type"] == "video/mp4"
+        assert video["export_role"] == "video_proxy"
+        assert (built.root / video["export_path"]).read_bytes()[4:8] == b"ftyp"
+
+    @pytest.mark.needs_ffmpeg
+    def test_the_poster_is_kept_alongside_the_proxy(
+        self, seeded: StageContext, make_media, media_dir: Path
+    ) -> None:
+        clip = next((p for p in media_dir.glob("*.mov")), None)
+        assert clip is not None, "fixture video missing"
+        media_hash = _add_video(seeded, make_media, processed=True, text=None)
+        seeded.conn.execute("UPDATE media SET path = ? WHERE hash = ?", (str(clip), media_hash))
+        seeded.conn.commit()
+
+        document = _document(seeded)
+        sources = {
+            a["asset_id"]: Path(
+                seeded.conn.execute(
+                    "SELECT path FROM media WHERE hash = ?", (a["content_hash"],)
+                ).fetchone()["path"]
+            )
+            for a in document["assets"].values()
+        }
+        built = build_package(document, seeded.out_dir, source_for=sources, video_proxies=True)
+        manifest = json.loads(built.manifest.read_text())
+        video = next(a for d in manifest["days"] for a in d["assets"] if a["kind"] == "video")
+
+        assert (built.root / video["poster_path"]).exists()
+
+    def test_a_failed_transcode_falls_back_to_the_poster_honestly(
+        self, seeded: StageContext, make_media, mocker
+    ) -> None:
+        """Better a truthful poster than a manifest claiming footage that is not there."""
+        _add_video(seeded, make_media, processed=True, text=None)
+        mocker.patch("story_book.export.package._transcode_proxy", return_value=False)
+
+        built = build_package(_document(seeded), seeded.out_dir, video_proxies=True)
+        manifest = json.loads(built.manifest.read_text())
+        video = next(a for d in manifest["days"] for a in d["assets"] if a["kind"] == "video")
+
+        assert video["export_media_type"] == "image/jpeg"
+        assert video["video_proxy_included"] is False
+        assert any("proxy transcode failed" in reason for _, reason in built.skipped)

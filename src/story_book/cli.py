@@ -308,6 +308,13 @@ def package(
             help="Ship full-resolution originals instead of previews. Hardlinks where possible.",
         ),
     ] = False,
+    video_proxies: Annotated[
+        bool,
+        typer.Option(
+            "--video-proxies",
+            help="Transcode playable 720p MP4 proxies. Needed for exact video source ranges.",
+        ),
+    ] = False,
     archive: Annotated[
         bool,
         typer.Option("--zip", help="Also write package.zip, without macOS filesystem droppings."),
@@ -341,8 +348,17 @@ def package(
         for row in conn.execute("SELECT path FROM media WHERE hash = ?", (asset["content_hash"],))
     }
     built = build_package(
-        document, out, mode=ORIGINALS if originals else PREVIEW, source_for=sources
+        document,
+        out,
+        mode=ORIGINALS if originals else PREVIEW,
+        source_for=sources,
+        video_proxies=video_proxies,
     )
+    if not video_proxies:
+        console.print(
+            "[dim]no video proxies: clips ship a poster frame and keyframes, so a storyboard's "
+            "source ranges are estimates. Add --video-proxies to make them answerable.[/]"
+        )
 
     for skipped_name, reason in built.skipped:
         console.print(f"[yellow]skipped[/] {skipped_name}: {reason}")

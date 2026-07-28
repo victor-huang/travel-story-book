@@ -613,6 +613,51 @@ The reviewer's suggested `img_` prefix on `asset_id` was also skipped, to keep t
 an `asset_id` is a literal prefix of the content hash — which a test asserts and a consumer can
 verify.
 
+### P06 result — the video side looked more complete than it was
+
+The second review of the generated package validated cleanly — schema passed, all references
+resolved, 56 unique ids and hashes, no archive artifacts — and then found one defect that mattered
+more than everything the first review raised:
+
+**The nine exported "videos" were JPEG poster frames written under the source's own `.mov` names.**
+`kind: "video"`, `export_path: ".../IMG_1815.mov"`, and a still image on disk. A consumer decoding
+them fails; one that trusts the manifest believes it has footage it does not have. The package
+*looked* more complete than it was, which is worse than looking incomplete.
+
+The fix is two honest modes rather than one dishonest one:
+
+- **Default (poster + keyframes).** The poster ships as `<asset_id>_poster.jpg` with
+  `export_media_type: "image/jpeg"` and `export_role: "poster_frame"`, alongside the sampled
+  keyframes and their offsets. `video_proxies_included: false`, and the prompt tells the model that
+  nothing between the keyframes has been seen by anyone, so a source range is an **estimate**
+  anchored to a keyframe — not a confident choice of seconds 43–51 from five stills of a
+  112-second clip. Asking for exact ranges without proxies manufactures precision.
+- **`--video-proxies`.** Transcodes a 720p H.264 MP4 per clip (CRF 28, faststart) into
+  `video_proxies/`. `export_media_type: "video/mp4"`, `export_role: "video_proxy"`, and the prompt
+  switches to "watch them and choose". A failed transcode falls back to the poster and says so,
+  rather than leaving a claim of footage that is not there. On the real trip this takes the archive
+  from 35 MB to 99 MB, which is the right trade when a storyboard is the goal.
+
+Also from P06:
+
+- **Short clips are marked, not dropped.** The library holds a 0.37-second HEVC recording of 11
+  frames — plainly a slipped finger. It now carries `subtype: "short_clip"` and
+  `storyboard_candidate: false`, and ships one keyframe instead of five. Labelled by *duration*, not
+  called a Live Photo: these files carry no `ContentIdentifier`, so that would be an inference
+  dressed as a fact.
+- **After-midnight stops state their calendar date.** A 00:59 photo belongs to the previous
+  evening's story but not to its date. Assets now carry `calendar_date` beside `day`, the trip
+  states its `day_assignment_rule`, and the brief renders `00:59 (2026-07-20)`.
+- **`pinned_by_human` lives only inside `selection`.** It was duplicated at the top level of the
+  record, which is two places for one fact and one of them eventually wrong.
+- **Numeric durations** (`duration_seconds`) beside the display form, and trip bounds that carry
+  their offsets plus UTC equivalents — **ordered by `taken_utc`**, because comparing offset-bearing
+  local strings lexicographically gets it wrong the moment a trip spans two zones.
+
+Deferred deliberately: optional event *subclusters*, which the reviewer marked unnecessary for the
+MVP given that chapters are drawn by the model, and a place `confidence`, which the reviewer now
+agrees is not meaningful for a city-level offline lookup.
+
 ### Clusters are not chapters
 
 P02 named this precisely: what Module 6 produces is a **time-and-location cluster**, not a

@@ -15,12 +15,12 @@ human hands to ChatGPT to write the travel journal.
 
 ```bash
 uv sync --extra vision --extra video --extra exif --extra geo   # a bare `uv sync` PRUNES these
-uv run pytest                                    # 1230 tests, expect 0 failures 0 skips locally
+uv run pytest                                    # 1255 tests, expect 0 failures 0 skips locally
 uv run pytest tests/unit                         # fast, mocked, no DB
 uv run story-book build <src> --out <dir>        # the pipeline
 uv run story-book report --out <dir>             # re-render HTML only
 uv run story-book profile <src>                  # folder stats + suggested config
-uv run story-book package --out <dir> [--zip]     # the ChatGPT upload package
+uv run story-book package --out <dir> [--zip] [--video-proxies]   # ChatGPT package
 uv run story-book eval <truth.toml> --out <dir>   # score against a labelled truth set
 uv run python tests/fixtures/generate.py         # regenerate fixtures (deterministic)
 ```
@@ -157,6 +157,20 @@ lived in places a per-stage test cannot reach.
 - **Emit no confidence, score, or measurement the pipeline did not compute.** P05 asked for a place
   `confidence`; the offline geocoder produces none, so the manifest reports `precision: "city"`
   instead. A fabricated number that looks measured is this project's most repeated failure.
+- **For every declared media type in an export, verify one file's actual bytes.** P06 found nine
+  assets declared `kind: "video"` whose exported files were JPEGs under `.mov` names. The schema
+  validated, every reference resolved, 87 tests passed — all of them checking *presence*, none
+  checking *identity*. `file -b` is two lines.
+- **An artifact never overstates its contents.** Where it cannot supply what a consumer would
+  assume, it says so at that point: `video_proxies_included`, `transcript_status`,
+  `privacy.home_configured`, `asset_scope`. Looking more complete than you are is worse than
+  looking incomplete.
+- **Never request precision the data cannot support.** Five frames from a 112-second clip cannot
+  justify "seconds 43–51", so without proxies the prompt asks for estimates anchored to keyframe
+  offsets and flagged in `uncertainties`.
+- **When a value gains a dimension, grep every comparison on it.** Adding UTC offsets to
+  `taken_local` broke event durations one day and trip bounds the next — same rule (order by UTC,
+  split days by local), two sites, found separately.
 - **Look at real output.** A rendered contact sheet exposed the flat-score bug in seconds; no
   assertion had. Loading the report found that every image 404'd while the HTML validated
   perfectly — **when output references external files, resolve the references**, since the markup

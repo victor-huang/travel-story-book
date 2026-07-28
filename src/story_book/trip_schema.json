@@ -41,7 +41,10 @@
         "start_local",
         "end_local",
         "counts",
-        "timezone"
+        "timezone",
+        "day_assignment_rule",
+        "start_utc",
+        "end_utc"
       ],
       "properties": {
         "name": {
@@ -80,6 +83,21 @@
           }
         },
         "timezone": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "day_assignment_rule": {
+          "type": "string"
+        },
+        "start_utc": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "end_utc": {
           "type": [
             "string",
             "null"
@@ -309,7 +327,8 @@
         "landmark_ids",
         "thumbnail",
         "preview",
-        "geometry"
+        "geometry",
+        "calendar_date"
       ],
       "properties": {
         "asset_id": {
@@ -548,7 +567,9 @@
             "motion_score",
             "mean_volume_db",
             "transcript_status",
-            "transcript"
+            "transcript",
+            "subtype",
+            "storyboard_candidate"
           ],
           "properties": {
             "duration_seconds": {
@@ -632,6 +653,16 @@
                   ]
                 }
               }
+            },
+            "subtype": {
+              "description": "Stated by duration, not inferred provenance: these files carry no ContentIdentifier, so calling one a Live Photo would be a guess.",
+              "enum": [
+                "clip",
+                "short_clip"
+              ]
+            },
+            "storyboard_candidate": {
+              "type": "boolean"
             }
           }
         },
@@ -685,6 +716,13 @@
               ]
             }
           }
+        },
+        "calendar_date": {
+          "description": "The date the item was actually taken on, which differs from `day` for anything shot after midnight. `day` is the trip day it belongs to.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "allOf": [
@@ -718,7 +756,8 @@
         "counts",
         "landmarks",
         "highlights",
-        "assets"
+        "assets",
+        "duration_seconds"
       ],
       "properties": {
         "id": {
@@ -848,6 +887,12 @@
           "items": {
             "type": "string"
           }
+        },
+        "duration_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       }
     },

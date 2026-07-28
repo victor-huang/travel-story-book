@@ -36,6 +36,7 @@ import json
 import logging
 import os
 import shutil
+import subprocess
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -50,6 +51,7 @@ PACKAGE_DIRNAME = "package"
 SHEETS_DIRNAME = "contact_sheets"
 KEYFRAMES_DIRNAME = "keyframes"
 SCHEMA_DIRNAME = "schema"
+PROXIES_DIRNAME = "video_proxies"
 MANIFEST_SCHEMA_FILENAME = "manifest.schema.json"
 SCHEMA_SOURCE = Path(__file__).parent / "manifest_schema.json"
 
@@ -57,7 +59,7 @@ SCHEMA_SOURCE = Path(__file__).parent / "manifest_schema.json"
 # look unfinished and they are noise for whoever opens it.
 JUNK_NAMES = (".DS_Store", "Thumbs.db", "__MACOSX", ".Spotlight-V100", ".fseventsd")
 MANIFEST_FILENAME = "manifest.json"
-MANIFEST_SCHEMA_VERSION = 2
+MANIFEST_SCHEMA_VERSION = 3
 
 CELLS_PER_SHEET = 12
 SHEET_COLUMNS = 4
@@ -145,6 +147,10 @@ def _video_summary(asset: dict) -> dict[str, Any] | None:
     keyframes = video.get("keyframes") or []
     return {
         "duration_seconds": _round(video["duration_seconds"], 1),
+        "subtype": video["subtype"],
+        # A 0.37-second clip is not storyboard material. Marked rather than dropped: a human who
+        # pinned it still gets it, and silently excluding footage is its own kind of lie.
+        "storyboard_candidate": video["storyboard_candidate"],
         "fps": _round(video.get("fps"), 2),
         "motion_score": _round(video["motion_score"]),
         # Frames *and* their offsets into the clip. Without them a storyboard can say how long to
@@ -186,7 +192,32 @@ def _selection_reasons(asset: dict) -> list[str]:
     return reasons
 
 
-def _asset_record(asset: dict, day: str, event_id: str | None, export_path: str | None) -> dict:
+def _export_kind(asset: dict, proxies: bool) -> dict[str, Any]:
+    """What the exported file for this asset actually *is*.
+
+    The bug this exists to prevent: a video's exported preview was its poster frame -- a JPEG --
+    written under the source's own `.mov` name, so the package advertised nine playable clips and
+    shipped nine still images with a lying extension. A consumer decoding them fails, and one that
+    trusts the manifest believes it has footage it does not have.
+    """
+    if asset["kind"] != "video":
+        return {
+            "source_media_type": "image/jpeg",
+            "export_media_type": "image/jpeg",
+            "export_role": "preview_image",
+            "video_proxy_included": False,
+        }
+    return {
+        "source_media_type": "video/quicktime",
+        "export_media_type": "video/mp4" if proxies else "image/jpeg",
+        "export_role": "video_proxy" if proxies else "poster_frame",
+        "video_proxy_included": proxies,
+    }
+
+
+def _asset_record(
+    asset: dict, day: str, event_id: str | None, export_path: str | None, proxies: bool = False
+) -> dict:
     location = asset.get("location")
     place = (location or {}).get("place")
     selected = asset.get("selected", {})
@@ -196,11 +227,13 @@ def _asset_record(asset: dict, day: str, event_id: str | None, export_path: str 
         "source_filename": asset["filename"],
         "kind": asset["kind"],
         "day": day,
+        "calendar_date": asset["calendar_date"],
         "event_id": event_id,
         "taken_local": asset["taken_local"],
         "taken_utc": asset["taken_utc"],
         "timezone": asset["timezone"]["name"],
         "export_path": export_path,
+        **_export_kind(asset, proxies),
         "cell_id": None,
         **asset["geometry"],
         "place": (
@@ -220,13 +253,14 @@ def _asset_record(asset: dict, day: str, event_id: str | None, export_path: str 
         ),
         "quality": _quality_summary(asset),
         "video": _video_summary(asset),
+        # `pinned_by_human` lives here and nowhere else. It was previously duplicated at the top
+        # level of the record, which is two places for one fact and one of them eventually wrong.
         "selection": {
             "included": True,
             "reasons": _selection_reasons(asset),
             "rank_within_day": selected.get("day", {}).get("rank"),
             "pinned_by_human": selected.get("day", {}).get("reason") == "pinned",
         },
-        "pinned_by_human": selected.get("day", {}).get("reason") == "pinned",
     }
 
 
@@ -242,7 +276,8 @@ def _event_record(event: dict, asset_ids: list[str]) -> dict:
         "place": place_label(event["place"]) or None,
         "start_local": event["start_local"],
         "end_local": event["end_local"],
-        "duration": duration(event["duration_minutes"]),
+        "duration_seconds": event["duration_seconds"],
+        "duration_display": duration(event["duration_minutes"]),
         "counts": event["counts"],
         # Centroid *and* extent: one averaged coordinate can place an event somewhere nobody
         # stood, and hides whether the hour was spent walking or sitting.
@@ -259,7 +294,7 @@ def _event_record(event: dict, asset_ids: list[str]) -> dict:
     }
 
 
-def build_manifest(doc: dict, mode: str) -> dict[str, Any]:
+def build_manifest(doc: dict, mode: str, proxies: bool = False) -> dict[str, Any]:
     """The authoritative artifact. Everything else in the package derives from this."""
     assets = doc["assets"]
     days = []
@@ -300,7 +335,7 @@ def build_manifest(doc: dict, mode: str) -> dict[str, Any]:
                     for event in day["events"]
                 ],
                 "assets": [
-                    _asset_record(a, day["date"], event_of.get(a["asset_id"]), None)
+                    _asset_record(a, day["date"], event_of.get(a["asset_id"]), None, proxies)
                     for a in members
                 ],
                 "sheets": [],
@@ -321,12 +356,25 @@ def build_manifest(doc: dict, mode: str) -> dict[str, Any]:
                 else "Full-resolution originals are included."
             ),
             "trip_json_schema_version": doc["schema_version"],
+            "video_proxies_included": proxies,
+            # Said plainly, because the previous package looked like it had footage and did not.
+            "video_note": (
+                "Playable MP4 proxies are included under each day's video_proxies/. Inspect them "
+                "when choosing source ranges."
+                if proxies
+                else "No playable video is included. Each clip ships a poster frame and evenly "
+                "sampled keyframes with their offsets; footage between keyframes is not visible, "
+                "so any source range is an estimate."
+            ),
         },
         "trip": {
             "name": doc["trip"]["name"],
             "start_local": doc["trip"]["start_local"],
             "end_local": doc["trip"]["end_local"],
             "timezone": doc["trip"]["timezone"],
+            "day_assignment_rule": doc["trip"]["day_assignment_rule"],
+            "start_utc": doc["trip"]["start_utc"],
+            "end_utc": doc["trip"]["end_utc"],
             "counts": doc["trip"]["counts"],
         },
         "context": doc["context"],
@@ -348,7 +396,9 @@ def _render_brief(manifest: dict, day: dict) -> str:
         f"{day['counts']['included']['media']} are included in this package "
         f"({day['counts']['included']['images']} photos, "
         f"{day['counts']['included']['videos']} videos)."
-        + (f" Local time is {day['timezone']}." if day["timezone"] else ""),
+        + (f" Local time is {day['timezone']}." if day["timezone"] else "")
+        + f" {manifest['trip']['day_assignment_rule'].capitalize()}, so a stop after midnight "
+        "carries its calendar date in brackets.",
         "",
         f"**Media in this package:** {manifest['package']['media_note']}",
         "",
@@ -377,10 +427,14 @@ def _render_brief(manifest: dict, day: dict) -> str:
     for position, event in enumerate(day["events"], start=1):
         location = event["location"]
         header = event["label"] or event["place"] or "Unnamed stop"
-        lines.append(f"### Stop {position} · {clock(event['start_local'])} · {header}")
+        crossed = (event["start_local"] or "")[:10] not in ("", day["date"])
+        when = clock(event["start_local"]) + (
+            f" ({(event['start_local'] or '')[:10]})" if crossed else ""
+        )
+        lines.append(f"### Stop {position} · {when} · {header}")
         facts = [
             f"{clock(event['start_local'])}–{clock(event['end_local'])}",
-            event["duration"],
+            event["duration_display"],
             f"{event['counts']['media']} items captured",
         ]
         if location["radius_m"]:
@@ -400,12 +454,12 @@ def _render_brief(manifest: dict, day: dict) -> str:
             asset = by_id.get(asset_id)
             if asset is None:
                 continue
-            lines.append(_brief_line(asset, event_place=event["place"]))
+            lines.append(_brief_line(asset, event_place=event["place"], day_date=day["date"]))
         lines.append("")
 
     videos = [a for a in day["assets"] if a["kind"] == "video"]
     if videos:
-        lines += ["## Video", "", "Available footage, for the storyboard:", ""]
+        lines += ["## Video", "", manifest["package"]["video_note"], ""]
         for video in videos:
             info = video["video"]
             status = {
@@ -413,10 +467,15 @@ def _render_brief(manifest: dict, day: dict) -> str:
                 "no_speech": "processed, no speech found",
                 "not_processed": "not analysed for speech",
             }[info["transcript_status"]]
+            marks = [_seconds(video), status]
+            if info["subtype"] == "short_clip":
+                marks.append("**too short for a storyboard**")
             lines.append(
-                f"- `{video['asset_id']}` {clock(video['taken_local'])} · "
-                f"{_seconds(video)} · {status}"
+                f"- `{video['asset_id']}` {_stamp(video, day['date'])} · " + " · ".join(marks)
             )
+            frames = ", ".join(f"{f['seconds']:.0f}s" for f in info["keyframes"])
+            if frames and info["storyboard_candidate"]:
+                lines.append(f"  keyframes at {frames}")
             if info["transcript_text"]:
                 lines.append(f"  > {info['transcript_text']}")
         lines.append("")
@@ -433,7 +492,7 @@ def _render_brief(manifest: dict, day: dict) -> str:
     ]
     for asset in day["assets"]:
         notes = []
-        if asset["pinned_by_human"]:
+        if asset["selection"]["pinned_by_human"]:
             notes.append("chosen by the traveller")
         if asset["quality"] and asset["quality"]["faces_detected"]:
             notes.append(f"{asset['quality']['faces_detected']} face(s)")
@@ -457,8 +516,22 @@ def _seconds(asset: dict) -> str:
     return f"{value:.0f}s"
 
 
-def _brief_line(asset: dict, event_place: str | None = None) -> str:
-    bits = [f"- `{asset['asset_id']}`", clock(asset["taken_local"])]
+def _stamp(asset: dict, day_date: str) -> str:
+    """`15:46`, or `00:59 (2026-07-20)` for anything shot after midnight.
+
+    A trip day runs past midnight, so a stop can sit under 2026-07-19 while its calendar date is
+    the 20th. Showing only the clock there invites a reader to sort it to the start of the day or
+    conclude the timestamp is broken.
+    """
+    stamp = clock(asset["taken_local"])
+    calendar = asset.get("calendar_date")
+    if calendar and calendar != day_date:
+        return f"{stamp} ({calendar})"
+    return stamp
+
+
+def _brief_line(asset: dict, event_place: str | None = None, day_date: str = "") -> str:
+    bits = [f"- `{asset['asset_id']}`", _stamp(asset, day_date)]
     if asset["cell_id"]:
         bits.append(f"(sheet {asset['cell_id']})")
     if asset["kind"] == "video":
@@ -467,7 +540,7 @@ def _brief_line(asset: dict, event_place: str | None = None) -> str:
     # consecutive lines is noise that buries the lines which do carry information.
     if asset["place"] and asset["place"]["name"] != event_place:
         bits.append(f"— {asset['place']['name']}")
-    if asset["pinned_by_human"]:
+    if asset["selection"]["pinned_by_human"]:
         bits.append("**[chosen by the traveller]**")
     if asset["quality"]:
         quality = asset["quality"]
@@ -476,6 +549,44 @@ def _brief_line(asset: dict, event_place: str | None = None) -> str:
             parts.append(f"{quality['faces_detected']} face(s)")
         bits.append(f"({', '.join(parts)})")
     return " ".join(bits)
+
+
+def _video_guidance(manifest: dict, day: dict) -> str:
+    """What the model may and may not conclude about the footage.
+
+    Asking for an exact source range when the package holds five stills from a 112-second clip
+    manufactures precision: nothing between the keyframes was ever visible. Either the proxies are
+    there and the range is a judgement, or they are not and it is an estimate that must say so.
+    """
+    videos = [a for a in day["assets"] if a["kind"] == "video"]
+    if not videos:
+        return "## Video\n\nThis day has no footage."
+    if manifest["package"]["video_proxies_included"]:
+        return (
+            "## Video\n\n"
+            "Playable MP4 proxies are included under `video_proxies/`. Watch them and choose "
+            "`source_start_seconds` and `source_end_seconds` from what you see."
+        )
+    short = [a for a in videos if a["video"]["subtype"] == "short_clip"]
+    note = (
+        "## Video\n\n"
+        "**No playable footage is included.** Each clip ships a poster frame and a few evenly "
+        "sampled keyframes with their offsets in seconds. Nothing between those frames has been "
+        "seen by anyone, so:\n\n"
+        "- Base scene choices on the keyframes, duration, motion score and transcript status.\n"
+        "- Treat `source_start_seconds` and `source_end_seconds` as **estimates**, and anchor them "
+        "to a keyframe offset rather than inventing a precise moment.\n"
+        "- Say in `uncertainties` which ranges you could not verify.\n"
+        "- Ask for proxies in `requested_additional_context` if a scene depends on knowing exactly "
+        "what happens.\n"
+    )
+    if short:
+        ids = ", ".join(f"`{a['asset_id']}`" for a in short)
+        note += (
+            f"\n{len(short)} clip(s) are under two seconds ({ids}) and are marked "
+            "`storyboard_candidate: false`. Skip them unless a human pinned one.\n"
+        )
+    return note
 
 
 def _render_prompt(manifest: dict, day: dict) -> str:
@@ -508,6 +619,7 @@ def _render_prompt(manifest: dict, day: dict) -> str:
             "absence of context limits the journal, say so in `uncertainties`."
         )
 
+    video_guidance = _video_guidance(manifest, day)
     return f"""# Write the journal for {day["date"]}
 
 Attached: {len(day["sheets"])} contact sheet(s) and `brief.md` for one day of a trip
@@ -527,10 +639,11 @@ Write these as readable prose first:
    what is visible on the sheets.
 2. **Captions** for the photos worth captioning, keyed by `asset_id`.
 3. **A photo-book layout** — which photos share a page, which is the hero, and why.
-4. **A video storyboard** using the clips listed under "Video" in the brief. Each clip ships its
-   extracted keyframes with the offset in seconds where each was taken, so name the **source range**
-   you want (`source_start_seconds` / `source_end_seconds`), not just a duration. Note that
+4. **A video storyboard** using the clips listed under "Video" in the brief. Read the note there
+   about what this package actually contains before you commit to a range — and note that
    `no speech found` is a *measured* result, not an unexamined clip.
+
+{video_guidance}
 
 ## Then repeat it as JSON
 
@@ -596,6 +709,7 @@ def build_package(
     *,
     mode: str = PREVIEW,
     source_for: dict[str, Path] | None = None,
+    video_proxies: bool = False,
 ) -> Package:
     """Write `<out_dir>/package/`: a manifest, and per day sheets, a brief, and a prompt.
 
@@ -611,7 +725,7 @@ def build_package(
         shutil.rmtree(root)
     root.mkdir(parents=True)
 
-    manifest = build_manifest(doc, mode)
+    manifest = build_manifest(doc, mode, video_proxies)
     assets = doc["assets"]
     packaged: list[PackagedDay] = []
     skipped: list[tuple[str, str]] = []
@@ -631,6 +745,28 @@ def build_package(
             if source is None or not source.exists():
                 skipped.append((record["source_filename"], "no exportable file"))
                 continue
+
+            if record["kind"] == "video":
+                # The poster frame always goes in, under a name that says what it is. Writing a
+                # JPEG under the source's `.mov` name is how the last package came to advertise
+                # footage it did not contain.
+                poster = media_dir / f"{record['asset_id']}_poster.jpg"
+                _link_or_copy(source, poster)
+                pairs.append((poster, _asset_caption(asset)))
+                record["poster_path"] = str(poster.relative_to(root))
+                record["export_path"] = record["poster_path"]
+                if video_proxies:
+                    original = (source_for or {}).get(record["asset_id"])
+                    proxy = day_dir / PROXIES_DIRNAME / f"{record['asset_id']}.mp4"
+                    if original and _transcode_proxy(original, proxy):
+                        record["export_path"] = str(proxy.relative_to(root))
+                    else:
+                        skipped.append((record["source_filename"], "proxy transcode failed"))
+                        record["export_media_type"] = "image/jpeg"
+                        record["export_role"] = "poster_frame"
+                        record["video_proxy_included"] = False
+                continue
+
             target = media_dir / f"{record['asset_id']}_{record['source_filename']}"
             _link_or_copy(source, target)
             record["export_path"] = str(target.relative_to(root))
@@ -688,6 +824,55 @@ def build_package(
         mode=mode,
         skipped=tuple(skipped),
     )
+
+
+PROXY_HEIGHT = 720
+PROXY_CRF = 28
+"""H.264 constant-rate factor. 28 is visibly compressed and small, which is right for a proxy whose
+job is letting someone choose a moment, not judge quality."""
+
+
+def _transcode_proxy(source: Path, target: Path) -> bool:
+    """Write a small playable MP4 beside the poster. False if ffmpeg is missing or fails.
+
+    A proxy is what makes an exact source range answerable. Without one, five frames sampled across
+    112 seconds cannot support a confident choice of seconds 43-51, and asking for one anyway
+    manufactures precision.
+    """
+    target.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        str(source),
+        "-vf",
+        f"scale=-2:min({PROXY_HEIGHT}\,ih)",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        str(PROXY_CRF),
+        "-c:a",
+        "aac",
+        "-b:a",
+        "96k",
+        "-movflags",
+        "+faststart",
+        str(target),
+    ]
+    try:
+        result = subprocess.run(command, capture_output=True, check=False)
+    except (OSError, FileNotFoundError):
+        return False
+    if result.returncode != 0 or not target.exists():
+        logger.warning("proxy transcode failed for %s: %s", source.name, result.stderr[-300:])
+        target.unlink(missing_ok=True)
+        return False
+    return True
 
 
 def _export_keyframes(day: dict, assets: dict, out_dir: Path, target_dir: Path, root: Path) -> None:

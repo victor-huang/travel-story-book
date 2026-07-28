@@ -4,40 +4,130 @@
   "title": "story-book ChatGPT package manifest",
   "description": "The authoritative record of a package. brief.md and prompt.md are generated from this file, so the three cannot drift. Shipped inside every package as schema/manifest.schema.json so a consumer can validate before use.",
   "type": "object",
-  "required": ["schema_version", "generator", "package", "trip", "context", "privacy", "days"],
+  "required": [
+    "schema_version",
+    "generator",
+    "package",
+    "trip",
+    "context",
+    "privacy",
+    "days"
+  ],
   "properties": {
-    "schema_version": { "type": "integer", "minimum": 1 },
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1
+    },
     "generator": {
       "type": "object",
-      "required": ["tool", "version"],
-      "properties": { "tool": { "type": "string" }, "version": { "type": "string" } }
+      "required": [
+        "tool",
+        "version"
+      ],
+      "properties": {
+        "tool": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
     },
     "package": {
       "type": "object",
-      "required": ["mode", "media_note", "trip_json_schema_version"],
+      "required": [
+        "mode",
+        "media_note",
+        "trip_json_schema_version",
+        "video_proxies_included",
+        "video_note"
+      ],
       "properties": {
         "mode": {
           "description": "preview ships downscaled images; originals ships full resolution. A preview cannot support a judgement about focus, blink, noise, or crop headroom.",
-          "enum": ["preview", "originals"]
+          "enum": [
+            "preview",
+            "originals"
+          ]
         },
-        "media_note": { "type": "string" },
-        "trip_json_schema_version": { "type": "integer" }
+        "media_note": {
+          "type": "string"
+        },
+        "trip_json_schema_version": {
+          "type": "integer"
+        },
+        "video_proxies_included": {
+          "type": "boolean"
+        },
+        "video_note": {
+          "description": "Whether playable footage is included. Without proxies, a source range is an estimate: nothing between the sampled keyframes has been seen.",
+          "type": "string"
+        }
       }
     },
     "trip": {
       "type": "object",
-      "required": ["name", "start_local", "end_local", "timezone", "counts"],
+      "required": [
+        "name",
+        "start_local",
+        "end_local",
+        "timezone",
+        "counts",
+        "day_assignment_rule"
+      ],
       "properties": {
-        "name": { "type": ["string", "null"] },
-        "start_local": { "type": ["string", "null"] },
-        "end_local": { "type": ["string", "null"] },
-        "timezone": { "type": ["string", "null"] },
-        "counts": { "type": "object", "additionalProperties": { "type": "integer" } }
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "start_local": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "end_local": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timezone": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "counts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "day_assignment_rule": {
+          "type": "string"
+        },
+        "start_utc": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "end_utc": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       }
     },
     "context": {
       "type": "object",
-      "required": ["supplied"],
+      "required": [
+        "supplied"
+      ],
       "properties": {
         "supplied": {
           "description": "False means no context file was given. A journal is impersonal because nothing was supplied, not because nothing was felt.",
@@ -45,106 +135,359 @@
         }
       }
     },
-    "privacy": { "type": "object" },
-    "days": { "type": "array", "items": { "$ref": "#/$defs/day" } }
+    "privacy": {
+      "type": "object"
+    },
+    "days": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/day"
+      }
+    }
   },
   "$defs": {
     "coordinate": {
-      "type": ["array", "null"],
-      "items": { "type": "number" },
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "number"
+      },
       "minItems": 2,
       "maxItems": 2
     },
     "day": {
       "type": "object",
-      "required": ["date", "timezone", "counts", "asset_scope", "gps_coverage", "events", "assets", "sheets"],
+      "required": [
+        "date",
+        "timezone",
+        "counts",
+        "asset_scope",
+        "gps_coverage",
+        "events",
+        "assets",
+        "sheets"
+      ],
       "properties": {
-        "date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
-        "timezone": { "type": ["string", "null"] },
+        "date": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "timezone": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "counts": {
           "description": "captured is everything the day held; included is what this package ships. They are separate because assets holds only the selected subset.",
           "type": "object",
-          "required": ["captured", "included"],
+          "required": [
+            "captured",
+            "included"
+          ],
           "properties": {
-            "captured": { "type": "object", "additionalProperties": { "type": "integer" } },
-            "included": { "type": "object", "additionalProperties": { "type": "integer" } }
+            "captured": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer"
+              }
+            },
+            "included": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer"
+              }
+            }
           }
         },
-        "asset_scope": { "const": "selected_only" },
-        "gps_coverage": { "type": "number", "minimum": 0, "maximum": 1 },
-        "events": { "type": "array", "items": { "$ref": "#/$defs/event" } },
-        "assets": { "type": "array", "items": { "$ref": "#/$defs/asset" } },
-        "sheets": { "type": "array", "items": { "type": "string" } }
+        "asset_scope": {
+          "const": "selected_only"
+        },
+        "gps_coverage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/event"
+          }
+        },
+        "assets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/asset"
+          }
+        },
+        "sheets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     },
     "event": {
       "type": "object",
-      "required": ["event_id", "event_type", "label", "place", "start_local", "end_local", "duration", "counts", "location", "landmarks", "asset_ids"],
+      "required": [
+        "event_id",
+        "event_type",
+        "label",
+        "place",
+        "start_local",
+        "end_local",
+        "counts",
+        "location",
+        "landmarks",
+        "asset_ids",
+        "duration_seconds",
+        "duration_display"
+      ],
       "properties": {
-        "event_id": { "type": "string" },
+        "event_id": {
+          "type": "string"
+        },
         "event_type": {
           "description": "A detected time-and-location cluster, never a narrative chapter. One real cluster spans 8h45m over 129 items. Chapters are drawn by the model and cite source_event_ids.",
           "const": "detected_cluster"
         },
-        "label": { "type": ["string", "null"] },
-        "place": { "type": ["string", "null"] },
-        "start_local": { "type": ["string", "null"] },
-        "end_local": { "type": ["string", "null"] },
-        "duration": { "type": "string" },
-        "counts": { "type": "object", "additionalProperties": { "type": "integer" } },
-        "location": {
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "place": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "start_local": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "end_local": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "counts": {
           "type": "object",
-          "required": ["centroid", "start", "end", "radius_m", "gps_coverage", "moved"],
-          "properties": {
-            "centroid": { "$ref": "#/$defs/coordinate" },
-            "start": { "$ref": "#/$defs/coordinate" },
-            "end": { "$ref": "#/$defs/coordinate" },
-            "radius_m": { "type": ["number", "null"] },
-            "gps_coverage": { "type": "number" },
-            "moved": { "type": "boolean" }
+          "additionalProperties": {
+            "type": "integer"
           }
         },
-        "landmarks": { "type": "array", "items": { "type": "string" } },
-        "asset_ids": { "type": "array", "items": { "type": "string" } }
+        "location": {
+          "type": "object",
+          "required": [
+            "centroid",
+            "start",
+            "end",
+            "radius_m",
+            "gps_coverage",
+            "moved"
+          ],
+          "properties": {
+            "centroid": {
+              "$ref": "#/$defs/coordinate"
+            },
+            "start": {
+              "$ref": "#/$defs/coordinate"
+            },
+            "end": {
+              "$ref": "#/$defs/coordinate"
+            },
+            "radius_m": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "gps_coverage": {
+              "type": "number"
+            },
+            "moved": {
+              "type": "boolean"
+            }
+          }
+        },
+        "landmarks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "asset_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "duration_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "duration_display": {
+          "type": "string"
+        }
       }
     },
     "asset": {
       "type": "object",
-      "required": ["asset_id", "content_hash", "source_filename", "kind", "day", "event_id", "taken_local", "taken_utc", "timezone", "export_path", "cell_id", "width", "height", "orientation", "aspect_ratio", "place", "quality", "video", "selection"],
+      "required": [
+        "asset_id",
+        "content_hash",
+        "source_filename",
+        "kind",
+        "day",
+        "event_id",
+        "taken_local",
+        "taken_utc",
+        "timezone",
+        "export_path",
+        "cell_id",
+        "width",
+        "height",
+        "orientation",
+        "aspect_ratio",
+        "place",
+        "quality",
+        "video",
+        "selection",
+        "calendar_date",
+        "source_media_type",
+        "export_media_type",
+        "export_role",
+        "video_proxy_included"
+      ],
       "properties": {
         "asset_id": {
           "description": "A 16-hex-character prefix of the content hash: stable across runs, unlike a contact-sheet cell position. The builder lengthens the prefix rather than ever emitting a duplicate.",
           "type": "string",
           "minLength": 8
         },
-        "content_hash": { "type": "string" },
-        "source_filename": { "type": "string" },
-        "kind": { "enum": ["image", "video"] },
-        "day": { "type": "string" },
-        "event_id": { "type": ["string", "null"] },
+        "content_hash": {
+          "type": "string"
+        },
+        "source_filename": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "image",
+            "video"
+          ]
+        },
+        "day": {
+          "type": "string"
+        },
+        "event_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "taken_local": {
           "description": "Local wall time carrying its UTC offset where known, so the string is unambiguous across a trip that crosses zones.",
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
-        "taken_utc": { "type": ["string", "null"] },
-        "timezone": { "type": ["string", "null"] },
-        "export_path": { "type": ["string", "null"] },
+        "taken_utc": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timezone": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "export_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "cell_id": {
           "description": "Contact-sheet position. An attribute, never an identity: it changes whenever the selection does.",
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
-        "width": { "type": ["integer", "null"] },
-        "height": { "type": ["integer", "null"] },
-        "orientation": { "enum": ["landscape", "portrait", "square", null] },
-        "aspect_ratio": { "type": ["number", "null"] },
+        "width": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "height": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "orientation": {
+          "enum": [
+            "landscape",
+            "portrait",
+            "square",
+            null
+          ]
+        },
+        "aspect_ratio": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
         "place": {
-          "type": ["object", "null"],
-          "required": ["name", "city", "country", "source", "precision"],
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "name",
+            "city",
+            "country",
+            "source",
+            "precision"
+          ],
           "properties": {
-            "name": { "type": "string" },
-            "city": { "type": ["string", "null"] },
-            "country": { "type": ["string", "null"] },
-            "source": { "type": ["string", "null"] },
+            "name": {
+              "type": "string"
+            },
+            "city": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "country": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "precision": {
               "description": "No confidence number is reported: the offline geocoder does not produce one, and inventing a figure would be a fabricated measurement.",
               "type": "string"
@@ -153,56 +496,182 @@
         },
         "quality": {
           "description": "Only components the pipeline measures. No aesthetic or composition score: those are Phase 2, and a plausible invention is worse than a gap.",
-          "type": ["object", "null"],
+          "type": [
+            "object",
+            "null"
+          ],
           "properties": {
-            "overall": { "type": ["number", "null"] },
-            "sharpness": { "type": ["number", "null"] },
-            "exposure": { "type": ["number", "null"] },
-            "contrast": { "type": ["number", "null"] },
-            "faces_detected": { "type": ["integer", "null"] },
-            "content_class": { "type": ["string", "null"] }
+            "overall": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "sharpness": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "exposure": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "contrast": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "faces_detected": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "content_class": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           }
         },
         "video": {
-          "type": ["object", "null"],
+          "type": [
+            "object",
+            "null"
+          ],
           "properties": {
-            "duration_seconds": { "type": ["number", "null"] },
-            "fps": { "type": ["number", "null"] },
-            "motion_score": { "type": ["number", "null"] },
+            "duration_seconds": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "fps": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "motion_score": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
             "keyframes": {
               "description": "Extracted frames with the offset in seconds where each was taken, so a storyboard can name a source range rather than only a duration.",
               "type": "array",
               "items": {
                 "type": "object",
-                "required": ["seconds", "preview_path"],
+                "required": [
+                  "seconds",
+                  "preview_path"
+                ],
                 "properties": {
-                  "seconds": { "type": "number" },
-                  "preview_path": { "type": ["string", "null"] }
+                  "seconds": {
+                    "type": "number"
+                  },
+                  "preview_path": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
                 }
               }
             },
             "transcript_status": {
               "description": "no_speech means processed and nothing found; not_processed means never attempted. Collapsing them lets a reader mistake silence for absence of work.",
-              "enum": ["transcribed", "no_speech", "not_processed"]
+              "enum": [
+                "transcribed",
+                "no_speech",
+                "not_processed"
+              ]
             },
-            "transcript_text": { "type": ["string", "null"] }
+            "transcript_text": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "subtype": {
+              "enum": [
+                "clip",
+                "short_clip"
+              ]
+            },
+            "storyboard_candidate": {
+              "type": "boolean"
+            }
           }
         },
         "selection": {
           "type": "object",
-          "required": ["included", "reasons", "rank_within_day", "pinned_by_human"],
+          "required": [
+            "included",
+            "reasons",
+            "rank_within_day",
+            "pinned_by_human"
+          ],
           "properties": {
-            "included": { "type": "boolean" },
+            "included": {
+              "type": "boolean"
+            },
             "reasons": {
               "description": "Why this asset is here, so a model can tell a human's choice from a high score from an all-videos-exported clip.",
               "type": "array",
-              "items": { "type": "string" }
+              "items": {
+                "type": "string"
+              }
             },
-            "rank_within_day": { "type": ["integer", "null"] },
-            "pinned_by_human": { "type": "boolean" }
+            "rank_within_day": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "pinned_by_human": {
+              "type": "boolean"
+            }
           }
         },
-        "pinned_by_human": { "type": "boolean" }
+        "calendar_date": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_media_type": {
+          "type": "string"
+        },
+        "export_media_type": {
+          "description": "What the file at export_path actually is. A video whose export is a poster frame reports image/jpeg -- the previous package wrote JPEGs under .mov names and advertised footage it did not have.",
+          "enum": [
+            "image/jpeg",
+            "video/mp4"
+          ]
+        },
+        "export_role": {
+          "enum": [
+            "preview_image",
+            "poster_frame",
+            "video_proxy"
+          ]
+        },
+        "video_proxy_included": {
+          "type": "boolean"
+        },
+        "poster_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       }
     }
   }

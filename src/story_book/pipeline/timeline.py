@@ -56,7 +56,7 @@ from story_book.trip_context import TripContext
 
 logger = logging.getLogger(__name__)
 
-TRIP_JSON_SCHEMA_VERSION = 2
+TRIP_JSON_SCHEMA_VERSION = 3
 TRIP_JSON_FILENAME = "trip.json"
 
 EARTH_RADIUS_M = 6_371_000.0
@@ -293,6 +293,7 @@ def _video_block(
     video_meta: dict[str, dict],
     transcripts: dict[str, dict],
     processed: bool,
+    short_clip_max_seconds: float = 2.0,
 ) -> dict[str, Any]:
     meta = video_meta.get(media_hash)
     transcript = transcripts.get(media_hash)
@@ -304,8 +305,16 @@ def _video_block(
         status = TranscriptStatus.NOT_PROCESSED
     paths = (meta or {}).get("keyframes", [])
     seconds = keyframe_seconds(duration, len(paths))
+    short = duration is not None and duration < short_clip_max_seconds
+    if short:
+        # Five frames sampled across 0.37 seconds are five views of one instant.
+        paths, seconds = paths[:1], seconds[:1]
     return {
         "duration_seconds": duration,
+        # Stated by duration, not inferred to be a Live Photo: these files carry no
+        # `ContentIdentifier`, so naming one would be a guess wearing a fact's clothes.
+        "subtype": "short_clip" if short else "clip",
+        "storyboard_candidate": not short,
         "fps": (meta or {}).get("fps"),
         "poster": (meta or {}).get("poster"),
         # Paths *and* timestamps. One contact-sheet cell cannot represent a 112-second clip, so an
@@ -409,6 +418,11 @@ def _build_assets(
                 "source": row["tz_source"],
             },
             "day": row["local_date"],
+            # The trip day it belongs to, and the calendar date it was actually taken on. These
+            # differ for anything shot after midnight: a 00:59 photo belongs to the previous
+            # evening's story but not to its date, and collapsing the two makes a consumer either
+            # mis-sort the item or conclude the timestamp is malformed.
+            "calendar_date": (row["taken_local"] or "")[:10] or None,
             "event_id": public_event_id(row["local_date"], row["event_seq"]),
             "location": (
                 {
@@ -452,6 +466,7 @@ def _build_assets(
                 video_meta,
                 transcripts,
                 row["hash"] in processed_videos,
+                config.video.short_clip_max_seconds,
             )
         assets[asset_id] = asset
     return assets
@@ -525,6 +540,17 @@ def _build_days(
                 "label": row["label"],
                 "start_local": members[0]["taken_local"] if members else None,
                 "end_local": members[-1]["taken_local"] if members else None,
+                "duration_seconds": (
+                    round(m * 60.0)
+                    if (
+                        m := _minutes_between(
+                            members[0]["taken_utc"] if members else None,
+                            members[-1]["taken_utc"] if members else None,
+                        )
+                    )
+                    is not None
+                    else None
+                ),
                 "duration_minutes": (
                     round(m, 1)
                     if (
@@ -591,6 +617,22 @@ def _build_days(
     return days
 
 
+def _trip_bound(assets: dict[str, dict], which: str, *, utc: bool = False) -> str | None:
+    """The trip's first or last timestamp, chosen by UTC and reported in the requested form.
+
+    Read from the assets rather than the `trip` row so the local bounds carry their UTC offsets,
+    like every other timestamp in the document. **Ordered by `taken_utc`, never by the local
+    string:** comparing offset-bearing strings lexicographically silently gets it wrong the moment
+    a trip spans two zones, since `...T09:00+02:00` sorts after `...T08:00+01:00` while being the
+    earlier instant.
+    """
+    dated = [a for a in assets.values() if a["taken_utc"]]
+    if not dated:
+        return None
+    chosen = (min if which == "min" else max)(dated, key=lambda a: a["taken_utc"])
+    return chosen["taken_utc"] if utc else chosen["taken_local"]
+
+
 def _context_block(context: TripContext) -> dict[str, Any]:
     """Trip context, with an explicit `supplied` flag.
 
@@ -635,6 +677,13 @@ def build_timeline(
         "generator": {"tool": "story-book", "version": __version__},
         "trip": {
             "name": trip_row["name"] if trip_row else None,
+            # The rule that decides which trip day an after-midnight photo belongs to. Stated so a
+            # consumer does not have to reverse-engineer it from a stop at 00:59 filed under the
+            # previous date.
+            "day_assignment_rule": (
+                f"a trip day runs from {config.time.day_start_hour:02d}:00 local to "
+                f"{config.time.day_start_hour:02d}:00 the next morning"
+            ),
             "timezone": (
                 Counter(
                     a["timezone"]["name"] for a in assets.values() if a["timezone"]["name"]
@@ -642,8 +691,10 @@ def build_timeline(
                 if any(a["timezone"]["name"] for a in assets.values())
                 else None
             ),
-            "start_local": trip_row["start_local"] if trip_row else None,
-            "end_local": trip_row["end_local"] if trip_row else None,
+            "start_local": _trip_bound(assets, "min"),
+            "end_local": _trip_bound(assets, "max"),
+            "start_utc": _trip_bound(assets, "min", utc=True),
+            "end_utc": _trip_bound(assets, "max", utc=True),
             "counts": {
                 "media": len(assets),
                 "images": len(images),
