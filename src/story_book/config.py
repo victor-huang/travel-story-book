@@ -101,11 +101,13 @@ class SelectionConfig:
 class TimelineConfig:
     """`trip.json`, the artifact both outputs render from."""
 
-    # A short prefix of the BLAKE2b content hash, used as the stable public id for a photo.
-    # Contact-sheet cell ids are positional and change whenever selection changes, so they
-    # cannot be an identity; this can. 8 hex digits give a ~1-in-10^6 collision chance across a
-    # 1,000-item trip, and the builder lengthens the prefix rather than emitting a duplicate.
-    asset_id_length: int = 8
+    # A prefix of the BLAKE2b content hash, used as the stable public id for a photo.
+    # Contact-sheet cell ids are positional and change whenever selection changes, so they cannot
+    # be an identity; this can. 16 hex digits is 64 bits: 8 was enough for one trip but only 32
+    # bits, and these ids are meant to survive into a library. The builder lengthens the prefix
+    # further rather than ever emitting a duplicate, so a collision is impossible by construction
+    # -- the length only controls how often that lengthening has to happen.
+    asset_id_length: int = 16
 
     # Douglas-Peucker tolerance for an event's walking path. Raw paths are one point per photo,
     # which is 121 points for a single afternoon and mostly camera jitter at one spot.

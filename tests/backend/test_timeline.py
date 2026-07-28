@@ -59,6 +59,7 @@ def _seed(ctx: StageContext, make_media, count: int = 8, *, minutes: float = 6.0
                 width=4000,
                 height=3000,
                 tz_name="Europe/Vienna",
+                tz_offset_minutes=120,
             ),
         )
         ctx.conn.execute(
@@ -219,7 +220,17 @@ class TestVideoRecords:
         _seed(ctx, make_media, 3)
         _add_video(ctx, make_media, processed=True, transcript=None)
         video = next(a for a in _document(ctx)["assets"].values() if a["kind"] == "video")
-        assert video["video"]["keyframes"] == ["k1.jpg", "k2.jpg"]
+        assert [k["path"] for k in video["video"]["keyframes"]] == ["k1.jpg", "k2.jpg"]
+
+    def test_each_keyframe_carries_its_offset_into_the_clip(
+        self, ctx: StageContext, make_media
+    ) -> None:
+        """A suggested duration says how long to use footage, not which part of it."""
+        _seed(ctx, make_media, 3)
+        _add_video(ctx, make_media, processed=True, transcript=None)
+        video = next(a for a in _document(ctx)["assets"].values() if a["kind"] == "video")
+        seconds = [k["seconds"] for k in video["video"]["keyframes"]]
+        assert seconds == sorted(seconds) and all(0 <= s <= 12.5 for s in seconds)
 
     def test_duration_reaches_the_document(self, ctx: StageContext, make_media) -> None:
         _seed(ctx, make_media, 3)
@@ -365,3 +376,70 @@ class TestTimelineStage:
     def test_it_survives_an_empty_library(self, ctx: StageContext) -> None:
         TimelineStage().run(ctx)
         assert (ctx.out_dir / TRIP_JSON_FILENAME).exists()
+
+
+class TestTimestampsAreSelfDescribing:
+    """P05: a bare local timestamp is ambiguous the moment a trip crosses a zone."""
+
+    def test_local_time_carries_its_utc_offset(self, ctx: StageContext, make_media) -> None:
+        _seed(ctx, make_media, 3)
+        asset = next(iter(_document(ctx)["assets"].values()))
+        assert asset["taken_local"].endswith("+02:00")
+
+    def test_the_utc_instant_is_reported_alongside(self, ctx: StageContext, make_media) -> None:
+        _seed(ctx, make_media, 3)
+        asset = next(iter(_document(ctx)["assets"].values()))
+        assert asset["taken_utc"]
+
+    def test_the_iana_zone_and_offset_are_both_reported(
+        self, ctx: StageContext, make_media
+    ) -> None:
+        _seed(ctx, make_media, 3)
+        zone = next(iter(_document(ctx)["assets"].values()))["timezone"]
+        assert zone["name"] == "Europe/Vienna" and zone["offset_minutes"] == 120
+
+    def test_a_missing_offset_leaves_the_bare_local_time(self) -> None:
+        from story_book.pipeline.timeline import local_with_offset
+
+        assert local_with_offset("2026-07-18T11:03:22", None) == "2026-07-18T11:03:22"
+
+    def test_a_negative_offset_is_formatted_correctly(self) -> None:
+        from story_book.pipeline.timeline import local_with_offset
+
+        assert local_with_offset("2026-07-18T11:03:22", -420).endswith("-07:00")
+
+    def test_the_day_reports_the_zone_it_was_lived_in(self, ctx: StageContext, make_media) -> None:
+        _seed(ctx, make_media, 3)
+        assert _document(ctx)["days"][0]["timezone"] == "Europe/Vienna"
+
+
+class TestGeometryForLayout:
+    def test_a_wide_frame_is_landscape(self) -> None:
+        from story_book.pipeline.timeline import geometry
+
+        assert geometry(4000, 3000)["orientation"] == "landscape"
+
+    def test_a_tall_frame_is_portrait(self) -> None:
+        from story_book.pipeline.timeline import geometry
+
+        assert geometry(3000, 4000)["orientation"] == "portrait"
+
+    def test_a_square_frame_is_neither(self) -> None:
+        from story_book.pipeline.timeline import geometry
+
+        assert geometry(2000, 2000)["orientation"] == "square"
+
+    def test_the_aspect_ratio_is_reported(self) -> None:
+        from story_book.pipeline.timeline import geometry
+
+        assert geometry(4000, 3000)["aspect_ratio"] == 1.3333
+
+    def test_unknown_dimensions_do_not_invent_an_orientation(self) -> None:
+        from story_book.pipeline.timeline import geometry
+
+        assert geometry(None, None)["orientation"] is None
+
+    def test_geometry_reaches_the_document(self, ctx: StageContext, make_media) -> None:
+        _seed(ctx, make_media, 3)
+        asset = next(iter(_document(ctx)["assets"].values()))
+        assert asset["geometry"]["orientation"] == "landscape"

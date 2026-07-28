@@ -6,19 +6,24 @@ Structured around P02's seven requirements, because those are what the module ex
 from __future__ import annotations
 
 import json
+import zipfile
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import jsonschema
 import pytest
 
 from story_book.db import connection as db
 from story_book.db.models import MediaKind
 from story_book.export.package import (
+    MANIFEST_SCHEMA_FILENAME,
     MANIFEST_SCHEMA_VERSION,
     ORIGINALS,
     PREVIEW,
     build_manifest,
     build_package,
+    write_archive,
 )
 from story_book.pipeline.base import StageContext
 from story_book.pipeline.days import DaysStage
@@ -333,3 +338,280 @@ class TestPackagedFiles:
     def test_it_survives_a_trip_with_no_media(self, ctx: StageContext) -> None:
         built = build_package(build_timeline(ctx.conn, ctx.config), ctx.out_dir)
         assert built.manifest.exists() and built.days == ()
+
+
+class TestManifestValidatesAgainstItsShippedSchema:
+    """P05 asked for a schema so a consumer can validate before trusting a package."""
+
+    def test_the_schema_travels_inside_the_package(self, seeded: StageContext) -> None:
+        built = build_package(_document(seeded), seeded.out_dir)
+        assert (built.root / "schema" / MANIFEST_SCHEMA_FILENAME).exists()
+
+    def test_the_schema_itself_is_valid(self, seeded: StageContext) -> None:
+        built = build_package(_document(seeded), seeded.out_dir)
+        schema = json.loads((built.root / "schema" / MANIFEST_SCHEMA_FILENAME).read_text())
+        jsonschema.Draft202012Validator.check_schema(schema)
+
+    def test_the_manifest_validates(self, seeded: StageContext) -> None:
+        built = build_package(_document(seeded), seeded.out_dir)
+        schema = json.loads((built.root / "schema" / MANIFEST_SCHEMA_FILENAME).read_text())
+        jsonschema.validate(json.loads(built.manifest.read_text()), schema)
+
+    def test_a_manifest_with_video_validates(self, seeded: StageContext, make_media) -> None:
+        _add_video(seeded, make_media, processed=True, text="hello")
+        built = build_package(_document(seeded), seeded.out_dir)
+        schema = json.loads((built.root / "schema" / MANIFEST_SCHEMA_FILENAME).read_text())
+        jsonschema.validate(json.loads(built.manifest.read_text()), schema)
+
+
+class TestCapturedVersusIncluded:
+    """`assets` holds the selected subset; one count for both invited the wrong conclusion."""
+
+    def test_captured_and_included_are_separate_numbers(self, seeded: StageContext) -> None:
+        counts = build_manifest(_document(seeded), PREVIEW)["days"][0]["counts"]
+        assert {"captured", "included"} == set(counts)
+
+    def test_included_matches_the_number_of_records(self, seeded: StageContext) -> None:
+        day = build_manifest(_document(seeded), PREVIEW)["days"][0]
+        assert day["counts"]["included"]["media"] == len(day["assets"])
+
+    def test_the_scope_is_stated_explicitly(self, seeded: StageContext) -> None:
+        assert build_manifest(_document(seeded), PREVIEW)["days"][0]["asset_scope"] == (
+            "selected_only"
+        )
+
+    def test_the_brief_reports_both_numbers(self, seeded: StageContext) -> None:
+        built = build_package(_document(seeded), seeded.out_dir)
+        text = built.days[0].brief.read_text()
+        assert "captured" in text and "included in this package" in text
+
+
+class TestTimestampsAreUnambiguous:
+    def test_local_time_carries_its_offset(self, seeded: StageContext) -> None:
+        seeded.conn.execute("UPDATE media SET tz_offset_minutes = 120, tz_name = 'Europe/Vienna'")
+        seeded.conn.commit()
+        record = build_manifest(_document(seeded), PREVIEW)["days"][0]["assets"][0]
+        assert record["taken_local"].endswith("+02:00")
+
+    def test_the_utc_instant_is_present(self, seeded: StageContext) -> None:
+        record = build_manifest(_document(seeded), PREVIEW)["days"][0]["assets"][0]
+        assert record["taken_utc"]
+
+    def test_the_iana_zone_is_present(self, seeded: StageContext) -> None:
+        seeded.conn.execute("UPDATE media SET tz_name = 'Europe/Vienna'")
+        seeded.conn.commit()
+        record = build_manifest(_document(seeded), PREVIEW)["days"][0]["assets"][0]
+        assert record["timezone"] == "Europe/Vienna"
+
+    def test_the_day_reports_its_zone(self, seeded: StageContext) -> None:
+        seeded.conn.execute("UPDATE media SET tz_name = 'Europe/Vienna'")
+        seeded.conn.commit()
+        assert build_manifest(_document(seeded), PREVIEW)["days"][0]["timezone"] == "Europe/Vienna"
+
+
+class TestLayoutGeometry:
+    def test_every_record_reports_orientation_and_aspect(self, seeded: StageContext) -> None:
+        records = [
+            a for d in build_manifest(_document(seeded), PREVIEW)["days"] for a in d["assets"]
+        ]
+        assert records and all(
+            {"width", "height", "orientation", "aspect_ratio"} <= set(a) for a in records
+        )
+
+    def test_a_landscape_photo_is_labelled_landscape(self, seeded: StageContext) -> None:
+        record = build_manifest(_document(seeded), PREVIEW)["days"][0]["assets"][0]
+        assert record["orientation"] == "landscape"
+
+
+class TestEmptyStopsAreListed:
+    def test_a_stop_with_nothing_selected_still_appears(self, seeded: StageContext) -> None:
+        """Omitting it makes the day read as continuous when it was not."""
+        manifest = build_manifest(_document(seeded), PREVIEW)
+        day = manifest["days"][0]
+        day["events"].append(
+            {
+                "event_id": "2026-07-18#9",
+                "event_type": "detected_cluster",
+                "label": None,
+                "place": "Somewhere else",
+                "start_local": "2026-07-18T20:00:00",
+                "end_local": "2026-07-18T20:05:00",
+                "duration": "5 min",
+                "counts": {"media": 4, "images": 4, "videos": 0},
+                "location": {
+                    "centroid": None,
+                    "start": None,
+                    "end": None,
+                    "radius_m": None,
+                    "gps_coverage": 0.0,
+                    "moved": False,
+                },
+                "landmarks": [],
+                "asset_ids": [],
+            }
+        )
+        from story_book.export.package import _render_brief
+
+        text = _render_brief(manifest, day)
+        assert "Somewhere else" in text and "No photograph from this stop" in text
+
+    def test_the_count_of_unrepresented_stops_is_stated(self, seeded: StageContext) -> None:
+        manifest = build_manifest(_document(seeded), PREVIEW)
+        day = manifest["days"][0]
+        day["events"].append(
+            {
+                "event_id": "2026-07-18#9",
+                "event_type": "detected_cluster",
+                "label": None,
+                "place": None,
+                "start_local": None,
+                "end_local": None,
+                "duration": "",
+                "counts": {"media": 1, "images": 1, "videos": 0},
+                "location": {
+                    "centroid": None,
+                    "start": None,
+                    "end": None,
+                    "radius_m": None,
+                    "gps_coverage": 0.0,
+                    "moved": False,
+                },
+                "landmarks": [],
+                "asset_ids": [],
+            }
+        )
+        from story_book.export.package import _render_brief
+
+        assert "have no photograph in this package" in _render_brief(manifest, day)
+
+
+class TestEventsAreNotChapters:
+    def test_an_event_declares_itself_a_detected_cluster(self, seeded: StageContext) -> None:
+        events = build_manifest(_document(seeded), PREVIEW)["days"][0]["events"]
+        assert all(e["event_type"] == "detected_cluster" for e in events)
+
+    def test_the_prompt_asks_the_model_to_draw_chapters(self, seeded: StageContext) -> None:
+        built = build_package(_document(seeded), seeded.out_dir)
+        assert "source_event_ids" in built.days[0].prompt.read_text()
+
+
+class TestSelectionReasons:
+    def test_a_pinned_asset_says_a_human_chose_it(self, seeded: StageContext) -> None:
+        from story_book.overrides import Overrides
+
+        first = seeded.conn.execute("SELECT path FROM media LIMIT 1").fetchone()["path"]
+        pinned = replace(seeded, overrides=Overrides.from_dict({"pin": [Path(first).name]}))
+        SelectionStage().run(pinned)
+
+        records = [
+            a for d in build_manifest(_document(seeded), PREVIEW)["days"] for a in d["assets"]
+        ]
+        assert any("human_pinned" in a["selection"]["reasons"] for a in records)
+
+    def test_an_unpinned_highlight_says_it_was_ranked(self, seeded: StageContext) -> None:
+        records = [
+            a for d in build_manifest(_document(seeded), PREVIEW)["days"] for a in d["assets"]
+        ]
+        assert any("quality_ranked" in a["selection"]["reasons"] for a in records)
+
+    def test_a_video_exported_only_for_the_storyboard_says_so(
+        self, seeded: StageContext, make_media
+    ) -> None:
+        _add_video(seeded, make_media, processed=True, text=None)
+        records = [
+            a for d in build_manifest(_document(seeded), PREVIEW)["days"] for a in d["assets"]
+        ]
+        video = next(a for a in records if a["kind"] == "video")
+        assert video["selection"]["reasons"]
+
+    def test_rank_within_the_day_is_reported(self, seeded: StageContext) -> None:
+        records = [
+            a for d in build_manifest(_document(seeded), PREVIEW)["days"] for a in d["assets"]
+        ]
+        assert any(a["selection"]["rank_within_day"] for a in records)
+
+
+class TestPlaceCertainty:
+    def test_the_geocoder_source_is_named(self, seeded: StageContext) -> None:
+        seeded.conn.execute(
+            "INSERT INTO place (id, lat_key, lon_key, city, country, source) "
+            "VALUES (1, 48.21, 16.37, 'Vienna', 'AT', 'offline')"
+        )
+        seeded.conn.execute("UPDATE media SET place_id = 1")
+        seeded.conn.commit()
+        record = next(
+            a
+            for d in build_manifest(_document(seeded), PREVIEW)["days"]
+            for a in d["assets"]
+            if a["place"]
+        )
+        assert record["place"]["source"] == "offline"
+
+    def test_no_confidence_number_is_invented(self, seeded: StageContext) -> None:
+        """The offline geocoder reports none; a fabricated figure is worse than a stated limit."""
+        seeded.conn.execute(
+            "INSERT INTO place (id, lat_key, lon_key, city, country, source) "
+            "VALUES (1, 48.21, 16.37, 'Vienna', 'AT', 'offline')"
+        )
+        seeded.conn.execute("UPDATE media SET place_id = 1")
+        seeded.conn.commit()
+        record = next(
+            a
+            for d in build_manifest(_document(seeded), PREVIEW)["days"]
+            for a in d["assets"]
+            if a["place"]
+        )
+        assert "confidence" not in record["place"]
+        assert record["place"]["precision"] == "city"
+
+    def test_the_prompt_permits_flagged_visual_landmark_inference(
+        self, seeded: StageContext
+    ) -> None:
+        built = build_package(_document(seeded), seeded.out_dir)
+        text = built.days[0].prompt.read_text()
+        assert "may name a landmark you recognise" in text and "uncertainties" in text
+
+
+class TestVideoStoryboardData:
+    def test_keyframes_carry_their_offset_into_the_clip(
+        self, seeded: StageContext, make_media
+    ) -> None:
+        _add_video(seeded, make_media, processed=True, text=None)
+        records = [
+            a for d in build_manifest(_document(seeded), PREVIEW)["days"] for a in d["assets"]
+        ]
+        video = next(a for a in records if a["kind"] == "video")
+        assert all("seconds" in frame for frame in video["video"]["keyframes"])
+
+    def test_the_prompt_asks_for_a_source_range_not_just_a_duration(
+        self, seeded: StageContext
+    ) -> None:
+        built = build_package(_document(seeded), seeded.out_dir)
+        text = built.days[0].prompt.read_text()
+        assert "source_start_seconds" in text and "source_end_seconds" in text
+
+
+class TestCleanArchive:
+    def test_it_writes_a_zip(self, seeded: StageContext) -> None:
+        built = build_package(_document(seeded), seeded.out_dir)
+        assert write_archive(built).exists()
+
+    def test_macos_droppings_are_excluded(self, seeded: StageContext) -> None:
+        built = build_package(_document(seeded), seeded.out_dir)
+        (built.root / ".DS_Store").write_bytes(b"junk")
+        (built.days[0].directory / "._IMG_1.jpeg").write_bytes(b"junk")
+
+        with zipfile.ZipFile(write_archive(built)) as archive:
+            names = archive.namelist()
+        assert not any(".DS_Store" in n or "/._" in n for n in names)
+
+    def test_the_manifest_is_in_the_archive(self, seeded: StageContext) -> None:
+        built = build_package(_document(seeded), seeded.out_dir)
+        with zipfile.ZipFile(write_archive(built)) as archive:
+            assert any(n.endswith("manifest.json") for n in archive.namelist())
+
+    def test_rewriting_replaces_rather_than_appends(self, seeded: StageContext) -> None:
+        built = build_package(_document(seeded), seeded.out_dir)
+        first = write_archive(built)
+        count = len(zipfile.ZipFile(first).namelist())
+        assert len(zipfile.ZipFile(write_archive(built)).namelist()) == count

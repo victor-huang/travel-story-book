@@ -40,6 +40,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+from collections import Counter
 from dataclasses import asdict
 from datetime import datetime
 from math import asin, cos, radians, sin, sqrt
@@ -55,7 +56,7 @@ from story_book.trip_context import TripContext
 
 logger = logging.getLogger(__name__)
 
-TRIP_JSON_SCHEMA_VERSION = 1
+TRIP_JSON_SCHEMA_VERSION = 2
 TRIP_JSON_FILENAME = "trip.json"
 
 EARTH_RADIUS_M = 6_371_000.0
@@ -133,7 +134,65 @@ def build_asset_ids(hashes: list[str], config: TimelineConfig) -> dict[str, str]
     return {h: h[:length] for h in ordered}
 
 
+def local_with_offset(taken_local: str | None, offset_minutes: int | None) -> str | None:
+    """`2026-07-18T11:03:22` + 120 -> `2026-07-18T11:03:22+02:00`.
+
+    A bare local timestamp is ambiguous the moment a trip crosses a zone, and a consumer comparing
+    it against an itinerary has no way to know which. The offset is carried inline so the string is
+    self-describing; the IANA name and the UTC instant sit beside it.
+    """
+    if taken_local is None:
+        return None
+    if offset_minutes is None:
+        return taken_local
+    sign = "+" if offset_minutes >= 0 else "-"
+    total = abs(offset_minutes)
+    return f"{taken_local}{sign}{total // 60:02d}:{total % 60:02d}"
+
+
+def geometry(width: int | None, height: int | None) -> dict[str, Any]:
+    """Orientation and aspect ratio, for layout.
+
+    A renderer that does not know the shape of a frame will propose a panoramic hero for a portrait
+    photograph. Square is its own case rather than a rounding of one of the other two.
+    """
+    if not width or not height:
+        return {"width": width, "height": height, "orientation": None, "aspect_ratio": None}
+    ratio = width / height
+    if abs(ratio - 1.0) < 0.02:
+        orientation = "square"
+    elif ratio > 1.0:
+        orientation = "landscape"
+    else:
+        orientation = "portrait"
+    return {
+        "width": width,
+        "height": height,
+        "orientation": orientation,
+        "aspect_ratio": round(ratio, 4),
+    }
+
+
+def keyframe_seconds(duration: float | None, count: int) -> list[float]:
+    """Where each extracted keyframe sits in the clip.
+
+    Mirrors `video._keyframe_timestamps` -- evenly spaced midpoints. Recomputed rather than stored
+    because it is a pure function of duration and count, and a stored copy could disagree with the
+    frames actually on disk.
+    """
+    if not duration or count <= 0:
+        return []
+    return [round(duration * (i + 0.5) / count, 2) for i in range(count)]
+
+
 def _minutes_between(start: str | None, end: str | None) -> float | None:
+    """A duration, computed from UTC instants only.
+
+    Never from local wall time. Once `taken_local` carries an offset, a library where some items
+    have a resolved offset and some do not mixes aware and naive datetimes and raises -- and even
+    where it does not raise, subtracting two wall times across a zone change gives the wrong
+    answer. This is the project's standing rule: order by UTC, split days by local.
+    """
     if not start or not end:
         return None
     return (datetime.fromisoformat(end) - datetime.fromisoformat(start)).total_seconds() / 60.0
@@ -243,11 +302,18 @@ def _video_block(
         status = TranscriptStatus.NO_SPEECH
     else:
         status = TranscriptStatus.NOT_PROCESSED
+    paths = (meta or {}).get("keyframes", [])
+    seconds = keyframe_seconds(duration, len(paths))
     return {
         "duration_seconds": duration,
         "fps": (meta or {}).get("fps"),
         "poster": (meta or {}).get("poster"),
-        "keyframes": (meta or {}).get("keyframes", []),
+        # Paths *and* timestamps. One contact-sheet cell cannot represent a 112-second clip, so an
+        # editor needs to know what happens across it and at what offset -- otherwise a suggested
+        # duration says how long to use the footage but not which part.
+        "keyframes": [
+            {"seconds": at, "path": path} for at, path in zip(seconds, paths, strict=False)
+        ],
         "motion_score": (meta or {}).get("motion_score"),
         "mean_volume_db": (meta or {}).get("mean_volume_db"),
         "transcript_status": status,
@@ -334,11 +400,14 @@ def _build_assets(
             "filename": row["path"].rsplit("/", 1)[-1],
             "kind": str(kind),
             "bytes": row["bytes"],
-            "width": row["width"],
-            "height": row["height"],
-            "taken_local": row["taken_local"],
+            "geometry": geometry(row["width"], row["height"]),
+            "taken_local": local_with_offset(row["taken_local"], row["tz_offset_minutes"]),
             "taken_utc": row["taken_utc"],
-            "timezone": {"name": row["tz_name"], "source": row["tz_source"]},
+            "timezone": {
+                "name": row["tz_name"],
+                "offset_minutes": row["tz_offset_minutes"],
+                "source": row["tz_source"],
+            },
             "day": row["local_date"],
             "event_id": public_event_id(row["local_date"], row["event_seq"]),
             "location": (
@@ -460,8 +529,8 @@ def _build_days(
                     round(m, 1)
                     if (
                         m := _minutes_between(
-                            members[0]["taken_local"] if members else None,
-                            members[-1]["taken_local"] if members else None,
+                            members[0]["taken_utc"] if members else None,
+                            members[-1]["taken_utc"] if members else None,
                         )
                     )
                     is not None
@@ -495,9 +564,13 @@ def _build_days(
         located = [a for a in day_assets if a["location"]]
         located.sort(key=lambda a: (a["taken_utc"] or "", a["asset_id"]))
         raw = [(a["location"]["lat"], a["location"]["lon"]) for a in located]
+        zones = Counter(a["timezone"]["name"] for a in day_assets if a["timezone"]["name"])
         days.append(
             {
                 "date": date,
+                # The zone the day was lived in. A consumer comparing photo times against an
+                # itinerary needs this at the day level, not only per asset.
+                "timezone": zones.most_common(1)[0][0] if zones else None,
                 "events": day_events,
                 "counts": {
                     "media": len(day_assets),
@@ -562,6 +635,13 @@ def build_timeline(
         "generator": {"tool": "story-book", "version": __version__},
         "trip": {
             "name": trip_row["name"] if trip_row else None,
+            "timezone": (
+                Counter(
+                    a["timezone"]["name"] for a in assets.values() if a["timezone"]["name"]
+                ).most_common(1)[0][0]
+                if any(a["timezone"]["name"] for a in assets.values())
+                else None
+            ),
             "start_local": trip_row["start_local"] if trip_row else None,
             "end_local": trip_row["end_local"] if trip_row else None,
             "counts": {

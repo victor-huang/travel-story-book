@@ -21,7 +21,7 @@ from story_book.config import Config, ConfigError
 from story_book.db import connection as db
 from story_book.eval import evaluate_truth_set_file
 from story_book.eval import render_report as render_eval_report
-from story_book.export.package import ORIGINALS, PREVIEW, build_package
+from story_book.export.package import ORIGINALS, PREVIEW, build_package, write_archive
 from story_book.export.report import render_report
 from story_book.overrides import OverrideError, Overrides
 from story_book.pipeline.base import Stage, StageContext
@@ -308,6 +308,10 @@ def package(
             help="Ship full-resolution originals instead of previews. Hardlinks where possible.",
         ),
     ] = False,
+    archive: Annotated[
+        bool,
+        typer.Option("--zip", help="Also write package.zip, without macOS filesystem droppings."),
+    ] = False,
 ) -> None:
     """Build the ChatGPT upload package: contact sheets, brief, prompt, and a manifest.
 
@@ -346,6 +350,10 @@ def package(
         f"{len(built.days)} day(s), {sum(len(d.sheets) for d in built.days)} contact sheet(s) "
         f"[{built.mode}] -> [bold]{built.root}[/]"
     )
+    if archive:
+        target = write_archive(built)
+        size_mb = target.stat().st_size / 1_048_576
+        console.print(f"archive: [bold]{target}[/] ({size_mb:.0f} MB, no .DS_Store)")
     console.print("Open a fresh chat per day; attach the sheets and brief.md, paste prompt.md.")
 
 

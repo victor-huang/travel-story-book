@@ -564,6 +564,55 @@ Also state in the manifest whether the package is **preview-only or includes ori
 preview package cannot support judgements about focus, blink, noise, or crop headroom, and the
 recipient should be told rather than left to infer.
 
+### P05 result — the generated package, reviewed
+
+The real package went through ChatGPT. Verdict: **usable now** for journal writing and preliminary
+photo-book planning; **not yet ready** to drive an automated renderer. The gap named was not prose
+but *layout geometry and precise video segment references*. Ten changes were asked for; eight are
+implemented, and two were declined on principle.
+
+Implemented:
+
+1. **Timestamps are self-describing.** `taken_local` carries its UTC offset, beside `taken_utc` and
+   the IANA name, at asset, day and trip level. A bare local time is ambiguous the moment a trip
+   crosses a zone. This change also forced a correctness fix: event durations are now computed from
+   UTC instants, never from wall time — subtracting two wall times across a zone change gives the
+   wrong answer, and mixing offset-aware and naive strings raises outright.
+2. **Captured and included are separate counts**, with an explicit `asset_scope: "selected_only"`.
+   One `counts.media` of 141 beside 33 asset records invited the conclusion that something had been
+   lost.
+3. **Every stop appears in the brief**, including those with nothing selected. "110 items across 6
+   stops" followed by three stops makes a day read as continuous when it was not.
+4. **Keyframes ship with their offsets**, so a storyboard can name a source range rather than only
+   a duration. The frames already existed; the export simply never carried them. The output contract
+   became `source_start_seconds` / `source_end_seconds` / `timeline_duration_seconds`.
+5. **Frame geometry** — width, height, orientation, aspect ratio — so a renderer does not propose a
+   panoramic hero for a portrait photograph.
+6. **`asset_id` lengthened to 16 hex characters** (64 bits). It was never collision-*prone* — the
+   builder lengthens the prefix rather than emitting a duplicate — but 32 bits is thin for something
+   meant to outlive one trip, and the README overclaimed.
+7. **Events declare `event_type: "detected_cluster"`**, and the prompt asks the model to draw
+   chapters citing `source_event_ids`. This is P03's conclusion, reached independently by the
+   reviewer.
+8. **Selection reasons and rank**, so a model can tell a human's pick from a high score from a clip
+   exported only because every clip is. Plus a shipped `schema/manifest.schema.json`, and a `--zip`
+   that excludes `.DS_Store` and `__MACOSX`.
+
+Declined, with reasons:
+
+- **A place `confidence` number.** The offline geocoder returns a nearest populated place from a
+  bundled dataset and produces no confidence. Emitting one would be a fabricated measurement — the
+  exact failure this project keeps guarding against. The manifest reports `source` and
+  `precision: "city"` instead, which is what is actually known.
+- **Automatically detected video `highlight_ranges` with scores.** This is new analysis, not
+  unexported data: it needs per-window motion and stability scoring the pipeline does not compute.
+  Shipping plausible ranges would be worse than shipping none. The keyframes and their offsets give
+  a model what it needs to choose a range itself; the automatic version is logged as Phase 2 work.
+
+The reviewer's suggested `img_` prefix on `asset_id` was also skipped, to keep the invariant that
+an `asset_id` is a literal prefix of the content hash — which a test asserts and a consumer can
+verify.
+
 ### Clusters are not chapters
 
 P02 named this precisely: what Module 6 produces is a **time-and-location cluster**, not a

@@ -36,6 +36,7 @@ import json
 import logging
 import os
 import shutil
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -46,8 +47,17 @@ from story_book.export.report import clock, country_name, duration, place_label
 logger = logging.getLogger(__name__)
 
 PACKAGE_DIRNAME = "package"
+SHEETS_DIRNAME = "contact_sheets"
+KEYFRAMES_DIRNAME = "keyframes"
+SCHEMA_DIRNAME = "schema"
+MANIFEST_SCHEMA_FILENAME = "manifest.schema.json"
+SCHEMA_SOURCE = Path(__file__).parent / "manifest_schema.json"
+
+# Finder and macOS archive tooling scatter these through a zip. Harmless, but they make a package
+# look unfinished and they are noise for whoever opens it.
+JUNK_NAMES = (".DS_Store", "Thumbs.db", "__MACOSX", ".Spotlight-V100", ".fseventsd")
 MANIFEST_FILENAME = "manifest.json"
-MANIFEST_SCHEMA_VERSION = 1
+MANIFEST_SCHEMA_VERSION = 2
 
 CELLS_PER_SHEET = 12
 SHEET_COLUMNS = 4
@@ -132,10 +142,15 @@ def _video_summary(asset: dict) -> dict[str, Any] | None:
     if not video:
         return None
     transcript = video.get("transcript")
+    keyframes = video.get("keyframes") or []
     return {
         "duration_seconds": _round(video["duration_seconds"], 1),
+        "fps": _round(video.get("fps"), 2),
         "motion_score": _round(video["motion_score"]),
-        "keyframe_count": len(video["keyframes"]),
+        # Frames *and* their offsets into the clip. Without them a storyboard can say how long to
+        # use a shot but not which part of it, and one contact-sheet cell cannot stand in for a
+        # 112-second video.
+        "keyframes": [{"seconds": frame["seconds"], "preview_path": None} for frame in keyframes],
         # The distinction P02 asked for. `no_speech` is a measured negative; `not_processed`
         # means nobody listened, and a storyboard must not treat the two the same way.
         "transcript_status": video["transcript_status"],
@@ -143,9 +158,38 @@ def _video_summary(asset: dict) -> dict[str, Any] | None:
     }
 
 
+def _selection_reasons(asset: dict) -> list[str]:
+    """Why this asset is in the package, in the caller's terms rather than the pipeline's.
+
+    A model choosing a hero image benefits from knowing that a photo is here because a human asked
+    for it, versus because it scored well, versus because every clip is exported for the
+    storyboard whether or not it won a slot.
+    """
+    selected = asset.get("selected", {})
+    reasons = []
+    if selected.get("day", {}).get("reason") == "pinned":
+        reasons.append("human_pinned")
+    if "day" in selected and "human_pinned" not in reasons:
+        reasons.append("quality_ranked")
+    if "trip" in selected:
+        reasons.append("trip_highlight")
+    if "event" in selected:
+        reasons.append("event_representative")
+    quality = asset.get("quality") or {}
+    if (quality.get("face_count") or 0) > 0:
+        reasons.append("faces_present")
+    if asset["kind"] == "video" and not reasons:
+        reasons.append("all_video_exported")
+    cluster = asset.get("cluster")
+    if cluster and cluster.get("is_keeper"):
+        reasons.append("duplicate_group_keeper")
+    return reasons
+
+
 def _asset_record(asset: dict, day: str, event_id: str | None, export_path: str | None) -> dict:
     location = asset.get("location")
     place = (location or {}).get("place")
+    selected = asset.get("selected", {})
     return {
         "asset_id": asset["asset_id"],
         "content_hash": asset["content_hash"],
@@ -154,20 +198,35 @@ def _asset_record(asset: dict, day: str, event_id: str | None, export_path: str 
         "day": day,
         "event_id": event_id,
         "taken_local": asset["taken_local"],
+        "taken_utc": asset["taken_utc"],
+        "timezone": asset["timezone"]["name"],
         "export_path": export_path,
         "cell_id": None,
+        **asset["geometry"],
         "place": (
             {
                 "name": place_label(place),
                 "city": place.get("city"),
                 "country": country_name(place.get("country")),
+                # The source, and no confidence number. The offline geocoder returns a nearest
+                # populated place from a bundled dataset and reports no confidence; inventing one
+                # would be a fabricated measurement, which is the failure this project keeps
+                # guarding against. City-level precision is stated instead.
+                "source": place.get("source"),
+                "precision": "city",
             }
             if place
             else None
         ),
         "quality": _quality_summary(asset),
         "video": _video_summary(asset),
-        "pinned_by_human": asset.get("selected", {}).get("day", {}).get("reason") == "pinned",
+        "selection": {
+            "included": True,
+            "reasons": _selection_reasons(asset),
+            "rank_within_day": selected.get("day", {}).get("rank"),
+            "pinned_by_human": selected.get("day", {}).get("reason") == "pinned",
+        },
+        "pinned_by_human": selected.get("day", {}).get("reason") == "pinned",
     }
 
 
@@ -175,6 +234,10 @@ def _event_record(event: dict, asset_ids: list[str]) -> dict:
     location = event["location"]
     return {
         "event_id": event["id"],
+        # Detected time-and-location cluster, *not* a narrative chapter. One real cluster here runs
+        # 8h45m over 129 items -- geographically coherent and far too broad to be a chapter.
+        # Chapters are the model's job, and the prompt asks for them with `source_event_ids`.
+        "event_type": "detected_cluster",
         "label": event["label"],
         "place": place_label(event["place"]) or None,
         "start_local": event["start_local"],
@@ -215,10 +278,20 @@ def build_manifest(doc: dict, mode: str) -> dict[str, Any]:
         event_of = {
             asset_id: event["id"] for event in day["events"] for asset_id in event["assets"]
         }
+        included = {
+            "media": len(members),
+            "images": sum(1 for a in members if a["kind"] == "image"),
+            "videos": sum(1 for a in members if a["kind"] == "video"),
+        }
         days.append(
             {
                 "date": day["date"],
-                "counts": day["counts"],
+                "timezone": day["timezone"],
+                # Two different numbers that were previously one. `assets` holds the *selected*
+                # subset, so a consumer reading a single `counts.media` of 141 beside 33 records
+                # could reasonably conclude the export had lost something.
+                "counts": {"captured": day["counts"], "included": included},
+                "asset_scope": "selected_only",
                 "gps_coverage": day["gps_coverage"],
                 "events": [
                     _event_record(
@@ -253,6 +326,7 @@ def build_manifest(doc: dict, mode: str) -> dict[str, Any]:
             "name": doc["trip"]["name"],
             "start_local": doc["trip"]["start_local"],
             "end_local": doc["trip"]["end_local"],
+            "timezone": doc["trip"]["timezone"],
             "counts": doc["trip"]["counts"],
         },
         "context": doc["context"],
@@ -267,9 +341,14 @@ def _render_brief(manifest: dict, day: dict) -> str:
     lines = [
         f"# {day['date']} — {manifest['trip']['name'] or 'Trip'}",
         "",
-        f"{day['counts']['media']} items captured ({day['counts']['images']} photos, "
-        f"{day['counts']['videos']} videos) across {day['counts']['events']} stops. "
-        f"{len(day['assets'])} are included here.",
+        f"{day['counts']['captured']['media']} items captured "
+        f"({day['counts']['captured']['images']} photos, "
+        f"{day['counts']['captured']['videos']} videos) across "
+        f"{day['counts']['captured']['events']} stops. "
+        f"{day['counts']['included']['media']} are included in this package "
+        f"({day['counts']['included']['images']} photos, "
+        f"{day['counts']['included']['videos']} videos)."
+        + (f" Local time is {day['timezone']}." if day["timezone"] else ""),
         "",
         f"**Media in this package:** {manifest['package']['media_note']}",
         "",
@@ -287,9 +366,15 @@ def _render_brief(manifest: dict, day: dict) -> str:
             "",
         ]
 
+    empty = sum(1 for event in day["events"] if not event["asset_ids"])
+    if empty:
+        lines += [
+            f"> {empty} of {len(day['events'])} stops have no photograph in this package. They are "
+            "listed below so the day does not read as continuous when it was not.",
+            "",
+        ]
+
     for position, event in enumerate(day["events"], start=1):
-        if not event["asset_ids"]:
-            continue
         location = event["location"]
         header = event["label"] or event["place"] or "Unnamed stop"
         lines.append(f"### Stop {position} · {clock(event['start_local'])} · {header}")
@@ -308,6 +393,9 @@ def _render_brief(manifest: dict, day: dict) -> str:
         lines += [" · ".join(f for f in facts if f), ""]
         if event["landmarks"]:
             lines += [f"Landmarks identified: {', '.join(event['landmarks'])}", ""]
+        if not event["asset_ids"]:
+            lines += ["*No photograph from this stop is included in the package.*", ""]
+            continue
         for asset_id in event["asset_ids"]:
             asset = by_id.get(asset_id)
             if asset is None:
@@ -439,7 +527,9 @@ Write these as readable prose first:
    what is visible on the sheets.
 2. **Captions** for the photos worth captioning, keyed by `asset_id`.
 3. **A photo-book layout** — which photos share a page, which is the hero, and why.
-4. **A video storyboard** using the clips listed under "Video" in the brief. Note that
+4. **A video storyboard** using the clips listed under "Video" in the brief. Each clip ships its
+   extracted keyframes with the offset in seconds where each was taken, so name the **source range**
+   you want (`source_start_seconds` / `source_end_seconds`), not just a duration. Note that
    `no speech found` is a *measured* result, not an unexamined clip.
 
 ## Then repeat it as JSON
@@ -451,14 +541,21 @@ consumes, so keep the keys exactly as written:
 {{
   "day": "{day["date"]}",
   "chapters": [
-    {{"title": "", "starts_at": "HH:MM", "summary": "", "asset_ids": []}}
+    {{
+      "title": "", "starts_at": "HH:MM", "summary": "",
+      "source_event_ids": [], "asset_ids": []
+    }}
   ],
   "captions": [{{"asset_id": "", "caption": ""}}],
   "layout_pages": [
     {{"page": 1, "hero_asset_id": "", "asset_ids": [], "note": ""}}
   ],
   "video_scenes": [
-    {{"asset_id": "", "role": "", "suggested_seconds": 0, "note": ""}}
+    {{
+      "asset_id": "", "role": "",
+      "source_start_seconds": 0, "source_end_seconds": 0,
+      "timeline_duration_seconds": 0, "note": ""
+    }}
   ],
   "uncertainties": [""],
   "requested_additional_context": [""]
@@ -469,8 +566,27 @@ consumes, so keep the keys exactly as written:
 anything the sheets were too small to judge. `requested_additional_context` is what you would
 need to write a better entry.
 
-**Do not invent place names, landmark names, or times.** The brief carries what the pipeline
-actually resolved; if something is unnamed there, it is unnamed. Say so rather than guessing.
+## Naming places
+
+The brief carries what the pipeline actually *resolved*, and its geocoding is city-level: a stop
+named "Vienna, Austria" is confirmed to be in Vienna and nothing more. Landmark recognition may not
+have run at all, in which case the brief says so.
+
+- **Use confirmed place names directly.** Do not contradict them.
+- **You may name a landmark you recognise in a photograph**, and you should if it is obvious — but
+  mark it as an inference: put it in `uncertainties` as `"inferred: <name> in <asset_id> from the
+  image, not from metadata"`, and use hedged language in the prose.
+- **Do not invent times, durations, or place names** that appear nowhere. If something is unnamed,
+  say it is unnamed.
+
+The distinction that matters: recognising St Stephen's Cathedral in a photograph of St Stephen's
+Cathedral is reading the evidence. Asserting which café the coffee came from is not.
+
+## Chapters are yours to draw
+
+The events in the brief are **detected time-and-location clusters**, not narrative units — one of
+them may run most of a day. Group and split them however the story needs, and record which events
+each chapter drew from in `source_event_ids`.
 """
 
 
@@ -505,6 +621,7 @@ def build_package(
             continue
         day_dir = root / day["date"]
         media_dir = day_dir / ("full" if mode == ORIGINALS else "media")
+        sheet_dir = day_dir / SHEETS_DIRNAME
         day_dir.mkdir(parents=True)
 
         pairs: list[tuple[Path, str]] = []
@@ -519,13 +636,15 @@ def build_package(
             record["export_path"] = str(target.relative_to(root))
             pairs.append((target, _asset_caption(asset)))
 
+        _export_keyframes(day, assets, out_dir, day_dir / KEYFRAMES_DIRNAME, root)
+
         result = render_contact_sheets(
             pairs,
             cells_per_sheet=CELLS_PER_SHEET,
             columns=SHEET_COLUMNS,
             target_width=SHEET_WIDTH,
         )
-        sheets = save_contact_sheets(result, day_dir, prefix="contact_sheet")
+        sheets = save_contact_sheets(result, sheet_dir, prefix="contact_sheet")
         skipped.extend((Path(p).name, reason) for p, reason in result.skipped)
 
         cell_of = {
@@ -536,7 +655,7 @@ def build_package(
         for record in day["assets"]:
             if record["export_path"]:
                 record["cell_id"] = cell_of.get(str(root / record["export_path"]))
-        day["sheets"] = [s.name for s in sheets]
+        day["sheets"] = [f"{SHEETS_DIRNAME}/{s.name}" for s in sheets]
 
         brief = day_dir / "brief.md"
         brief.write_text(_render_brief(manifest, day))
@@ -556,6 +675,9 @@ def build_package(
 
     manifest_path = root / MANIFEST_FILENAME
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    schema_dir = root / SCHEMA_DIRNAME
+    schema_dir.mkdir(exist_ok=True)
+    shutil.copyfile(SCHEMA_SOURCE, schema_dir / MANIFEST_SCHEMA_FILENAME)
     (root / "README.md").write_text(_render_readme(manifest, packaged))
 
     logger.info("package: %d day(s) in %s (%s)", len(packaged), root, mode)
@@ -568,6 +690,28 @@ def build_package(
     )
 
 
+def _export_keyframes(day: dict, assets: dict, out_dir: Path, target_dir: Path, root: Path) -> None:
+    """Copy each clip's extracted frames in, and record where they landed.
+
+    The frames already exist -- the video stage pulled `keyframe_count` of them per clip -- and the
+    export simply never carried them. Without them a storyboard has one thumbnail to represent two
+    minutes of footage.
+    """
+    for record in day["assets"]:
+        if record["kind"] != "video" or not record.get("video"):
+            continue
+        source_frames = (assets[record["asset_id"]].get("video") or {}).get("keyframes") or []
+        for index, (frame, exported) in enumerate(
+            zip(source_frames, record["video"]["keyframes"], strict=False)
+        ):
+            source = out_dir / frame["path"]
+            if not source.exists():
+                continue
+            target = target_dir / f"{record['asset_id']}_{index:03d}.jpg"
+            _link_or_copy(source, target)
+            exported["preview_path"] = str(target.relative_to(root))
+
+
 def _source_path(
     asset: dict, out_dir: Path, mode: str, source_for: dict[str, Path] | None
 ) -> Path | None:
@@ -577,6 +721,26 @@ def _source_path(
             return original
     preview = asset.get("preview")
     return out_dir / preview if preview else None
+
+
+def write_archive(package: Package, target: Path | None = None) -> Path:
+    """Zip the package, excluding macOS and Windows filesystem droppings.
+
+    Worth doing here rather than leaving to the user: a Finder-created archive carries `.DS_Store`
+    and `__MACOSX` entries, which is exactly what a reviewer noticed about the first one.
+    """
+    target = target or package.root.with_suffix(".zip")
+    if target.exists():
+        target.unlink()
+    with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted(package.root.rglob("*")):
+            if not path.is_file():
+                continue
+            parts = path.relative_to(package.root).parts
+            if any(part in JUNK_NAMES or part.startswith("._") for part in parts):
+                continue
+            archive.write(path, Path(package.root.name, *parts))
+    return target
 
 
 def _render_readme(manifest: dict, days: list[PackagedDay]) -> str:
@@ -597,7 +761,13 @@ One directory per day. For each day, open a fresh chat and attach:
 where it came from, and which contact-sheet cell it landed in. The briefs are generated from it.
 
 **Refer to photos by `asset_id`, not by cell number.** Cell numbers are positional and change
-whenever the selection changes.
+whenever the selection changes; an `asset_id` is a 16-hex-character prefix of the file's content
+hash and is stable for as long as the file is. It is not a guess at uniqueness: if two hashes ever
+shared a prefix the builder lengthens it for the whole package rather than emitting a duplicate,
+and the full hash is recorded beside every id for verification.
+
+`schema/manifest.schema.json` is the JSON Schema for `manifest.json`, so a renderer can validate a
+package before trusting it.
 
 **{manifest["package"]["media_note"]}**
 """

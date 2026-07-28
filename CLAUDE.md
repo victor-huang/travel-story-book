@@ -15,12 +15,12 @@ human hands to ChatGPT to write the travel journal.
 
 ```bash
 uv sync --extra vision --extra video --extra exif --extra geo   # a bare `uv sync` PRUNES these
-uv run pytest                                    # 1185 tests, expect 0 failures 0 skips locally
+uv run pytest                                    # 1230 tests, expect 0 failures 0 skips locally
 uv run pytest tests/unit                         # fast, mocked, no DB
 uv run story-book build <src> --out <dir>        # the pipeline
 uv run story-book report --out <dir>             # re-render HTML only
 uv run story-book profile <src>                  # folder stats + suggested config
-uv run story-book package --out <dir>             # the ChatGPT upload package
+uv run story-book package --out <dir> [--zip]     # the ChatGPT upload package
 uv run story-book eval <truth.toml> --out <dir>   # score against a labelled truth set
 uv run python tests/fixtures/generate.py         # regenerate fixtures (deterministic)
 ```
@@ -146,6 +146,17 @@ lived in places a per-stage test cannot reach.
 - **Ordering tests don't test calibration.** Sharpness was monotone and correct in order while
   compressed to a 0.001 range, silently neutering the highest-weighted term in the score. Assert
   the *spread* of any component feeding a weighted sum.
+- **When writing an export, enumerate the source table's columns and justify each omission.** Two
+  independent reviews of the ChatGPT package (P02, P05) found the same defect class: the export
+  layer narrowing what the pipeline already knows. A schema test proves the output is well-formed,
+  never that it is complete — only a consumer can ask "should this field be here?".
+- **Durations and intervals come from `taken_utc`, never local wall time.** `taken_local` carries
+  its UTC offset, so mixing it with a naive string raises instead of silently returning a wrong
+  interval. This is the standing rule — order by UTC, split days by local — and it took a third
+  site to notice it also governs arithmetic.
+- **Emit no confidence, score, or measurement the pipeline did not compute.** P05 asked for a place
+  `confidence`; the offline geocoder produces none, so the manifest reports `precision: "city"`
+  instead. A fabricated number that looks measured is this project's most repeated failure.
 - **Look at real output.** A rendered contact sheet exposed the flat-score bug in seconds; no
   assertion had. Loading the report found that every image 404'd while the HTML validated
   perfectly — **when output references external files, resolve the references**, since the markup

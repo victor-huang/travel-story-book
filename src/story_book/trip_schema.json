@@ -40,7 +40,8 @@
         "name",
         "start_local",
         "end_local",
-        "counts"
+        "counts",
+        "timezone"
       ],
       "properties": {
         "name": {
@@ -77,6 +78,12 @@
             "type": "integer",
             "minimum": 0
           }
+        },
+        "timezone": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     },
@@ -289,8 +296,6 @@
         "filename",
         "kind",
         "bytes",
-        "width",
-        "height",
         "taken_local",
         "taken_utc",
         "timezone",
@@ -303,7 +308,8 @@
         "selected",
         "landmark_ids",
         "thumbnail",
-        "preview"
+        "preview",
+        "geometry"
       ],
       "properties": {
         "asset_id": {
@@ -326,19 +332,8 @@
           "type": "integer",
           "minimum": 0
         },
-        "width": {
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "height": {
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
         "taken_local": {
+          "description": "Local wall time carrying its UTC offset when known, so the string is self-describing across a trip that crosses zones.",
           "type": [
             "string",
             "null"
@@ -354,12 +349,19 @@
           "type": "object",
           "required": [
             "name",
+            "offset_minutes",
             "source"
           ],
           "properties": {
             "name": {
               "type": [
                 "string",
+                "null"
+              ]
+            },
+            "offset_minutes": {
+              "type": [
+                "integer",
                 "null"
               ]
             },
@@ -568,9 +570,22 @@
               ]
             },
             "keyframes": {
+              "description": "Extracted frames with their offset into the clip. One contact-sheet cell cannot represent a 112-second video; an editor needs to know what happens across it and when.",
               "type": "array",
               "items": {
-                "type": "string"
+                "type": "object",
+                "required": [
+                  "seconds",
+                  "path"
+                ],
+                "properties": {
+                  "seconds": {
+                    "type": "number"
+                  },
+                  "path": {
+                    "type": "string"
+                  }
+                }
               }
             },
             "motion_score": {
@@ -632,6 +647,44 @@
             "string",
             "null"
           ]
+        },
+        "geometry": {
+          "description": "Frame shape, for layout. A renderer that does not know this will propose a panoramic hero for a portrait photograph.",
+          "type": "object",
+          "required": [
+            "width",
+            "height",
+            "orientation",
+            "aspect_ratio"
+          ],
+          "properties": {
+            "width": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "height": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "orientation": {
+              "enum": [
+                "landscape",
+                "portrait",
+                "square",
+                null
+              ]
+            },
+            "aspect_ratio": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          }
         }
       },
       "allOf": [
@@ -806,7 +859,8 @@
         "counts",
         "gps_coverage",
         "path",
-        "highlights"
+        "highlights",
+        "timezone"
       ],
       "properties": {
         "date": {
@@ -848,6 +902,12 @@
           "items": {
             "type": "string"
           }
+        },
+        "timezone": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     }
