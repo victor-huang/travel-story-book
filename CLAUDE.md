@@ -15,12 +15,13 @@ human hands to ChatGPT to write the travel journal.
 
 ```bash
 uv sync --extra vision --extra video --extra exif --extra geo   # a bare `uv sync` PRUNES these
-uv run pytest                                    # 1255 tests, expect 0 failures 0 skips locally
+uv run pytest                                    # 1272 tests, expect 0 failures 0 skips locally
 uv run pytest tests/unit                         # fast, mocked, no DB
 uv run story-book build <src> --out <dir>        # the pipeline
 uv run story-book report --out <dir>             # re-render HTML only
 uv run story-book profile <src>                  # folder stats + suggested config
 uv run story-book package --out <dir> [--zip] [--video-proxies]   # ChatGPT package
+uv run story-book check-story <story.json> --out <dir>   # validate the model's answer
 uv run story-book eval <truth.toml> --out <dir>   # score against a labelled truth set
 uv run python tests/fixtures/generate.py         # regenerate fixtures (deterministic)
 ```
@@ -157,6 +158,15 @@ lived in places a per-stage test cannot reach.
 - **Emit no confidence, score, or measurement the pipeline did not compute.** P05 asked for a place
   `confidence`; the offline geocoder produces none, so the manifest reports `precision: "city"`
   instead. A fabricated number that looks measured is this project's most repeated failure.
+- **Grounding is a property of the format, not the writer.** In one real run the model's
+  `story.json` put every claim on an `asset_id` and stayed accurate; its prose summary moved a
+  landmark two days. `story.json` is the rendering source of truth; generated prose is a human
+  convenience and never an input.
+- **A published request format ships with a published response format.** Three reviews hardened
+  `manifest.schema.json` while the shape the prompt *asks for* was only described in prose — and
+  the first real answer renamed three keys and dropped a required one. Both schemas now travel
+  inside the package, and `check-story` validates shape and grounding **separately**: the real
+  response had 100% of its references resolve and was still unreadable by a renderer.
 - **For every declared media type in an export, verify one file's actual bytes.** P06 found nine
   assets declared `kind: "video"` whose exported files were JPEGs under `.mov` names. The schema
   validated, every reference resolved, 87 tests passed — all of them checking *presence*, none

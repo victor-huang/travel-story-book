@@ -53,7 +53,9 @@ KEYFRAMES_DIRNAME = "keyframes"
 SCHEMA_DIRNAME = "schema"
 PROXIES_DIRNAME = "video_proxies"
 MANIFEST_SCHEMA_FILENAME = "manifest.schema.json"
+STORY_SCHEMA_FILENAME = "story.schema.json"
 SCHEMA_SOURCE = Path(__file__).parent / "manifest_schema.json"
+STORY_SCHEMA_SOURCE = Path(__file__).parent / "story_schema.json"
 
 # Finder and macOS archive tooling scatter these through a zip. Harmless, but they make a package
 # look unfinished and they are noise for whoever opens it.
@@ -647,16 +649,21 @@ Write these as readable prose first:
 
 ## Then repeat it as JSON
 
-After the prose, output a single fenced ```json block with this shape. This is what a renderer
-consumes, so keep the keys exactly as written:
+After the prose, output a single fenced ```json block with this shape. **Use these key names
+exactly** — a renderer consumes them, and a rename means the file cannot be read. The full contract
+is `schema/story.schema.json` in this package; save your JSON as `story.json` and the traveller can
+check it with `story-book check-story story.json --out <dir>`.
 
 ```json
 {{
-  "day": "{day["date"]}",
+  "schema_version": 1,
+  "days": [{{"date": "{day["date"]}", "narrative": "", "summary": ""}}],
   "chapters": [
     {{
-      "title": "", "starts_at": "HH:MM", "summary": "",
-      "source_event_ids": [], "asset_ids": []
+      "chapter_id": "", "date": "{day["date"]}", "title": "", "narrative": "",
+      "starts_at": "HH:MM",
+      "source_event_ids": ["<the event_id(s) in the brief this chapter drew from — required>"],
+      "asset_ids": []
     }}
   ],
   "captions": [{{"asset_id": "", "caption": ""}}],
@@ -674,6 +681,10 @@ consumes, so keep the keys exactly as written:
   "requested_additional_context": [""]
 }}
 ```
+
+Every `asset_id` must be one that appears in the brief. `source_event_ids` is required on every
+chapter: it is the only link from your editorial units back to the pipeline's own grouping, and a
+renderer cannot reorganise what it cannot trace.
 
 `uncertainties` is not optional politeness — list anything you inferred rather than read, and
 anything the sheets were too small to judge. `requested_additional_context` is what you would
@@ -814,6 +825,9 @@ def build_package(
     schema_dir = root / SCHEMA_DIRNAME
     schema_dir.mkdir(exist_ok=True)
     shutil.copyfile(SCHEMA_SOURCE, schema_dir / MANIFEST_SCHEMA_FILENAME)
+    # The contract for the *answer*, not just the input. A first real run came back
+    # richer than requested and non-conformant, and nothing could tell the user.
+    shutil.copyfile(STORY_SCHEMA_SOURCE, schema_dir / STORY_SCHEMA_FILENAME)
     (root / "README.md").write_text(_render_readme(manifest, packaged))
 
     logger.info("package: %d day(s) in %s (%s)", len(packaged), root, mode)

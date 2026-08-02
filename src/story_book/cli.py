@@ -21,7 +21,15 @@ from story_book.config import Config, ConfigError
 from story_book.db import connection as db
 from story_book.eval import evaluate_truth_set_file
 from story_book.eval import render_report as render_eval_report
-from story_book.export.package import ORIGINALS, PREVIEW, build_package, write_archive
+from story_book.export.check_story import check_story
+from story_book.export.package import (
+    MANIFEST_FILENAME,
+    ORIGINALS,
+    PACKAGE_DIRNAME,
+    PREVIEW,
+    build_package,
+    write_archive,
+)
 from story_book.export.report import render_report
 from story_book.overrides import OverrideError, Overrides
 from story_book.pipeline.base import Stage, StageContext
@@ -394,6 +402,76 @@ def eval_command(
     conn = db.connect(db_path, create=False)
     report = evaluate_truth_set_file(conn, truth_set)
     console.print(render_eval_report(report))
+
+
+@app.command(name="check-story")
+def check_story_command(
+    story_path: Annotated[
+        Path, typer.Argument(exists=True, dir_okay=False, help="The model's story.json.")
+    ],
+    out: Annotated[Path, typer.Option("--out", "-o", help="Output directory holding package/.")],
+) -> None:
+    """Check a model's `story.json` against the package it was written from.
+
+    Two things: whether it matches `schema/story.schema.json`, and whether every `asset_id` and
+    `event_id` in it actually exists. The second matters more -- a caption attached to an id the
+    package does not contain looks exactly like a fact.
+    """
+    manifest_path = out.resolve() / PACKAGE_DIRNAME / MANIFEST_FILENAME
+    if not manifest_path.exists():
+        console.print(f"[red]no manifest at {manifest_path}[/] -- run `story-book package` first.")
+        raise typer.Exit(2)
+
+    try:
+        story = json.loads(story_path.read_text())
+    except json.JSONDecodeError as exc:
+        console.print(f"[red]{story_path} is not valid JSON:[/] {exc}")
+        raise typer.Exit(2) from exc
+
+    report = check_story(story, json.loads(manifest_path.read_text()))
+
+    if report.unknown_assets:
+        console.print(
+            f"[red]{len(report.unknown_assets)} reference(s) to media not in this "
+            "package[/] -- these are the dangerous ones:"
+        )
+        for asset_id, where in report.unknown_assets[:10]:
+            console.print(f"  {asset_id}  at {where}")
+    if report.unknown_events:
+        console.print(f"[red]{len(report.unknown_events)} unknown event id(s)[/]")
+        for event_id, where in report.unknown_events[:10]:
+            console.print(f"  {event_id}  in {where}")
+    if report.cross_day_assets:
+        console.print(f"[red]{len(report.cross_day_assets)} chapter(s) cite another day's media[/]")
+        for name, asset_id, detail in report.cross_day_assets[:10]:
+            console.print(f"  {name}: {asset_id} ({detail})")
+    if report.schema_errors:
+        console.print(
+            f"[yellow]{len(report.schema_errors)} shape problem(s)[/] against "
+            "schema/story.schema.json:"
+        )
+        for message in report.schema_errors[:12]:
+            console.print(f"  {message}")
+        if len(report.schema_errors) > 12:
+            console.print(f"  ... and {len(report.schema_errors) - 12} more")
+
+    console.print(
+        f"\ncoverage: {report.cited}/{report.available} packaged assets cited "
+        f"({report.coverage:.0%})"
+    )
+    if report.uncited_assets:
+        console.print(
+            f"[dim]not cited anywhere: {', '.join(report.uncited_assets[:6])}"
+            + (" ..." if len(report.uncited_assets) > 6 else "")
+            + "[/]"
+        )
+    if report.missing_optional:
+        console.print(f"[dim]absent optional sections: {', '.join(report.missing_optional)}[/]")
+
+    if report.ok:
+        console.print("[green]every reference resolves and the shape matches.[/]")
+    else:
+        raise typer.Exit(1)
 
 
 @app.command()

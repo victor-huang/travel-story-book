@@ -658,6 +658,48 @@ Deferred deliberately: optional event *subclusters*, which the reviewer marked u
 MVP given that chapters are drawn by the model, and a place `confidence`, which the reviewer now
 agrees is not meaningful for a city-level offline lookup.
 
+### P07 result — the first real journal, and what stayed honest
+
+A full package went through ChatGPT and came back as `story.json`, `trip_summary.md`,
+`editorial_notes.md` and a context file. The narrative is good and the architecture held where it
+mattered.
+
+**Every one of the 56 asset references resolved. 100% coverage, nothing dangling.** The stable-id
+design is validated end to end: thirteen chapters and twenty-three captions, all traceable to
+specific media, and the model's own recommendation was to *"use `asset_id`, never contact-sheet cell
+numbers, as persistent references"*. The honesty instructions were followed too — landmark names
+carry visual-identification caveats, the three unphotographed stops on 19 July are named rather than
+invented, and the storyboard declines to pick exact ranges: *"Precise source ranges should be chosen
+after reviewing the playable proxies."* That is the P06 prompt working exactly as intended.
+
+**The single most instructive finding: the ids stayed accurate and the prose drifted.** The
+generated `trip_summary.md` places the Pestsäule on 20 July, as the "visual farewell to Vienna".
+`story.json` puts it in `2026-07-18-ch04`, which is correct. The same model, the same run: the
+structured output was anchored by asset ids and could not wander; the free prose had nothing holding
+it and moved a landmark two days. This is the argument for `story.json` being the rendering source
+of truth, and for the report and the book being generated from it rather than from the summary.
+
+**The contract was not followed.** Thirteen chapters, zero `source_event_ids`. `video_scenes`
+renamed to `video_storyboard` and restructured, `uncertainties` to `global_uncertainties`,
+`layout_pages` and `requested_additional_context` absent. The result is *richer* than asked for —
+`story_beats`, `supported_facts`, per-chapter uncertainties — but a renderer built to the contract
+would fail on it, and nothing could have told the user that except reading the file.
+
+So the response now has a published contract of its own:
+
+- **`schema/story.schema.json` ships inside every package**, alongside the manifest schema. The
+  prompt names it, requires the key names verbatim, and marks `source_event_ids` required with the
+  reason — it is the only link from an editorial unit back to the pipeline's own grouping.
+- **`story-book check-story story.json --out <dir>`** checks two independent things: shape against
+  the schema, and *grounding* — every `asset_id` and `event_id` must exist in the manifest, no
+  chapter may cite another day's media. Grounding is the one that matters: a caption attached to an
+  id the package does not contain looks exactly like a fact. Run against the real response it
+  reproduces the hand analysis in one command: 18 shape problems, 56/56 coverage, zero bad
+  references.
+
+The check walks the whole document rather than the expected keys, precisely because the model may
+not have used them — a reference in an unexpected place still has to resolve.
+
 ### Clusters are not chapters
 
 P02 named this precisely: what Module 6 produces is a **time-and-location cluster**, not a
