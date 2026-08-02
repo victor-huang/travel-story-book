@@ -113,6 +113,18 @@ class TimelineConfig:
     # which is 121 points for a single afternoon and mostly camera jitter at one spot.
     path_simplify_meters: float = 25.0
 
+    # Content classes dropped from `trip.json` entirely -- not merely made ineligible for
+    # highlights, which is what `quality.reject_content_classes` does. The difference matters: a
+    # screenshot that is only ineligible still counts toward the day, drops a pin on the map, and
+    # can be the sole member of a "stop" that never happened. On a real trip two screen captures
+    # invented a 00:59 stop that was two phone screens.
+    #
+    # Only screenshots by default. A receipt or a menu is a photograph of something that was
+    # physically in front of you -- weak evidence of a place, but evidence; a screenshot is a
+    # picture of a phone. Set to `[]` to keep everything, or add classes to drop more.
+    # A pinned photo survives this: the human's word beats the automatic filter.
+    exclude_content_classes: tuple[str, ...] = ("screenshot",)
+
     # Below this end-to-end span an event is a *stop*, not a walk, and gets no path -- a
     # scattering of points around one courtyard is noise, not movement.
     path_min_span_meters: float = 100.0

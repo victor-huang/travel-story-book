@@ -306,7 +306,7 @@ class TestRejectRemovesFromTheArtifactNotJustTheHighlights:
         assert self._doc(ctx, reject=["IMG_1000"])["privacy"]["excluded_by_override"] == 1
 
     def test_an_event_left_with_nothing_disappears(self, ctx: StageContext, make_media) -> None:
-        """Two screenshots taken indoors were never a stop on the trip."""
+        """A stop whose every photograph the human removed was not a stop worth drawing."""
         _seed(ctx, make_media, 6, minutes=5.0)
         db.upsert_media(
             ctx.conn,
@@ -319,9 +319,11 @@ class TestRejectRemovesFromTheArtifactNotJustTheHighlights:
                 lon=VIENNA[1],
             ),
         )
+        # A normal photograph, so this test isolates the *override*: a screenshot would now be
+        # dropped by `timeline.exclude_content_classes` before the reject list was consulted.
         ctx.conn.execute(
             "INSERT INTO score (media_hash, sharpness, exposure, contrast, overall, "
-            "content_class) VALUES ('late000', 0.5, 0.5, 0.5, 0.5, 'screenshot')"
+            "content_class) VALUES ('late000', 0.5, 0.5, 0.5, 0.5, 'landscape')"
         )
         ctx.conn.commit()
         _run(ctx)

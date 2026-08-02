@@ -471,6 +471,24 @@ was configured at all — zero exclusions with no home set is a gap, not a clean
 `context` a `supplied` flag, because a journal is impersonal when nothing was supplied rather than
 because nothing was felt.
 
+### Two different questions about a screenshot
+
+`quality.reject_content_classes` decides what may be a **highlight**.
+`timeline.exclude_content_classes` decides what is in the **artifact at all**. Conflating them
+cost a real trip a stop that never happened: two screen captures were correctly classified and
+correctly excluded from the highlights, and still counted toward the day, dropped pins on the map,
+and formed a 00:59 "stop" that was two phone screens.
+
+Screenshots are dropped from the artifact by default; receipts and documents are kept. A receipt or
+a menu is a photograph of something that was physically in front of you — weak evidence of a place,
+but evidence. A screenshot is a picture of a phone. Both lists are configurable, `[]` keeps
+everything, and a photo pinned in `overrides.toml` survives either filter, because the human's word
+beats the automatic one everywhere except the home-exclusion rule.
+
+`trip.json` reports what was removed and why: `excluded_by_override`, `excluded_by_content_class`,
+and the active `excluded_content_classes` policy. A total that shrank because of a rule is not the
+same as a total that was always that size.
+
 ### The round trip
 
 The ChatGPT step stays manual by choice: the package goes up, and `story.json` plus a trip context

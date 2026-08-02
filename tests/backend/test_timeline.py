@@ -443,3 +443,114 @@ class TestGeometryForLayout:
         _seed(ctx, make_media, 3)
         asset = next(iter(_document(ctx)["assets"].values()))
         assert asset["geometry"]["orientation"] == "landscape"
+
+
+class TestContentClassesExcludedFromTheArtifact:
+    """Screenshots leave `trip.json` by default, configurably.
+
+    Distinct from `quality.reject_content_classes`, which only removes highlight eligibility. A
+    screenshot that is merely ineligible still counts toward the day, drops a pin on the map, and
+    can be the only member of a stop -- on a real trip two screen captures invented a 00:59 stop
+    that was two phone screens.
+    """
+
+    def _classify(self, ctx: StageContext, media_hash: str, content_class: str) -> None:
+        ctx.conn.execute(
+            "UPDATE score SET content_class = ? WHERE media_hash = ?", (content_class, media_hash)
+        )
+        ctx.conn.commit()
+
+    def test_a_screenshot_is_absent_by_default(self, ctx: StageContext, make_media) -> None:
+        _seed(ctx, make_media, 5)
+        self._classify(ctx, f"{0:064x}", "screenshot")
+
+        names = {a["filename"] for a in _document(ctx)["assets"].values()}
+        assert "IMG_1000.jpeg" not in names
+
+    def test_a_receipt_is_kept(self, ctx: StageContext, make_media) -> None:
+        """A receipt is a photograph of something in front of you -- weak evidence, but evidence."""
+        _seed(ctx, make_media, 5)
+        self._classify(ctx, f"{0:064x}", "receipt")
+
+        names = {a["filename"] for a in _document(ctx)["assets"].values()}
+        assert "IMG_1000.jpeg" in names
+
+    def test_the_exclusion_is_counted(self, ctx: StageContext, make_media) -> None:
+        _seed(ctx, make_media, 5)
+        self._classify(ctx, f"{0:064x}", "screenshot")
+
+        assert _document(ctx)["privacy"]["excluded_by_content_class"] == 1
+
+    def test_the_active_policy_is_stated_in_the_document(
+        self, ctx: StageContext, make_media
+    ) -> None:
+        _seed(ctx, make_media, 3)
+        assert _document(ctx)["privacy"]["excluded_content_classes"] == ["screenshot"]
+
+    def test_the_policy_is_configurable(self, ctx: StageContext, make_media) -> None:
+        _seed(ctx, make_media, 5)
+        self._classify(ctx, f"{0:064x}", "receipt")
+        strict = replace(
+            ctx,
+            config=replace(
+                ctx.config,
+                timeline=replace(
+                    ctx.config.timeline, exclude_content_classes=("screenshot", "receipt")
+                ),
+            ),
+        )
+        names = {a["filename"] for a in _document(strict)["assets"].values()}
+        assert "IMG_1000.jpeg" not in names
+
+    def test_an_empty_policy_keeps_everything(self, ctx: StageContext, make_media) -> None:
+        _seed(ctx, make_media, 5)
+        self._classify(ctx, f"{0:064x}", "screenshot")
+        keep_all = replace(
+            ctx,
+            config=replace(
+                ctx.config, timeline=replace(ctx.config.timeline, exclude_content_classes=())
+            ),
+        )
+        names = {a["filename"] for a in _document(keep_all)["assets"].values()}
+        assert "IMG_1000.jpeg" in names
+
+    def test_a_pinned_screenshot_survives(self, ctx: StageContext, make_media) -> None:
+        """The human's word beats the automatic filter, as it does the quality floor."""
+        from story_book.overrides import Overrides
+        from story_book.pipeline.timeline import build_timeline
+
+        _seed(ctx, make_media, 5)
+        self._classify(ctx, f"{0:064x}", "screenshot")
+        DaysStage().run(ctx)
+        EventStage().run(ctx)
+        SelectionStage().run(ctx)
+
+        doc = build_timeline(
+            ctx.conn, ctx.config, None, ctx.out_dir, Overrides.from_dict({"pin": ["IMG_1000"]})
+        )
+        assert "IMG_1000.jpeg" in {a["filename"] for a in doc["assets"].values()}
+
+    def test_a_stop_made_only_of_screenshots_disappears(
+        self, ctx: StageContext, make_media
+    ) -> None:
+        _seed(ctx, make_media, 4)
+        db.upsert_media(
+            ctx.conn,
+            make_media(
+                "shot000",
+                path="/src/IMG_9002.jpeg",
+                taken_local="2026-07-18T23:30:00",
+                taken_utc="2026-07-18T21:30:00",
+                lat=VIENNA[0],
+                lon=VIENNA[1],
+            ),
+        )
+        ctx.conn.execute(
+            "INSERT INTO score (media_hash, sharpness, exposure, contrast, overall, "
+            "content_class) VALUES ('shot000', 0.5, 0.5, 0.5, 0.5, 'screenshot')"
+        )
+        ctx.conn.commit()
+
+        events = _document(ctx)["days"][0]["events"]
+        assert all(e["counts"]["media"] > 0 for e in events)
+        assert not any(str(e["start_local"]).endswith("23:30:00") for e in events)

@@ -57,7 +57,7 @@ from story_book.trip_context import TripContext
 
 logger = logging.getLogger(__name__)
 
-TRIP_JSON_SCHEMA_VERSION = 4
+TRIP_JSON_SCHEMA_VERSION = 5
 TRIP_JSON_FILENAME = "trip.json"
 
 EARTH_RADIUS_M = 6_371_000.0
@@ -378,7 +378,8 @@ def _build_assets(
     config: Config,
     out_dir: Path | None = None,
     rejected: frozenset[str] = frozenset(),
-) -> dict[str, dict[str, Any]]:
+    pinned: frozenset[str] = frozenset(),
+) -> tuple[dict[str, dict[str, Any]], int]:
     places = _fetch_places(conn)
     _, landmarks_by_media = _fetch_landmarks(conn)
     video_meta = _fetch_video(conn)
@@ -404,12 +405,21 @@ def _build_assets(
     clusters = _fetch_clusters(conn, ids)
 
     assets: dict[str, dict[str, Any]] = {}
+    dropped_by_class = 0
     for row in rows:
         # A rejected item leaves the artifact entirely, not just the highlights. `overrides.toml`
         # says "never include these", and a screenshot that still counts toward the day, drops a
         # pin on the map and invents a 00:59 stop has plainly been included. The file stays in the
         # library and in the database -- nothing is deleted, it is just not part of the story.
         if row["hash"] in rejected:
+            continue
+        # A pin beats the class filter, exactly as it beats the quality floor in selection: if a
+        # human asked for the screenshot of the concert ticket, they get it.
+        if (
+            row["content_class"] in config.timeline.exclude_content_classes
+            and row["hash"] not in pinned
+        ):
+            dropped_by_class += 1
             continue
         kind = MediaKind(row["kind"])
         asset_id = ids[row["hash"]]
@@ -479,7 +489,7 @@ def _build_assets(
                 config.video.short_clip_max_seconds,
             )
         assets[asset_id] = asset
-    return assets
+    return assets, dropped_by_class
 
 
 def _event_location(
@@ -673,9 +683,11 @@ def build_timeline(
 ) -> dict[str, Any]:
     """Assemble the whole document. Reads the DB and probes for derived images; writes nothing."""
     context = context or TripContext()
-    rejected = resolve(overrides, conn).reject if overrides else frozenset()
+    resolved = resolve(overrides, conn) if overrides else None
+    rejected = resolved.reject if resolved else frozenset()
+    pinned = resolved.pin if resolved else frozenset()
     trip_row = conn.execute("SELECT * FROM trip WHERE id = 1").fetchone()
-    assets = _build_assets(conn, config, out_dir, rejected)
+    assets, dropped_by_class = _build_assets(conn, config, out_dir, rejected, pinned)
     days = _build_days(conn, assets, config)
 
     images = [a for a in assets.values() if a["kind"] == str(MediaKind.IMAGE)]
@@ -731,6 +743,8 @@ def build_timeline(
             # Stated, not silent: a total that shrank because a human said so is not the same as
             # a total that was always that size.
             "excluded_by_override": len(rejected),
+            "excluded_by_content_class": dropped_by_class,
+            "excluded_content_classes": list(config.timeline.exclude_content_classes),
         },
         "context": _context_block(context),
         "assets": assets,

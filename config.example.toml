@@ -55,7 +55,9 @@ burst_max_seconds = 3.0
 confirm_min_cosine = 0.90
 
 [quality]
-# Content classes never eligible to be a highlight.
+# Content classes never eligible to be a *highlight*. They remain in the trip: still counted,
+# still on the map, still in the day gallery. For dropping a class from the artifact altogether,
+# see `timeline.exclude_content_classes` below -- the two are different questions.
 reject_content_classes = ["screenshot", "receipt", "document"]
 min_overall_for_highlight = 0.35
 
@@ -126,3 +128,14 @@ prompt_version = 1
 # [devices."ILCE-7M4"]
 # clock_offset_minutes = -60
 # default_timezone = "Europe/Vienna"
+
+[timeline]
+# Content classes dropped from `trip.json` entirely -- not counted, not mapped, and unable to be
+# the sole member of a "stop". Only screenshots by default: a receipt or a menu is a photograph of
+# something physically in front of you, which is weak evidence of a place but still evidence,
+# while a screenshot is a picture of a phone. On a real trip two screen captures invented a 00:59
+# stop that never happened.
+#
+# Set to [] to keep everything, or add "receipt" / "document" to drop more. A photo pinned in
+# `overrides.toml` survives this either way -- the human's word beats the automatic filter.
+exclude_content_classes = ["screenshot"]

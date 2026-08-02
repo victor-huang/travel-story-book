@@ -112,7 +112,9 @@
         "home_configured",
         "exclusion_km",
         "excluded_near_home",
-        "excluded_by_override"
+        "excluded_by_override",
+        "excluded_by_content_class",
+        "excluded_content_classes"
       ],
       "properties": {
         "home_configured": {
@@ -132,6 +134,17 @@
           "description": "Items a human kept out via overrides.toml. Counted so a shrunken total is visibly a decision rather than a discovery.",
           "type": "integer",
           "minimum": 0
+        },
+        "excluded_by_content_class": {
+          "description": "Items dropped from the artifact for what they are, not who asked. Screenshots by default: a screenshot is a picture of a phone, not a place, and one that merely loses highlight eligibility still counts toward the day and pins the map.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "excluded_content_classes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
