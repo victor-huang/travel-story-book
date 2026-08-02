@@ -310,3 +310,36 @@ class TestClipLength:
         from story_book.export.report import clip_length
 
         assert clip_length(None) == ""
+
+
+class TestStoryOverlayToleratesRealResponses:
+    """The renderer is generous with what it got; `check-story` is strict about the shape."""
+
+    def test_a_day_using_summary_instead_of_narrative_still_renders(
+        self, seeded: StageContext
+    ) -> None:
+        """The real response used `title` and `summary`; the contract asks for `narrative`.
+        Throwing away four good paragraphs over a key name helps nobody."""
+        document = _document(seeded)
+        date = document["days"][0]["date"]
+        story = {
+            "schema_version": 1,
+            "days": [{"date": date, "title": "Klimt at the Belvedere", "summary": "A museum day."}],
+            "chapters": [],
+            "captions": [],
+            "uncertainties": [],
+        }
+        text = render_report(document, seeded.out_dir, story).day_pages[0].read_text()
+
+        assert "Klimt at the Belvedere" in text and "A museum day." in text
+
+    def test_the_empty_and_populated_branches_expose_the_same_keys(self) -> None:
+        """A key present in one branch and absent in the other is a failed render under
+        StrictUndefined -- which caught this, but only after 17 tests went red."""
+        from story_book.export.report import _story_for
+
+        empty = _story_for(None, "2026-07-18")
+        populated = _story_for(
+            {"days": [{"date": "2026-07-18", "narrative": "x"}], "chapters": []}, "2026-07-18"
+        )
+        assert set(empty) == set(populated)

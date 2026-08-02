@@ -23,10 +23,10 @@
     {% endif %}
   </div>
 
-  {% if day.story.narrative %}
+  {% if day.story.narrative or day.story.title %}
   <section class="journal">
-    <h2>The day</h2>
-    <p>{{ day.story.narrative }}</p>
+    <h2>{{ day.story.title or "The day" }}</h2>
+    {% if day.story.narrative %}<p>{{ day.story.narrative }}</p>{% endif %}
   </section>
   {% endif %}
 

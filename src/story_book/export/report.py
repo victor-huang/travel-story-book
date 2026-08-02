@@ -260,7 +260,17 @@ def _story_for(story: dict | None, date: str) -> dict[str, Any]:
     id is dropped here rather than inventing a page -- `check-story` is where that gets reported.
     """
     if not story:
-        return {"narrative": None, "chapters": [], "captions": {}, "uncertainties": []}
+        # Every key the template touches, present and empty. StrictUndefined turns a key that
+        # exists in one branch and not the other into a failed render, which is the right
+        # trade -- but the two branches have to agree.
+        return {
+            "narrative": None,
+            "title": None,
+            "summary": None,
+            "chapters": [],
+            "captions": {},
+            "uncertainties": [],
+        }
     captions = {
         c["asset_id"]: c["caption"]
         for c in story.get("captions", []) or []
@@ -268,7 +278,11 @@ def _story_for(story: dict | None, date: str) -> dict[str, Any]:
     }
     day_entry = next((d for d in story.get("days", []) or [] if d.get("date") == date), {})
     return {
-        "narrative": day_entry.get("narrative"),
+        # `narrative` is what the contract asks for; `summary` is what a real response used
+        # instead. `check-story` is strict about the shape, and the renderer is generous with
+        # what it got -- throwing away four good paragraphs over a key name helps nobody.
+        "narrative": day_entry.get("narrative") or day_entry.get("summary"),
+        "title": day_entry.get("title"),
         "summary": day_entry.get("summary"),
         "chapters": [c for c in story.get("chapters", []) or [] if c.get("date") == date],
         "captions": captions,

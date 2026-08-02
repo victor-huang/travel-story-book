@@ -113,15 +113,15 @@ def _load_config(config_path: Path | None) -> Config:
         raise typer.Exit(2) from exc
 
 
-def _manifest_if_present(out: Path) -> dict:
-    """The package manifest, or an empty stand-in.
+def _manifest_if_present(out: Path) -> dict | None:
+    """The package manifest, or `None` when there is no package to check against.
 
-    A story can be rendered without one -- the report only needs the words -- but when the
-    package is there its ids are worth checking, because a caption on a photo this trip does not
-    contain reads exactly like a fact.
+    `None`, not an empty manifest. An empty one makes *every* id in the story look invalid --
+    rendering a story before running `package` reported all 132 references as dangling, which is
+    the loudest possible way to say nothing at all.
     """
     path = out / PACKAGE_DIRNAME / MANIFEST_FILENAME
-    return json.loads(path.read_text()) if path.exists() else {"days": []}
+    return json.loads(path.read_text()) if path.exists() else None
 
 
 def _overrides_path(explicit: Path | None, config_path: Path | None) -> Path | None:
@@ -320,13 +320,20 @@ def report(
     (out / TRIP_JSON_FILENAME).write_text(json.dumps(document, indent=2) + "\n")
     story = load_story(story_path)
     if story is not None:
-        report = check_story(story, _manifest_if_present(out))
-        if report.unknown_assets:
+        manifest = _manifest_if_present(out)
+        if manifest is None:
             console.print(
-                f"[yellow]{len(report.unknown_assets)} reference(s) in the story point at media "
-                "this trip does not contain; they are dropped from the report.[/] "
-                "Run `story-book check-story` for the list."
+                "[dim]no package here, so the story's references were not checked. "
+                "Run `story-book package`, then `story-book check-story`.[/]"
             )
+        else:
+            report = check_story(story, manifest)
+            if report.unknown_assets:
+                console.print(
+                    f"[yellow]{len(report.unknown_assets)} reference(s) in the story point at "
+                    "media this trip does not contain; they are dropped from the report.[/] "
+                    "Run `story-book check-story` for the list."
+                )
     rendered = render_report(document, out, story)
     elapsed = time.monotonic() - started
 
