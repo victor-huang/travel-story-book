@@ -3,7 +3,7 @@
 Every numbered success criterion from the plan doc, walked against the real 286-item Vienna
 export. Verdicts are what the evidence supports, not what would be nice to claim.
 
-**8 pass · 1 superseded · 1 not met (within noise) · 2 need a human**
+**9 pass · 1 superseded · 1 not met (within noise) · 1 needs a human**
 
 | # | Criterion | Verdict |
 | --- | --- | --- |
@@ -119,17 +119,23 @@ clips are in the package with durations and explicit `no_speech` status.
 
 **Open for the user:** run one day's package through ChatGPT and confirm.
 
-## 11. Home exclusion — NOT EXERCISED BY THIS TRIP
+## 11. Home exclusion — PASS
 
-`home` is unset in this config and the export contains no home-area media, so the filter had
-nothing to act on. The report and `trip.json` both say so explicitly rather than reporting zero
-exclusions as a clean result.
+`config.home` was set on 2026-08-02 with a 2 km radius. The filter ran over all 274 items and
+excluded **0**: every photograph on this trip is in Austria or Germany, thousands of kilometres
+from home.
 
-The behaviour is enforced and asserted in `tests/backend/test_home_filter.py`, and a dedicated
-test confirms that even a **pinned** photo near home stays out — a human override beats the
-quality floor and the content filter, but never the privacy guarantee.
+Zero is now a *result* rather than a gap, and that distinction is the whole point of the change.
+Before, `trip.json` said `home_configured: false` and the report carried a note reading *"the
+privacy filter did not run — no media was checked against a home location."* It now reports
+`home_configured: true, exclusion_km: 2.0, excluded_near_home: 0`, and the note is gone because
+there is nothing left to warn about.
 
-**Open for the user:** set `config.home` to exercise this on real data.
+The behaviour remains asserted in `tests/backend/test_home_filter.py`, including that a **pinned**
+photo near home still stays out — a human override beats the quality floor and the content filter,
+but never the privacy guarantee. Note also that with a home configured, media with *no* location is
+excluded too, on fail-toward-privacy grounds; this trip has full GPS coverage so nothing was
+affected, and the count would be reported if it were.
 
 ## 12. `--no-cloud` produces a complete result — PASS
 
