@@ -31,7 +31,14 @@ pin = [
   "IMG_1881",
 ]
 
-# Never include these.
+# Never include these — and that means the artifact, not just the highlights. A rejected item
+# leaves `trip.json` entirely: it stops counting toward the day, stops dropping a pin on the map,
+# and if it was the only thing at a stop, that stop disappears too. Two screen captures on a real
+# trip were correctly classified `screenshot` and so were already out of the highlights, and still
+# invented a 00:59 "stop" that was two phone screens.
+#
+# The file itself is untouched and stays in the database. Rejected means "not part of the story",
+# never "deleted".
 reject = [
   "IMG_2071",
 ]

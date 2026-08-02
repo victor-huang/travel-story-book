@@ -50,13 +50,14 @@ from typing import Any
 from story_book import __version__
 from story_book.config import Config, TimelineConfig
 from story_book.db.models import MediaKind, SelectionScope
+from story_book.overrides import Overrides, resolve
 from story_book.pipeline.base import StageContext, WholeTripStage
 from story_book.pipeline.thumbnails import preview_relpath, thumbnail_relpath
 from story_book.trip_context import TripContext
 
 logger = logging.getLogger(__name__)
 
-TRIP_JSON_SCHEMA_VERSION = 3
+TRIP_JSON_SCHEMA_VERSION = 4
 TRIP_JSON_FILENAME = "trip.json"
 
 EARTH_RADIUS_M = 6_371_000.0
@@ -373,7 +374,10 @@ def _derived_images(
 
 
 def _build_assets(
-    conn: sqlite3.Connection, config: Config, out_dir: Path | None = None
+    conn: sqlite3.Connection,
+    config: Config,
+    out_dir: Path | None = None,
+    rejected: frozenset[str] = frozenset(),
 ) -> dict[str, dict[str, Any]]:
     places = _fetch_places(conn)
     _, landmarks_by_media = _fetch_landmarks(conn)
@@ -401,6 +405,12 @@ def _build_assets(
 
     assets: dict[str, dict[str, Any]] = {}
     for row in rows:
+        # A rejected item leaves the artifact entirely, not just the highlights. `overrides.toml`
+        # says "never include these", and a screenshot that still counts toward the day, drops a
+        # pin on the map and invents a 00:59 stop has plainly been included. The file stays in the
+        # library and in the database -- nothing is deleted, it is just not part of the story.
+        if row["hash"] in rejected:
+            continue
         kind = MediaKind(row["kind"])
         asset_id = ids[row["hash"]]
         asset: dict[str, Any] = {
@@ -524,6 +534,11 @@ def _build_days(
         """
     ):
         members = by_event.get(public_event_id(row["local_date"], row["seq"]), [])
+        # An event whose every member was rejected was never a stop on the trip -- it was two
+        # screenshots taken indoors. Dropping it is different from the empty stops the brief
+        # deliberately lists, which had real photographs that simply were not selected.
+        if not members:
+            continue
         points = [(a["location"]["lat"], a["location"]["lon"]) for a in members if a["location"]]
         event_landmarks = sorted({lid for a in members for lid in a["landmark_ids"]})
         highlights = [
@@ -654,11 +669,13 @@ def build_timeline(
     config: Config,
     context: TripContext | None = None,
     out_dir: Path | None = None,
+    overrides: Overrides | None = None,
 ) -> dict[str, Any]:
     """Assemble the whole document. Reads the DB and probes for derived images; writes nothing."""
     context = context or TripContext()
+    rejected = resolve(overrides, conn).reject if overrides else frozenset()
     trip_row = conn.execute("SELECT * FROM trip WHERE id = 1").fetchone()
-    assets = _build_assets(conn, config, out_dir)
+    assets = _build_assets(conn, config, out_dir, rejected)
     days = _build_days(conn, assets, config)
 
     images = [a for a in assets.values() if a["kind"] == str(MediaKind.IMAGE)]
@@ -711,6 +728,9 @@ def build_timeline(
             "home_configured": config.home is not None,
             "exclusion_km": config.home.exclusion_km if config.home else None,
             "excluded_near_home": sum(1 for a in assets.values() if a["near_home"]),
+            # Stated, not silent: a total that shrank because a human said so is not the same as
+            # a total that was always that size.
+            "excluded_by_override": len(rejected),
         },
         "context": _context_block(context),
         "assets": assets,
@@ -729,7 +749,9 @@ class TimelineStage(WholeTripStage):
     always_run = True
 
     def run(self, ctx: StageContext) -> None:
-        document = build_timeline(ctx.conn, ctx.config, ctx.trip_context, ctx.out_dir)
+        document = build_timeline(
+            ctx.conn, ctx.config, ctx.trip_context, ctx.out_dir, ctx.overrides
+        )
         target = ctx.out_dir / TRIP_JSON_FILENAME
         target.write_text(json.dumps(document, indent=2, sort_keys=False) + "\n")
         counts = document["trip"]["counts"]

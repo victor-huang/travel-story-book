@@ -308,9 +308,15 @@ def report(
         console.print(f"[red]trip context error:[/] {exc}")
         raise typer.Exit(2) from exc
 
+    try:
+        overrides = Overrides.load(_overrides_path(None, config_path))
+    except OverrideError as exc:
+        console.print(f"[red]overrides error:[/] {exc}")
+        raise typer.Exit(2) from exc
+
     started = time.monotonic()
     conn = db.connect(db_path, create=False)
-    document = build_timeline(conn, config, trip_context, out)
+    document = build_timeline(conn, config, trip_context, out, overrides)
     (out / TRIP_JSON_FILENAME).write_text(json.dumps(document, indent=2) + "\n")
     story = load_story(story_path)
     if story is not None:
@@ -375,8 +381,14 @@ def package(
         console.print(f"[red]trip context error:[/] {exc}")
         raise typer.Exit(2) from exc
 
+    try:
+        overrides = Overrides.load(_overrides_path(None, config_path))
+    except OverrideError as exc:
+        console.print(f"[red]overrides error:[/] {exc}")
+        raise typer.Exit(2) from exc
+
     conn = db.connect(db_path, create=False)
-    document = build_timeline(conn, config, trip_context, out)
+    document = build_timeline(conn, config, trip_context, out, overrides)
     # trip.json deliberately carries no absolute paths -- it is a thing you hand to someone
     # else -- so the mapping to originals is assembled here, where the DB is in reach.
     sources = {

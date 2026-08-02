@@ -111,7 +111,8 @@
       "required": [
         "home_configured",
         "exclusion_km",
-        "excluded_near_home"
+        "excluded_near_home",
+        "excluded_by_override"
       ],
       "properties": {
         "home_configured": {
@@ -124,6 +125,11 @@
           ]
         },
         "excluded_near_home": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "excluded_by_override": {
+          "description": "Items a human kept out via overrides.toml. Counted so a shrunken total is visibly a decision rather than a discovery.",
           "type": "integer",
           "minimum": 0
         }

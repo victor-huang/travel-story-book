@@ -253,3 +253,90 @@ class TestOverridesCostNothingToApply:
             "SELECT status FROM stage_result WHERE media_hash = 'item000' AND stage = 'embeddings'"
         ).fetchone()
         assert still_cached["status"] == "ok"
+
+
+class TestRejectRemovesFromTheArtifactNotJustTheHighlights:
+    """`overrides.toml` says "never include these", and it now means that.
+
+    Found on the real trip: two screen captures were correctly classified `screenshot` and so were
+    already out of the highlights — but they still counted toward the day, dropped pins on the map,
+    and formed a 00:59 "stop" that was two phone screens. Rejecting only from selection was not
+    what the file promised.
+    """
+
+    def _doc(self, ctx: StageContext, **raw):
+        from story_book.pipeline.timeline import build_timeline
+
+        return build_timeline(ctx.conn, ctx.config, None, ctx.out_dir, Overrides.from_dict(raw))
+
+    def test_a_rejected_item_is_absent_from_trip_json(self, ctx: StageContext, make_media) -> None:
+        _seed(ctx, make_media, 6)
+        _run(ctx)
+        doc = self._doc(ctx, reject=["IMG_1000"])
+
+        assert "IMG_1000.jpeg" not in {a["filename"] for a in doc["assets"].values()}
+
+    def test_it_is_still_in_the_database(self, ctx: StageContext, make_media) -> None:
+        """Non-destructive: rejected means not part of the story, never deleted."""
+        _seed(ctx, make_media, 6)
+        _run(ctx)
+        self._doc(ctx, reject=["IMG_1000"])
+
+        assert (
+            ctx.conn.execute("SELECT COUNT(*) AS n FROM media WHERE hash = 'item000'").fetchone()[
+                "n"
+            ]
+            == 1
+        )
+
+    def test_the_day_count_drops(self, ctx: StageContext, make_media) -> None:
+        _seed(ctx, make_media, 6)
+        _run(ctx)
+        before = self._doc(ctx)["days"][0]["counts"]["media"]
+        after = self._doc(ctx, reject=["IMG_1000"])["days"][0]["counts"]["media"]
+
+        assert after == before - 1
+
+    def test_the_exclusion_is_counted_rather_than_silent(
+        self, ctx: StageContext, make_media
+    ) -> None:
+        _seed(ctx, make_media, 6)
+        _run(ctx)
+
+        assert self._doc(ctx, reject=["IMG_1000"])["privacy"]["excluded_by_override"] == 1
+
+    def test_an_event_left_with_nothing_disappears(self, ctx: StageContext, make_media) -> None:
+        """Two screenshots taken indoors were never a stop on the trip."""
+        _seed(ctx, make_media, 6, minutes=5.0)
+        db.upsert_media(
+            ctx.conn,
+            make_media(
+                "late000",
+                path="/src/IMG_9001.jpeg",
+                taken_local="2026-07-18T23:30:00",
+                taken_utc="2026-07-18T21:30:00",
+                lat=VIENNA[0],
+                lon=VIENNA[1],
+            ),
+        )
+        ctx.conn.execute(
+            "INSERT INTO score (media_hash, sharpness, exposure, contrast, overall, "
+            "content_class) VALUES ('late000', 0.5, 0.5, 0.5, 0.5, 'screenshot')"
+        )
+        ctx.conn.commit()
+        _run(ctx)
+        before = len(self._doc(ctx)["days"][0]["events"])
+
+        after = self._doc(ctx, reject=["IMG_9001"])["days"][0]["events"]
+        assert len(after) == before - 1
+
+    def test_an_event_that_merely_lost_its_highlight_is_kept(
+        self, ctx: StageContext, make_media
+    ) -> None:
+        """Different from the above: a real stop whose photograph was not selected still happened,
+        and the brief lists it on purpose."""
+        _seed(ctx, make_media, 6)
+        _run(ctx)
+        doc = self._doc(ctx, reject=["IMG_1000"])
+
+        assert doc["days"][0]["events"], "the remaining media still forms a stop"
