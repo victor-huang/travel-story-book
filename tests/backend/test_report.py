@@ -8,6 +8,7 @@ loading the page did.
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import time
@@ -142,8 +143,28 @@ class TestEveryReferencedFileExists:
 
 
 class TestWorksOffline:
-    def test_the_only_external_links_are_the_optional_map_links(self, seeded: StageContext) -> None:
-        """Criterion 8: browsable offline. Nothing may be *fetched* from the network."""
+    """Criterion 8, restated after the map became Leaflet.
+
+    Tiles are now fetched, deliberately. What must not happen is *code* coming from a network:
+    a CDN reference makes the report depend on someone else's uptime and leaks a request every
+    time it is opened. The previous version of these two tests kept passing after the change and
+    said nothing true -- one only looked at the index, and the other's regex could not see the
+    tile URL because it sits inside a JSON block rather than an attribute.
+    """
+
+    def test_no_code_is_loaded_from_a_network(self, seeded: StageContext) -> None:
+        rendered = render_report(_document(seeded), seeded.out_dir)
+        for page in (rendered.index, *rendered.day_pages):
+            for ref in re.findall(r'(?:src|href)="([^"]+)"', page.read_text()):
+                if ref.endswith((".js", ".css")):
+                    assert not ref.startswith(("http://", "https://")), ref
+
+    def test_leaflet_is_vendored_beside_the_report(self, seeded: StageContext) -> None:
+        rendered = render_report(_document(seeded), seeded.out_dir)
+        assert (rendered.root / "vendor" / "leaflet.js").exists()
+        assert (rendered.root / "vendor" / "leaflet.css").exists()
+
+    def test_the_only_thing_fetched_is_tiles(self, seeded: StageContext) -> None:
         rendered = render_report(_document(seeded), seeded.out_dir)
         external = {
             ref
@@ -153,9 +174,47 @@ class TestWorksOffline:
         }
         assert all(ref.startswith("https://www.openstreetmap.org/") for ref in external), external
 
-    def test_no_script_tag_is_emitted(self, seeded: StageContext) -> None:
+    def test_the_route_survives_without_javascript(self, seeded: StageContext) -> None:
+        """The SVG is the no-JS fallback, so the day is still readable with scripts disabled."""
+        rendered = render_report(_document(seeded), seeded.out_dir)
+        text = rendered.day_pages[0].read_text()
+
+        assert "<noscript><svg" in text
+        assert "dot interpolated" in text
+
+    def test_the_index_still_needs_no_javascript(self, seeded: StageContext) -> None:
         rendered = render_report(_document(seeded), seeded.out_dir)
         assert "<script" not in rendered.index.read_text().lower()
+
+
+class TestMapData:
+    def test_the_route_and_marks_are_emitted_as_json(self, seeded: StageContext) -> None:
+        from story_book.export.report import map_data
+
+        payload = json.loads(
+            map_data(
+                [[48.2, 16.3], [48.21, 16.31]],
+                [{"lat": 48.2, "lon": 16.3, "interpolated": False, "label": "a"}],
+            )
+        )
+        assert len(payload["route"]) == 2 and len(payload["marks"]) == 1
+
+    def test_an_interpolated_mark_is_flagged_for_the_renderer(self) -> None:
+        from story_book.export.report import map_data
+
+        payload = json.loads(
+            map_data([], [{"lat": 48.2, "lon": 16.3, "interpolated": True, "label": "a"}])
+        )
+        assert payload["marks"][0]["interpolated"] is True
+
+    def test_a_label_cannot_close_the_script_tag(self) -> None:
+        """Labels are filenames. A filename must never be able to become script."""
+        from story_book.export.report import map_data
+
+        payload = map_data(
+            [], [{"lat": 48.2, "lon": 16.3, "interpolated": False, "label": "</script><b>x"}]
+        )
+        assert "</script>" not in payload
 
 
 class TestContent:

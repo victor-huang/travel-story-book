@@ -4,14 +4,19 @@ A pure function of `trip.json` plus the derived images beside it. Nothing here t
 database, and nothing in the output is a source of truth -- delete the directory and re-render.
 That is what makes the edit-`overrides.toml`-and-re-run loop practical.
 
-**The map is inline SVG, not Leaflet, and that is a deliberate departure from the plan.** The
-acceptance criterion is that the report is browsable *offline* with no server. Leaflet fetches its
-own JS from a CDN and a tile from OpenStreetMap for every pan; vendoring the bundle fixes the
-first and not the second, and a map whose tiles are grey rectangles is worse than no map. An
-inline SVG of the day's route needs no JavaScript at all, works from a `file://` URL forever,
-prints, and still does the job the map exists for -- showing the shape of the day and which fixes
-were interpolated rather than measured. Each day links out to OpenStreetMap for the interactive
-view, which is the one thing SVG cannot give.
+**The map is Leaflet over OpenStreetMap tiles, with the SVG kept as a fallback.** This reverses an
+earlier decision. The report must be browsable offline, so the first version drew an inline SVG and
+argued that "a map whose tiles are grey rectangles is worse than no map". Seen in a finished book
+that was overstated: Leaflet still draws the route and markers when tiles fail, so offline degrades
+to roughly the SVG rather than to nothing, while online is a real street map -- which is what a
+reader wants when trying to remember where they walked.
+
+Leaflet's JS and CSS are **vendored**, so nothing is fetched from a CDN and the page has no
+external code dependency. Only tile images cross the network, and only when there is one. The SVG
+lives inside a `<noscript>`, so a browser with JavaScript disabled still sees the route.
+
+This adds JavaScript but no JavaScript *state*, which is what the plan's constraint was about:
+nothing is stored, no history is pushed, the back button behaves.
 
 Page structure lives in `templates/` so the look can be changed without touching Python. What
 stays here is the part that is genuinely computation: projecting coordinates, and turning the
@@ -35,7 +40,13 @@ logger = logging.getLogger(__name__)
 
 REPORT_DIRNAME = "report"
 TEMPLATE_DIR = Path(__file__).parent / "templates"
+VENDOR_DIR = Path(__file__).parent / "vendor"
 STYLESHEET_NAME = "style.css"
+
+TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+TILE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+MAX_ZOOM = 18
+MAP_SCRIPT = TEMPLATE_DIR / "_map.js"
 
 # Derived images live beside the report directory, not inside it, because `build` writes them
 # and `report` only reads them -- and `render_report` deletes its own directory wholesale on every
@@ -187,6 +198,31 @@ def render_map(path: list[list[float]], marks: list[dict]) -> Markup:
         )
     parts.append("</svg>")
     return Markup("".join(parts))
+
+
+def map_data(path: list[list[float]], marks: list[dict]) -> Markup:
+    """The route and markers as JSON for Leaflet.
+
+    Emitted into a `<script type="application/json">` block rather than interpolated into
+    executable code: the labels are photo filenames, and a filename should never be able to
+    become script. `</` is escaped so the payload cannot close its own tag either.
+    """
+    payload = {
+        "route": [[round(lat, 6), round(lon, 6)] for lat, lon in path],
+        "marks": [
+            {
+                "lat": round(m["lat"], 6),
+                "lon": round(m["lon"], 6),
+                "interpolated": bool(m["interpolated"]),
+                "label": m["label"],
+            }
+            for m in marks
+        ],
+        "tileUrl": TILE_URL,
+        "attribution": TILE_ATTRIBUTION,
+        "maxZoom": MAX_ZOOM,
+    }
+    return Markup(json.dumps(payload).replace("</", "<\\/"))
 
 
 def _osm_url(points: list[list[float]]) -> str | None:
@@ -401,6 +437,9 @@ def render_report(doc: dict, out_dir: Path, story: dict | None = None) -> Render
         shutil.rmtree(root)
     (root / "days").mkdir(parents=True)
     shutil.copyfile(TEMPLATE_DIR / STYLESHEET_NAME, root / STYLESHEET_NAME)
+    # Vendored, not linked: a CDN reference makes the report depend on someone else's uptime and
+    # leaks a request every time it is opened. Tiles cross the network; code does not.
+    shutil.copytree(VENDOR_DIR, root / "vendor")
 
     captions = {
         c["asset_id"]: c["caption"]
@@ -436,6 +475,8 @@ def render_report(doc: dict, out_dir: Path, story: dict | None = None) -> Render
                 marks=view["marks"],
                 interpolated_count=sum(1 for m in view["marks"] if m["interpolated"]),
                 map_svg=render_map(day["path"], view["marks"]),
+                map_json=map_data(day["path"], view["marks"]),
+                map_script=Markup(MAP_SCRIPT.read_text()),
                 osm_url=_osm_url(day["path"] or [[m["lat"], m["lon"]] for m in view["marks"]]),
                 captions=view["story"]["captions"],
                 prev_day=dates[position - 1] if position else None,

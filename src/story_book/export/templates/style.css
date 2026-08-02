@@ -53,6 +53,11 @@ section.event header { margin-bottom: 10px; }
 .mapwrap { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
   padding: 12px; }
 svg.map { width: 100%; height: auto; display: block; border-radius: 6px; }
+/* Leaflet needs an explicit height; the SVG had an intrinsic one. */
+div#map.map { width: 100%; height: 460px; border-radius: 6px; background: #101318; }
+.leaflet-container { background: #101318; font: inherit; }
+.leaflet-control-attribution { background: rgba(20,22,26,.8); color: var(--dim); }
+.leaflet-control-attribution a { color: var(--route); }
 .map-bg { fill: #101318; }
 .route { fill: none; stroke: var(--route); stroke-width: 2.5; stroke-linejoin: round;
   stroke-linecap: round; opacity: .85; }

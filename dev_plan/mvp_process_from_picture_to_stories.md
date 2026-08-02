@@ -522,6 +522,18 @@ Leaflet + OpenStreetMap map with the day's path, event cards with thumbnails, an
 gallery. No build step, no server, no JavaScript state — `open index.html`. Rendered from
 `trip.json` via Jinja2.
 
+**The map is Leaflet over OpenStreetMap tiles.** This reverses the project's own earlier call.
+The first version drew an inline SVG and argued that Leaflet's tiles would fail offline and that
+"a map of grey rectangles is worse than no map". Seen in a finished book that was overstated:
+Leaflet still draws the route and markers when tiles fail, so offline degrades to roughly the SVG
+rather than to nothing — and the online case is a real street map, which is what a reader wants
+when trying to remember where they walked.
+
+Leaflet's JS and CSS are **vendored into the output**, so no code is fetched from a CDN; only tile
+images cross the network, and only when there is one. The SVG survives inside a `<noscript>`. This
+adds JavaScript but no JavaScript *state* — nothing stored, no history pushed, the back button
+behaves — which is what the constraint was actually protecting.
+
 **Strictly read-only and fully regenerable.** The report is a pure function of `trip.json`
 plus thumbnails; nothing in it is a source of truth and it can be deleted and rebuilt at any
 time. A separate `story-book report` command re-renders from an existing DB in seconds

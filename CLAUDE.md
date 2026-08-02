@@ -15,7 +15,7 @@ human hands to ChatGPT to write the travel journal.
 
 ```bash
 uv sync --extra vision --extra video --extra exif --extra geo   # a bare `uv sync` PRUNES these
-uv run pytest                                    # 1313 tests, expect 0 failures 0 skips locally
+uv run pytest                                    # 1321 tests, expect 0 failures 0 skips locally
 uv run pytest tests/unit                         # fast, mocked, no DB
 uv run story-book build <src> --out <dir>        # the pipeline
 uv run story-book report --out <dir> [--story story.json] [--context ctx.yaml]  # re-render
@@ -162,6 +162,10 @@ lived in places a per-stage test cannot reach.
 - **Emit no confidence, score, or measurement the pipeline did not compute.** P05 asked for a place
   `confidence`; the offline geocoder produces none, so the manifest reports `precision: "city"`
   instead. A fabricated number that looks measured is this project's most repeated failure.
+- **A test that keeps passing after the thing it tests has changed is worse than one that fails.**
+  Two "works offline" tests survived the map becoming Leaflet while asserting nothing true — one
+  only looked at the index, the other's regex could not see the tile URL inside a JSON block.
+  When a contract changes, reread the tests that claim to guard it.
 - **A claim about what is in a photograph is settled by the photograph.** I reported that a
   generated summary had moved a landmark two days, from metadata alone — the traveller pointed out
   they had been there again, and the photograph proved it. Metadata says which file a caption

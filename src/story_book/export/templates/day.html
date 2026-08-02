@@ -10,7 +10,9 @@
 
 <main>
   <div class="mapwrap">
-    {{ map_svg }}
+    <div id="map" class="map"></div>
+    <script id="map-data" type="application/json">{{ map_json }}</script>
+    <noscript>{{ map_svg }}</noscript>
     {% if marks %}
     <p class="legend">
       <span class="key dot"></span> measured
@@ -89,4 +91,9 @@
   {% if prev_day %}<a href="{{ prev_day }}.html">← {{ prev_day }}</a>{% else %}<span></span>{% endif %}
   {% if next_day %}<a href="{{ next_day }}.html">{{ next_day }} →</a>{% endif %}
 </nav>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ rel }}vendor/leaflet.js"></script>
+<script>{{ map_script }}</script>
 {% endblock %}
