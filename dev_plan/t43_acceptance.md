@@ -17,7 +17,7 @@ export. Verdicts are what the evidence supports, not what would be nice to claim
 | 8 | Report browsable offline; re-render under 10 s | **PASS** |
 | 9 | Overrides apply without recomputing a cached stage | **PASS** |
 | 10 | `prompt.md` + sheets yield a usable journal | **NEEDS A HUMAN** — met at P02; the additions are untested end-to-end |
-| 11 | Photos near home excluded from every export | **NOT EXERCISED** by this trip — no home configured, no home-area media |
+| 11 | Photos near home excluded from every export | **PASS** — home configured 2026-08-02; filter checked 274 items, excluded 0 |
 | 12 | `--no-cloud` produces a complete result | **PASS** |
 
 ---
