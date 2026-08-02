@@ -672,12 +672,26 @@ carry visual-identification caveats, the three unphotographed stops on 19 July a
 invented, and the storyboard declines to pick exact ranges: *"Precise source ranges should be chosen
 after reviewing the playable proxies."* That is the P06 prompt working exactly as intended.
 
-**The single most instructive finding: the ids stayed accurate and the prose drifted.** The
-generated `trip_summary.md` places the Pestsäule on 20 July, as the "visual farewell to Vienna".
-`story.json` puts it in `2026-07-18-ch04`, which is correct. The same model, the same run: the
-structured output was anchored by asset ids and could not wander; the free prose had nothing holding
-it and moved a landmark two days. This is the argument for `story.json` being the rendering source
-of truth, and for the report and the book being generated from it rather than from the summary.
+**A claimed prose error that was not one — corrected.** I reported that the generated
+`trip_summary.md` had moved the Pestsäule two days, and built a conclusion on it about structured
+output being grounded where prose is not. **That was wrong.** The traveller pointed out they had
+been in the old town again on 20 July, and the photographs bear it out: `IMG_2072`, taken at 14:13
+on the 20th, is a column monument on a bright sky. The prose was describing a real photograph from
+the day it said. `story.json` makes the same claim in a caption — *"One last look at the Pestsäule
+before leaving Vienna"* — so there was never a divergence between the two documents to reason from.
+
+What *is* visible, and is a smaller and more specific finding: the model hedged the attraction
+(*"likely Time Travel Vienna … the package does not provide a confirmed landmark label"*) and did
+**not** hedge the column, even though naming it is equally an inference from a photograph. The
+prompt asks for exactly that flag. So the gap is in landmark-naming discipline, not in prose versus
+JSON — and it is not something `check-story` can catch, because both claims are structurally valid.
+Whether the column is the Pestsäule at all is for the traveller to say; it is a different monument
+from `IMG_1868`, which is the one on the Graben.
+
+The lesson I actually earned here is about my own method: **I called a model's output wrong from
+metadata alone, without looking at the photograph.** The project's own rule is to look at the
+output, and I applied it to contact sheets and HTML pages and not to a factual claim about a
+picture. One `Read` of the image would have settled it.
 
 **The contract was not followed.** Thirteen chapters, zero `source_event_ids`. `video_scenes`
 renamed to `video_storyboard` and restructured, `uncertainties` to `global_uncertainties`,

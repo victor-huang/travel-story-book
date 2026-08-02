@@ -39,7 +39,12 @@ class MetadataStage(BatchStage):
     per chunk."""
 
     name = "metadata"
-    version = 1
+    # v2: `exif_local` was added to hold the raw wall reading, but this version was left at 1 --
+    # so every library built before that change keeps `exif_local` NULL forever, because metadata
+    # is cached and never re-runs. The timezone stage then falls back to reading `taken_local`,
+    # which is exactly the drift the column was added to stop. Adding a column a stage writes
+    # means bumping that stage's version, or the fix reaches new libraries only.
+    version = 2
     description = "EXIF metadata extraction (timestamps, dimensions, GPS, device)"
 
     # A chunk per the binding P01 finding: ~200-500 files per exiftool process. Also bounds how

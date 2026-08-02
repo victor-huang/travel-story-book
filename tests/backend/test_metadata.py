@@ -245,3 +245,53 @@ class TestPhotosExportedVideoUsesCaptureTimeNotExportTime:
         target = media_dir / "clip_apple_export.mov"
         timestamp = extract_timestamp(run_exiftool([target])[str(target)], MediaKind.VIDEO)
         assert timestamp.offset_minutes == 120
+
+
+class TestUpgradingAnOlderLibrary:
+    """A library built before `exif_local` existed must gain it on the next build.
+
+    Found in P07: `exif_local` was added to stop the timezone stage reading a field it also wrote,
+    but `MetadataStage.version` stayed at 1. Metadata is cached, so on any pre-existing library the
+    column stayed NULL, the timezone stage fell back to `taken_local`, and the drift the column was
+    added to prevent carried on. A real trip's `trip.json` still showed a stop at 00:59 that had
+    never happened.
+    """
+
+    def test_the_stage_version_is_past_the_release_that_added_exif_local(self) -> None:
+        assert MetadataStage.version >= 2
+
+    def test_a_cached_v1_result_does_not_satisfy_the_current_stage(
+        self, ctx: StageContext, make_media
+    ) -> None:
+        """The cache key carries the version, so a v1 'ok' must not count as done."""
+        db.upsert_media(ctx.conn, make_media("h"))
+        ctx.conn.execute(
+            "INSERT INTO stage_result (media_hash, stage, stage_version, status, computed_at) "
+            "VALUES ('h', 'metadata', 1, 'ok', '2026-07-26T00:00:00')"
+        )
+        ctx.conn.commit()
+
+        done = db.completed_hashes(ctx.conn, MetadataStage.name, MetadataStage.version)
+        assert "h" not in done
+
+    @pytest.mark.needs_exiftool
+    def test_a_rebuild_fills_exif_local_on_a_real_fixture(
+        self, ctx: StageContext, media_dir: Path
+    ) -> None:
+        source = next(p for p in sorted(media_dir.glob("*.jpg")))
+        stage = MetadataStage()
+        media = Media(
+            hash="h",
+            path=str(source),
+            kind=MediaKind.IMAGE,
+            bytes=source.stat().st_size,
+            mtime=source.stat().st_mtime,
+        )
+        db.upsert_media(ctx.conn, media)
+        stage.process_batch(ctx, [media])
+
+        row = ctx.conn.execute(
+            "SELECT exif_local, taken_local FROM media WHERE hash='h'"
+        ).fetchone()
+        if row["taken_local"]:
+            assert row["exif_local"], "a dated item must carry its raw wall reading"
