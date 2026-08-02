@@ -29,6 +29,10 @@ uv run python tests/fixtures/generate.py         # regenerate fixtures (determin
 Before committing: `uv run autoflake -i --remove-all-unused-imports $(find src tests -name '*.py')`
 then `uv run ruff check . && uv run ruff format . && uv run pytest`.
 
+**A green local suite is enough — do not block on CI.** Push and move on. CI runs the same tests on
+macOS and Linux, so it earns a wait only for a large or risky change, and then in the background.
+Report the CI result only when it fails.
+
 System binaries: `exiftool` (metadata) and `ffmpeg` (video). Both installed here.
 
 ## Non-negotiable guarantees
