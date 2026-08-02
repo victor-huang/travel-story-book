@@ -489,6 +489,28 @@ beats the automatic one everywhere except the home-exclusion rule.
 and the active `excluded_content_classes` policy. A total that shrank because of a rule is not the
 same as a total that was always that size.
 
+### `<out>/story/` — the one thing in the output that is not output
+
+Everything under `--out` is derived from the photographs and can be deleted and rebuilt. The files
+a chat returns cannot: `story.json` is a structured document somebody's judgement went into, and
+the trip context describes people the pipeline can never infer. They belong with the trip, so they
+live in `--out` — but in their own directory, because *"delete the output and regenerate"* stops
+being safe advice the moment irreplaceable input is mixed in with derived files.
+
+```
+<out>/story/
+  story.json            read by `report` and `check-story`
+  trip_context.toml     or .yaml — read by `report` and `package`
+  trip_summary.md       yours; the tool ignores it
+  editorial_notes.md    yours
+  README.md             written once by `build`, says none of this is regenerable
+```
+
+`report` and `package` pick up `story.json` and the trip context from here automatically, so the
+flags are only needed to point somewhere else. Discovery is anchored to `--out`, never the current
+directory — the same mistake `overrides.toml` made once already. Nothing in the pipeline writes or
+deletes this directory; `report` and `package` wipe only their own.
+
 ### The round trip
 
 The ChatGPT step stays manual by choice: the package goes up, and `story.json` plus a trip context

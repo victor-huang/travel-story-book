@@ -15,7 +15,7 @@ human hands to ChatGPT to write the travel journal.
 
 ```bash
 uv sync --extra vision --extra video --extra exif --extra geo   # a bare `uv sync` PRUNES these
-uv run pytest                                    # 1321 tests, expect 0 failures 0 skips locally
+uv run pytest                                    # 1327 tests, expect 0 failures 0 skips locally
 uv run pytest tests/unit                         # fast, mocked, no DB
 uv run story-book build <src> --out <dir>        # the pipeline
 uv run story-book report --out <dir> [--story story.json] [--context ctx.yaml]  # re-render
@@ -88,6 +88,14 @@ Changing these breaks every parallel task. Amend only via the tracker's cross-ta
   - `always_run = True` for discovery and whole-media aggregates; see the integration rules below.
 - `config.py` — **every threshold lives here. No magic numbers in stage code.** Add a field
   instead.
+
+### `--out` is disposable, except one directory
+
+Everything under `--out` is derived from the source photographs and can be deleted and rebuilt —
+except `<out>/story/`, which holds what a chat returned (`story.json`, the trip context, and any
+prose beside them). `build` creates it with a README; nothing writes or deletes it. `report` and
+`package` read it and wipe only their own directories. Discovery is anchored to `--out`, never the
+cwd.
 
 ### Published identifiers
 

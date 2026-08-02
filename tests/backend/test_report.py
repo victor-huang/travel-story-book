@@ -402,3 +402,32 @@ class TestStoryOverlayToleratesRealResponses:
             {"days": [{"date": "2026-07-18", "narrative": "x"}], "chapters": []}, "2026-07-18"
         )
         assert set(empty) == set(populated)
+
+
+class TestStoryDirectoryIsNeverDestroyed:
+    """The one thing in `--out` that a rebuild cannot recreate.
+
+    Everything else there is derived from the photographs. `story.json` and the trip context came
+    back from a chat, and the prose beside them is editorial judgement -- so "delete the output and
+    rebuild" has to stay true for the derived parts without taking these with it.
+    """
+
+    def test_rendering_the_report_leaves_it_alone(self, seeded: StageContext) -> None:
+        story_dir = seeded.out_dir / "story"
+        story_dir.mkdir()
+        kept = story_dir / "editorial_notes.md"
+        kept.write_text("hand-written")
+
+        render_report(_document(seeded), seeded.out_dir)
+        assert kept.read_text() == "hand-written"
+
+    def test_building_the_package_leaves_it_alone(self, seeded: StageContext) -> None:
+        from story_book.export.package import build_package
+
+        story_dir = seeded.out_dir / "story"
+        story_dir.mkdir()
+        kept = story_dir / "story.json"
+        kept.write_text('{"schema_version": 1}')
+
+        build_package(_document(seeded), seeded.out_dir)
+        assert kept.read_text() == '{"schema_version": 1}'

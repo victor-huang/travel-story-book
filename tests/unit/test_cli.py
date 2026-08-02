@@ -8,7 +8,7 @@ import typer
 from typer.testing import CliRunner
 
 from story_book import __version__
-from story_book.cli import _overrides_path, app
+from story_book.cli import _overrides_path, _story_dir_file, app
 
 runner = CliRunner()
 
@@ -164,3 +164,36 @@ class TestOverridesDiscovery:
     def test_an_explicit_missing_file_exits_rather_than_being_ignored(self, tmp_path: Path) -> None:
         with pytest.raises(typer.Exit):
             _overrides_path(tmp_path / "absent.toml", None)
+
+
+class TestStoryDirectoryDiscovery:
+    """`<out>/story/` holds what a chat returned. Anchored to --out, never to the cwd."""
+
+    def test_story_json_is_found(self, tmp_path: Path) -> None:
+        (tmp_path / "story").mkdir()
+        target = tmp_path / "story" / "story.json"
+        target.write_text("{}")
+
+        assert _story_dir_file(tmp_path, "story.json") == target
+
+    def test_a_missing_file_is_none_not_a_guess(self, tmp_path: Path) -> None:
+        assert _story_dir_file(tmp_path, "story.json") is None
+
+    def test_toml_wins_over_yaml_when_both_exist(self, tmp_path: Path) -> None:
+        (tmp_path / "story").mkdir()
+        (tmp_path / "story" / "trip_context.toml").write_text("")
+        (tmp_path / "story" / "trip_context.yaml").write_text("")
+
+        found = _story_dir_file(
+            tmp_path, "trip_context.toml", "trip_context.yaml", "trip_context.yml"
+        )
+        assert found.name == "trip_context.toml"
+
+    def test_yaml_is_found_when_there_is_no_toml(self, tmp_path: Path) -> None:
+        (tmp_path / "story").mkdir()
+        (tmp_path / "story" / "trip_context.yaml").write_text("")
+
+        found = _story_dir_file(
+            tmp_path, "trip_context.toml", "trip_context.yaml", "trip_context.yml"
+        )
+        assert found.name == "trip_context.yaml"
