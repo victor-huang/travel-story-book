@@ -902,3 +902,31 @@ class TestVideoProxies:
         assert video["export_media_type"] == "image/jpeg"
         assert video["video_proxy_included"] is False
         assert any("proxy transcode failed" in reason for _, reason in built.skipped)
+
+
+class TestTheContextTemplateTravels:
+    """A model asked for a trip context invents its own shape unless shown the target."""
+
+    def test_the_template_is_in_the_package(self, seeded: StageContext) -> None:
+        from story_book.export.package import CONTEXT_TEMPLATE_FILENAME
+
+        built = build_package(_document(seeded), seeded.out_dir)
+        assert (built.root / "schema" / CONTEXT_TEMPLATE_FILENAME).exists()
+
+    def test_the_shipped_template_is_a_valid_context(self, seeded: StageContext) -> None:
+        from story_book.export.package import CONTEXT_TEMPLATE_FILENAME
+        from story_book.trip_context import TripContext
+
+        built = build_package(_document(seeded), seeded.out_dir)
+        context = TripContext.load(built.root / "schema" / CONTEXT_TEMPLATE_FILENAME)
+        assert not context.is_empty
+
+    def test_the_repo_example_and_the_shipped_template_have_not_drifted(self) -> None:
+        """Two copies of one file is one copy eventually wrong."""
+        from story_book.export.package import CONTEXT_TEMPLATE_SOURCE
+
+        assert Path("trip_context.example.toml").read_text() == CONTEXT_TEMPLATE_SOURCE.read_text()
+
+    def test_the_prompt_points_at_the_template(self, seeded: StageContext) -> None:
+        built = build_package(_document(seeded), seeded.out_dir)
+        assert "trip_context.template.toml" in built.days[0].prompt.read_text()

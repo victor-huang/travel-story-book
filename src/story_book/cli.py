@@ -30,7 +30,7 @@ from story_book.export.package import (
     build_package,
     write_archive,
 )
-from story_book.export.report import render_report
+from story_book.export.report import load_story, render_report
 from story_book.overrides import OverrideError, Overrides
 from story_book.pipeline.base import Stage, StageContext
 from story_book.pipeline.days import DaysStage
@@ -111,6 +111,17 @@ def _load_config(config_path: Path | None) -> Config:
     except ConfigError as exc:
         console.print(f"[red]config error:[/] {exc}")
         raise typer.Exit(2) from exc
+
+
+def _manifest_if_present(out: Path) -> dict:
+    """The package manifest, or an empty stand-in.
+
+    A story can be rendered without one -- the report only needs the words -- but when the
+    package is there its ids are worth checking, because a caption on a photo this trip does not
+    contain reads exactly like a fact.
+    """
+    path = out / PACKAGE_DIRNAME / MANIFEST_FILENAME
+    return json.loads(path.read_text()) if path.exists() else {"days": []}
 
 
 def _overrides_path(explicit: Path | None, config_path: Path | None) -> Path | None:
@@ -267,6 +278,15 @@ def report(
     out: Annotated[Path, typer.Option("--out", "-o", help="Output directory to re-render.")],
     config_path: Annotated[Path | None, typer.Option("--config", "-c")] = None,
     context_path: Annotated[Path | None, typer.Option("--context")] = None,
+    story_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--story",
+            exists=True,
+            dir_okay=False,
+            help="A model's story.json. Adds narrative, chapters and captions to the report.",
+        ),
+    ] = None,
 ) -> None:
     """Re-render the HTML report from an existing database. Recomputes no pipeline stage.
 
@@ -292,7 +312,16 @@ def report(
     conn = db.connect(db_path, create=False)
     document = build_timeline(conn, config, trip_context, out)
     (out / TRIP_JSON_FILENAME).write_text(json.dumps(document, indent=2) + "\n")
-    rendered = render_report(document, out)
+    story = load_story(story_path)
+    if story is not None:
+        report = check_story(story, _manifest_if_present(out))
+        if report.unknown_assets:
+            console.print(
+                f"[yellow]{len(report.unknown_assets)} reference(s) in the story point at media "
+                "this trip does not contain; they are dropped from the report.[/] "
+                "Run `story-book check-story` for the list."
+            )
+    rendered = render_report(document, out, story)
     elapsed = time.monotonic() - started
 
     missing = sum(1 for a in document["assets"].values() if not a["thumbnail"])

@@ -15,10 +15,10 @@ human hands to ChatGPT to write the travel journal.
 
 ```bash
 uv sync --extra vision --extra video --extra exif --extra geo   # a bare `uv sync` PRUNES these
-uv run pytest                                    # 1275 tests, expect 0 failures 0 skips locally
+uv run pytest                                    # 1299 tests, expect 0 failures 0 skips locally
 uv run pytest tests/unit                         # fast, mocked, no DB
 uv run story-book build <src> --out <dir>        # the pipeline
-uv run story-book report --out <dir>             # re-render HTML only
+uv run story-book report --out <dir> [--story story.json] [--context ctx.yaml]  # re-render
 uv run story-book profile <src>                  # folder stats + suggested config
 uv run story-book package --out <dir> [--zip] [--video-proxies]   # ChatGPT package
 uv run story-book check-story <story.json> --out <dir>   # validate the model's answer
@@ -167,6 +167,11 @@ lived in places a per-stage test cannot reach.
   landed with `MetadataStage.version` left at 1, so every library built before it kept the column
   NULL forever and the drift it exists to prevent carried on. A fix inside a cached stage reaches
   only data not yet computed — ask what happens to a library that already exists.
+- **Publish the target rather than adapt to what arrives.** The story schema and the trip-context
+  template both ship inside the package because a model invents its own shape otherwise. An
+  adapter guessing at every variation is unbounded work; a published contract is one file.
+- **A story is an overlay, never a source of structure.** `--story` adds words to the report; the
+  pipeline still decides what exists, and a chapter citing absent media is dropped, not rendered.
 - **A published request format ships with a published response format.** Three reviews hardened
   `manifest.schema.json` while the shape the prompt *asks for* was only described in prose — and
   the first real answer renamed three keys and dropped a required one. Both schemas now travel

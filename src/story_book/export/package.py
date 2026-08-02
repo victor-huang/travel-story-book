@@ -54,8 +54,10 @@ SCHEMA_DIRNAME = "schema"
 PROXIES_DIRNAME = "video_proxies"
 MANIFEST_SCHEMA_FILENAME = "manifest.schema.json"
 STORY_SCHEMA_FILENAME = "story.schema.json"
+CONTEXT_TEMPLATE_FILENAME = "trip_context.template.toml"
 SCHEMA_SOURCE = Path(__file__).parent / "manifest_schema.json"
 STORY_SCHEMA_SOURCE = Path(__file__).parent / "story_schema.json"
+CONTEXT_TEMPLATE_SOURCE = Path(__file__).parent / "trip_context_template.toml"
 
 # Finder and macOS archive tooling scatter these through a zip. Harmless, but they make a package
 # look unfinished and they are noise for whoever opens it.
@@ -690,6 +692,18 @@ renderer cannot reorganise what it cannot trace.
 anything the sheets were too small to judge. `requested_additional_context` is what you would
 need to write a better entry.
 
+## Also return a trip context
+
+If our conversation contains anything about who travelled, whose voice the journal should speak
+in, what was planned, or why a day mattered, return it as a second file named
+`trip_context.toml`, in exactly the shape of `schema/trip_context.template.toml` in this package.
+TOML or YAML are both read; the *keys* are what matter. Only these are used —
+`journal_voice`, `travelers` (each `role`, optional `name`), `known_plans`, `notes` — and anything
+else is ignored, so do not invent additional structure.
+
+The traveller feeds that file back with `--context`, and the next package carries it, so the
+information stops living only in a chat.
+
 ## Naming places
 
 The brief carries what the pipeline actually *resolved*, and its geocoding is city-level: a stop
@@ -828,6 +842,12 @@ def build_package(
     # The contract for the *answer*, not just the input. A first real run came back
     # richer than requested and non-conformant, and nothing could tell the user.
     shutil.copyfile(STORY_SCHEMA_SOURCE, schema_dir / STORY_SCHEMA_FILENAME)
+    # The shape a trip context must come back in. Asked to summarise a trip a model invents its
+    # own -- the real one arrived with `context_id`, `source_policy` and nested
+    # `narrative_preferences`, none of which this tool reads. Publishing the target is cheaper
+    # than an adapter that guesses at every variation. The canonical copy lives inside the
+    # package directory so it ships in the wheel; a test keeps the repo-root example identical.
+    shutil.copyfile(CONTEXT_TEMPLATE_SOURCE, schema_dir / CONTEXT_TEMPLATE_FILENAME)
     (root / "README.md").write_text(_render_readme(manifest, packaged))
 
     logger.info("package: %d day(s) in %s (%s)", len(packaged), root, mode)
@@ -863,7 +883,7 @@ def _transcode_proxy(source: Path, target: Path) -> bool:
         "-i",
         str(source),
         "-vf",
-        f"scale=-2:min({PROXY_HEIGHT}\,ih)",
+        rf"scale=-2:min({PROXY_HEIGHT}\,ih)",  # comma escaped for ffmpeg
         "-c:v",
         "libx264",
         "-preset",

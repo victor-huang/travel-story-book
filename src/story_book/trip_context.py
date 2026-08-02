@@ -10,14 +10,23 @@ package without one. When context is supplied, only the fields actually filled i
 used -- names may be omitted or aliased, and a single free-text note is worth more than
 any additional structured field.
 
-Format is TOML, not the YAML sketched in the plan doc: TOML is stdlib (`tomllib`, no new
-dependency) and is already the format of `config.toml`, so users learn one syntax for the
-whole project. Validation follows `config.py`'s pattern: unknown keys and bad values raise
-a `TripContextError` naming the offending key, rather than being silently ignored.
+TOML is the native format -- stdlib, and already the syntax of `config.toml`. **YAML is also
+accepted**, because that reversed a decision: the plan sketched YAML, the implementation chose TOML
+to avoid a dependency, and then the actual workflow settled it. Asked to summarise a trip, ChatGPT
+returns YAML unprompted, and the user's real context file arrived that way. Refusing it would mean
+a hand conversion on every trip to save one small, ubiquitous dependency. The format is chosen by
+extension.
+
+Validation follows `config.py`'s pattern: unknown keys and bad values raise a `TripContextError`
+naming the offending key, rather than being silently ignored. A model-generated file is *more*
+likely to carry an unexpected key than a hand-written one, so the loader ignores unknown
+**top-level** sections it does not own while still rejecting unknown keys inside the ones it does
+-- a context file that also carries the model's own bookkeeping should not be a hard failure.
 """
 
 from __future__ import annotations
 
+import logging
 import tomllib
 from dataclasses import dataclass, fields
 from pathlib import Path
@@ -26,8 +35,29 @@ from typing import Any
 VALID_JOURNAL_VOICES = ("first_person_singular", "first_person_plural")
 
 
+logger = logging.getLogger(__name__)
+
+
 class TripContextError(Exception):
     """Raised for malformed, unknown, or out-of-range trip context input."""
+
+
+def _load_yaml(handle: Any, path: Path) -> dict[str, Any]:
+    try:
+        import yaml
+    except ImportError as exc:  # pragma: no cover - pyyaml is a runtime dependency
+        raise TripContextError(
+            f"{path} is YAML but PyYAML is not installed; convert it to TOML or reinstall"
+        ) from exc
+    try:
+        loaded = yaml.safe_load(handle)
+    except yaml.YAMLError as exc:
+        raise TripContextError(f"{path} is not valid YAML: {exc}") from exc
+    if loaded is None:
+        return {}
+    if not isinstance(loaded, dict):
+        raise TripContextError(f"{path} must contain a mapping at the top level")
+    return loaded
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,7 +100,10 @@ class TripContext:
         if path is None or not path.exists():
             return cls()
         with path.open("rb") as handle:
-            raw = tomllib.load(handle)
+            if path.suffix.lower() in {".yaml", ".yml"}:
+                raw = _load_yaml(handle, path)
+            else:
+                raw = tomllib.load(handle)
         return cls.from_dict(raw)
 
     @classmethod
@@ -78,13 +111,19 @@ class TripContext:
         raw = dict(raw)
 
         known = {f.name for f in fields(cls)}
-        unknown = set(raw) - known
-        if unknown:
-            options = ", ".join(sorted(known))
-            raise TripContextError(
-                f"unknown key(s) in trip context: {', '.join(sorted(unknown))}. "
-                f"Valid keys: {options}"
+        # Unknown *top-level* sections are dropped with a warning rather than refused. A
+        # model-written context carries its own bookkeeping -- `context_id`, `source_policy`,
+        # a landmark list -- and none of that should stop a trip from building. Unknown keys
+        # *inside* the sections this module owns are still an error, because there the user
+        # meant to set something and it silently would not have taken effect.
+        ignored = sorted(set(raw) - known)
+        if ignored:
+            logger.warning(
+                "trip context: ignoring %d section(s) this tool does not read: %s",
+                len(ignored),
+                ", ".join(ignored),
             )
+            raw = {k: v for k, v in raw.items() if k in known}
 
         travelers_raw = raw.pop("travelers", None) or []
         if not isinstance(travelers_raw, list):
@@ -172,14 +211,23 @@ def _build_traveler(raw: Any, index: int) -> Traveler:
     if not isinstance(raw, dict):
         raise TripContextError(f"trip_context.travelers[{index}] must be a table")
 
+    raw = dict(raw)
+    # `display_name` is what a model calls it, and the meaning is unambiguous.
+    if "display_name" in raw and "name" not in raw:
+        raw["name"] = raw.pop("display_name")
+
     known = {f.name for f in fields(Traveler)}
-    unknown = set(raw) - known
-    if unknown:
-        options = ", ".join(sorted(known))
-        raise TripContextError(
-            f"unknown key(s) in trip_context.travelers[{index}]: "
-            f"{', '.join(sorted(unknown))}. Valid keys: {options}"
+    # Dropped with a warning, not refused. This is where a model-written file puts its own
+    # bookkeeping -- `id`, `age_during_trip`, `count` -- and losing a build over an extra key in a
+    # list of names would be absurd. The strictness that matters is on the scalar settings above,
+    # where a typo means a deliberate choice silently did nothing.
+    ignored = sorted(set(raw) - known)
+    if ignored:
+        logger.warning(
+            "trip context: ignoring traveler field(s) this tool does not read: %s",
+            ", ".join(ignored),
         )
+        raw = {k: v for k, v in raw.items() if k in known}
 
     if "role" not in raw:
         raise TripContextError(f"trip_context.travelers[{index}] is missing required key: role")

@@ -17,6 +17,9 @@ dependencies = [
     # The HTML report. Templates live in src/story_book/export/templates/ so the look can be
     # edited without touching Python.
     "jinja2>=3.1",
+    # Trip context may arrive as YAML: asked to summarise a trip, a model returns YAML
+    # unprompted, and refusing it would mean a hand conversion on every trip.
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]

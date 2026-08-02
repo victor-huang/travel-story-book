@@ -17,6 +17,13 @@
 </header>
 
 <main>
+  {% if story and story.get("title") %}
+  <section class="journal">
+    <h2>{{ story.title }}</h2>
+    {% if story.get("narrative_voice") %}<p class="when">{{ story.narrative_voice }}</p>{% endif %}
+  </section>
+  {% endif %}
+
   <h2 class="section">Days</h2>
   <div class="days">
     {% for day in days %}

@@ -44,13 +44,24 @@ class TestFromDict:
 
 
 class TestValidation:
-    def test_unknown_top_level_key_names_it(self) -> None:
-        with pytest.raises(TripContextError, match="unknown key"):
-            TripContext.from_dict({"nonsense": True})
+    def test_an_unknown_top_level_section_is_dropped_not_refused(self) -> None:
+        """A model-written context carries its own bookkeeping, and none of it should stop a
+        build. The real file arrived with `context_id`, `source_policy` and a landmark list."""
+        context = TripContext.from_dict({"nonsense": True, "notes": ["a note"]})
 
-    def test_unknown_top_level_key_error_names_the_key(self) -> None:
-        with pytest.raises(TripContextError, match="nonsense"):
-            TripContext.from_dict({"nonsense": True})
+        assert context.notes == ("a note",)
+
+    def test_dropping_a_section_is_logged_rather_than_silent(self, caplog) -> None:
+        with caplog.at_level("WARNING"):
+            TripContext.from_dict({"source_policy": {"x": 1}})
+
+        assert "source_policy" in caplog.text
+
+    def test_a_bad_value_on_a_setting_is_still_refused(self) -> None:
+        """Leniency is for unrecognised *sections*. A setting this tool owns, given a value it
+        does not accept, is a deliberate choice that would silently do nothing."""
+        with pytest.raises(TripContextError, match="journal_voice"):
+            TripContext.from_dict({"journal_voice": "third_person"})
 
     def test_invalid_journal_voice_is_rejected(self) -> None:
         with pytest.raises(TripContextError, match="journal_voice"):
@@ -60,9 +71,19 @@ class TestValidation:
         with pytest.raises(TripContextError, match="role"):
             TripContext.from_dict({"travelers": [{"name": "V."}]})
 
-    def test_traveler_unknown_key_names_it(self) -> None:
-        with pytest.raises(TripContextError, match="nickname"):
-            TripContext.from_dict({"travelers": [{"role": "narrator", "nickname": "V."}]})
+    def test_an_extra_traveler_field_is_dropped_with_a_warning(self, caplog) -> None:
+        """This is where a model puts its own bookkeeping -- `id`, `age_during_trip`, `count`.
+        Losing a build over an extra key in a list of names would be absurd."""
+        with caplog.at_level("WARNING"):
+            context = TripContext.from_dict({"travelers": [{"role": "narrator", "nickname": "V."}]})
+
+        assert context.travelers[0].role == "narrator"
+        assert "nickname" in caplog.text
+
+    def test_display_name_is_accepted_as_a_name(self) -> None:
+        context = TripContext.from_dict({"travelers": [{"role": "son", "display_name": "Aiden"}]})
+
+        assert context.travelers[0].name == "Aiden"
 
     def test_travelers_must_be_a_list(self) -> None:
         with pytest.raises(TripContextError, match="travelers"):

@@ -114,6 +114,13 @@ def place_label(place: dict | None) -> str:
     return ", ".join(p for p in parts if p)
 
 
+def clip_length(seconds: float | None) -> str:
+    """`0.37` -> `<1s`, not `0s`. Zero reads as missing data rather than a very short clip."""
+    if not seconds:
+        return ""
+    return "<1s" if seconds < 1 else f"{round(seconds)}s"
+
+
 def clock(value: str | None) -> str:
     """`2026-07-18T15:46:12` -> `15:46`. Empty for a missing timestamp, never the word None."""
     return value[11:16] if value and len(value) >= 16 else ""
@@ -245,7 +252,49 @@ def _event_facts(event: dict) -> list[str]:
     return facts
 
 
-def _day_view(doc: dict, day: dict) -> dict[str, Any]:
+def _story_for(story: dict | None, date: str) -> dict[str, Any]:
+    """The written material for one day, indexed by the ids it cites.
+
+    The report stays a pure function of `trip.json` plus this: a story is an overlay, never a
+    source of structure. Chapters group photos the pipeline already knows about, so an unknown
+    id is dropped here rather than inventing a page -- `check-story` is where that gets reported.
+    """
+    if not story:
+        return {"narrative": None, "chapters": [], "captions": {}, "uncertainties": []}
+    captions = {
+        c["asset_id"]: c["caption"]
+        for c in story.get("captions", []) or []
+        if isinstance(c, dict) and c.get("asset_id")
+    }
+    day_entry = next((d for d in story.get("days", []) or [] if d.get("date") == date), {})
+    return {
+        "narrative": day_entry.get("narrative"),
+        "summary": day_entry.get("summary"),
+        "chapters": [c for c in story.get("chapters", []) or [] if c.get("date") == date],
+        "captions": captions,
+        "uncertainties": _day_uncertainties(story, date),
+    }
+
+
+def _day_uncertainties(story: dict, date: str) -> list[str]:
+    """Every hedge the writer attached to this day, surfaced rather than buried.
+
+    An uncertainty the reader never sees is the same as no uncertainty at all, and these are
+    exactly the claims that need a human's eye -- a landmark named from a photograph, an
+    attraction inferred from conversation.
+    """
+    out: list[str] = []
+    for chapter in story.get("chapters", []) or []:
+        if chapter.get("date") == date:
+            out += [str(u) for u in chapter.get("uncertainties", []) or []]
+    for item in story.get("uncertainties", []) or story.get("global_uncertainties", []) or []:
+        text = item if isinstance(item, str) else json.dumps(item)
+        if date in text or (isinstance(item, dict) and date[5:] in str(item.get("topic", ""))):
+            out.append(text)
+    return out
+
+
+def _day_view(doc: dict, day: dict, story: dict | None = None) -> dict[str, Any]:
     """Everything a day page needs, resolved from asset ids to asset records."""
     assets = doc["assets"]
     events = []
@@ -279,7 +328,22 @@ def _day_view(doc: dict, day: dict) -> dict[str, Any]:
                 or [assets[a] for a in event["highlights"] if a in assets],
             }
         )
-    return {**day, "events": events, "all_assets": all_assets, "marks": marks}
+    written = _story_for(story, day["date"])
+    by_id = {a["asset_id"]: a for a in all_assets}
+    chapters = [
+        {
+            **chapter,
+            "assets": [by_id[a] for a in chapter.get("asset_ids", []) if a in by_id],
+        }
+        for chapter in written["chapters"]
+    ]
+    return {
+        **day,
+        "events": events,
+        "all_assets": all_assets,
+        "marks": marks,
+        "story": {**written, "chapters": chapters},
+    }
 
 
 def _index_view(doc: dict) -> list[dict[str, Any]]:
@@ -305,12 +369,13 @@ def _environment() -> Environment:
     )
     env.filters["clock"] = clock
     env.filters["duration"] = duration
+    env.filters["clip_length"] = clip_length
     env.filters["place_label"] = place_label
     env.filters["country_name"] = country_name
     return env
 
 
-def render_report(doc: dict, out_dir: Path) -> RenderedReport:
+def render_report(doc: dict, out_dir: Path, story: dict | None = None) -> RenderedReport:
     """Write `index.html`, a page per day, and the stylesheet into `<out_dir>/report/`.
 
     The directory is rebuilt from scratch each time. Nothing in it is a source of truth, and a
@@ -323,6 +388,11 @@ def render_report(doc: dict, out_dir: Path) -> RenderedReport:
     (root / "days").mkdir(parents=True)
     shutil.copyfile(TEMPLATE_DIR / STYLESHEET_NAME, root / STYLESHEET_NAME)
 
+    captions = {
+        c["asset_id"]: c["caption"]
+        for c in (story or {}).get("captions", []) or []
+        if isinstance(c, dict) and c.get("asset_id")
+    }
     trip_highlights = [doc["assets"][a] for a in doc["trip_highlights"] if a in doc["assets"]]
     index = root / "index.html"
     index.write_text(
@@ -333,13 +403,15 @@ def render_report(doc: dict, out_dir: Path) -> RenderedReport:
             days=_index_view(doc),
             trip_highlights=trip_highlights,
             notes=_notes(doc),
+            captions=captions,
+            story=story,
         )
     )
 
     dates = [d["date"] for d in doc["days"]]
     pages = []
     for position, day in enumerate(doc["days"]):
-        view = _day_view(doc, day)
+        view = _day_view(doc, day, story)
         page = root / "days" / f"{day['date']}.html"
         page.write_text(
             env.get_template("day.html").render(
@@ -351,6 +423,7 @@ def render_report(doc: dict, out_dir: Path) -> RenderedReport:
                 interpolated_count=sum(1 for m in view["marks"] if m["interpolated"]),
                 map_svg=render_map(day["path"], view["marks"]),
                 osm_url=_osm_url(day["path"] or [[m["lat"], m["lon"]] for m in view["marks"]]),
+                captions=view["story"]["captions"],
                 prev_day=dates[position - 1] if position else None,
                 next_day=dates[position + 1] if position + 1 < len(dates) else None,
             )
@@ -362,4 +435,11 @@ def render_report(doc: dict, out_dir: Path) -> RenderedReport:
 
 
 def load_trip_json(path: Path) -> dict:
+    return json.loads(path.read_text())
+
+
+def load_story(path: Path | None) -> dict | None:
+    """A model's `story.json`, or `None`. Never a source of structure -- only of words."""
+    if path is None:
+        return None
     return json.loads(path.read_text())

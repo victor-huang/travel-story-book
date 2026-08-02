@@ -471,6 +471,32 @@ was configured at all — zero exclusions with no home set is a gap, not a clean
 `context` a `supplied` flag, because a journal is impersonal when nothing was supplied rather than
 because nothing was felt.
 
+### The round trip
+
+The ChatGPT step stays manual by choice: the package goes up, and `story.json` plus a trip context
+come back. Both are then *inputs*.
+
+`story-book report --story story.json --context trip_context.toml` renders the written material
+over the existing report — a day narrative, the chapters with their own photographs, captions
+beside each image, and the writer's own hedges surfaced in a panel rather than buried in a field
+nobody reads.
+
+**A story is an overlay, never a source of structure.** The pipeline still decides what exists:
+a chapter citing media this trip does not contain is dropped from the page rather than inventing
+one, and `check-story` is where that gets reported. This keeps the report a pure function of
+`trip.json` plus words, which is what makes it safe to regenerate.
+
+Two things were softened to make the loop work. Trip context is read from **YAML as well as TOML**,
+because a model asked to summarise a trip returns YAML unprompted and refusing it means a hand
+conversion every time. And unknown *sections* in a context file are dropped with a warning rather
+than refused — a model-written file carries its own bookkeeping, and none of it should stop a
+build. The strictness that remains is on the settings this tool actually reads, where silence
+would hide a deliberate choice doing nothing.
+
+The package also ships `schema/trip_context.template.toml`, and the prompt asks for the context
+back in that shape — the same lesson as the story schema. Publishing the target is cheaper and
+more honest than an adapter guessing at every variation a model might invent.
+
 ## 13. Static HTML report
 
 A single self-contained output directory: `index.html` for the trip, a page per day,

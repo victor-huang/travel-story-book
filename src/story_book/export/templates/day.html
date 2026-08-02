@@ -23,6 +23,36 @@
     {% endif %}
   </div>
 
+  {% if day.story.narrative %}
+  <section class="journal">
+    <h2>The day</h2>
+    <p>{{ day.story.narrative }}</p>
+  </section>
+  {% endif %}
+
+  {% if day.story.chapters %}
+  <h2 class="section">Chapters</h2>
+  {% for chapter in day.story.chapters %}
+  <section class="chapter">
+    <header>
+      {#- Model-supplied dicts get .get(): the response may legitimately carry different optional
+          keys, and StrictUndefined would otherwise turn a missing one into a failed render. -#}
+      <h3>{{ chapter.get("title") or "Untitled chapter" }}</h3>
+      {% if chapter.get("starts_at") %}<p class="when">from {{ chapter.starts_at }}</p>{% endif %}
+    </header>
+    {% if chapter.get("narrative") %}<p>{{ chapter.narrative }}</p>{% endif %}
+    <div class="strip">
+      {% for asset in chapter.assets %}{% include "_shot.html" %}{% endfor %}
+    </div>
+    {% if chapter.get("uncertainties") %}
+    <ul class="hedges">
+      {% for u in chapter.uncertainties %}<li>{{ u }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+  </section>
+  {% endfor %}
+  {% endif %}
+
   <h2 class="section">Stops</h2>
   {% for event in day.events %}
   <section class="event">
@@ -47,6 +77,13 @@
     {% for asset in day.all_assets %}{% include "_shot.html" %}{% endfor %}
   </div>
 </main>
+
+{% if day.story.uncertainties %}
+<section class="hedgebox">
+  <h2>What the writer was unsure of</h2>
+  <ul>{% for u in day.story.uncertainties %}<li>{{ u }}</li>{% endfor %}</ul>
+</section>
+{% endif %}
 
 <nav class="pager">
   {% if prev_day %}<a href="{{ prev_day }}.html">← {{ prev_day }}</a>{% else %}<span></span>{% endif %}

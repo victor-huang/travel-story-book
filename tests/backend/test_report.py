@@ -193,3 +193,120 @@ class TestSpeed:
         started = time.monotonic()
         render_report(document, seeded.out_dir)
         assert time.monotonic() - started < 10.0
+
+
+class TestStoryOverlay:
+    """T44: a model's `story.json` fed back in. Words only -- never a source of structure."""
+
+    def _story(self, seeded: StageContext) -> dict:
+        document = _document(seeded)
+        ids = [a["asset_id"] for a in document["assets"].values()]
+        date = document["days"][0]["date"]
+        return {
+            "schema_version": 1,
+            "title": "A Week in Vienna",
+            "days": [{"date": date, "narrative": "We walked all morning.", "summary": "Walking."}],
+            "chapters": [
+                {
+                    "chapter_id": "c1",
+                    "date": date,
+                    "title": "Into the old town",
+                    "narrative": "The streets narrowed.",
+                    "asset_ids": ids[:2],
+                    "source_event_ids": [],
+                    "uncertainties": ["The church is named from the photograph."],
+                }
+            ],
+            "captions": [{"asset_id": ids[0], "caption": "The first square."}],
+            "uncertainties": ["Personal reactions are inferred."],
+        }
+
+    def test_the_day_narrative_reaches_the_page(self, seeded: StageContext) -> None:
+        rendered = render_report(_document(seeded), seeded.out_dir, self._story(seeded))
+        assert "We walked all morning." in rendered.day_pages[0].read_text()
+
+    def test_a_chapter_and_its_narrative_render(self, seeded: StageContext) -> None:
+        rendered = render_report(_document(seeded), seeded.out_dir, self._story(seeded))
+        text = rendered.day_pages[0].read_text()
+        assert "Into the old town" in text and "The streets narrowed." in text
+
+    def test_a_caption_renders_next_to_its_photo(self, seeded: StageContext) -> None:
+        rendered = render_report(_document(seeded), seeded.out_dir, self._story(seeded))
+        assert "The first square." in rendered.day_pages[0].read_text()
+
+    def test_a_chapter_uncertainty_is_surfaced(self, seeded: StageContext) -> None:
+        """A hedge the reader never sees is the same as no hedge at all."""
+        rendered = render_report(_document(seeded), seeded.out_dir, self._story(seeded))
+        assert "named from the photograph" in rendered.day_pages[0].read_text()
+
+    def test_the_story_title_reaches_the_index(self, seeded: StageContext) -> None:
+        rendered = render_report(_document(seeded), seeded.out_dir, self._story(seeded))
+        assert "A Week in Vienna" in rendered.index.read_text()
+
+    def test_a_reference_to_media_not_in_the_trip_is_dropped_not_rendered(
+        self, seeded: StageContext
+    ) -> None:
+        """A chapter cannot invent a page; the pipeline still decides what exists."""
+        story = self._story(seeded)
+        story["chapters"][0]["asset_ids"] = ["deadbeefdeadbeef"]
+
+        rendered = render_report(_document(seeded), seeded.out_dir, story)
+        assert "deadbeefdeadbeef" not in rendered.day_pages[0].read_text()
+
+    def test_a_chapter_missing_optional_keys_still_renders(self, seeded: StageContext) -> None:
+        """The real response used `time_range_local` and no `starts_at`; strict lookup crashed."""
+        story = self._story(seeded)
+        story["chapters"][0].pop("starts_at", None)
+        story["chapters"][0].pop("narrative")
+        story["chapters"][0]["time_range_local"] = {"start": "09:00", "end": "10:00"}
+
+        rendered = render_report(_document(seeded), seeded.out_dir, story)
+        assert "Into the old town" in rendered.day_pages[0].read_text()
+
+    def test_a_chapter_with_no_title_does_not_render_the_word_none(
+        self, seeded: StageContext
+    ) -> None:
+        story = self._story(seeded)
+        story["chapters"][0].pop("title")
+
+        assert "None" not in rendered_title(
+            render_report(_document(seeded), seeded.out_dir, story).day_pages[0]
+        )
+
+    def test_without_a_story_the_report_is_unchanged(self, seeded: StageContext) -> None:
+        plain = render_report(_document(seeded), seeded.out_dir).day_pages[0].read_text()
+        assert "chapter" not in plain.lower().split("stops")[0]
+
+    def test_every_referenced_file_still_exists_with_a_story(self, seeded: StageContext) -> None:
+        rendered = render_report(_document(seeded), seeded.out_dir, self._story(seeded))
+        missing = [
+            ref
+            for page in (rendered.index, *rendered.day_pages)
+            for ref in SRC_PATTERN.findall(page.read_text())
+            if not ref.startswith(("http://", "https://"))
+            and not (page.parent / ref).resolve().exists()
+        ]
+        assert missing == []
+
+
+def rendered_title(page: Path) -> str:
+    text = page.read_text()
+    start = text.find('<section class="chapter">')
+    return text[start : start + 400]
+
+
+class TestClipLength:
+    def test_a_sub_second_clip_does_not_read_as_zero(self) -> None:
+        from story_book.export.report import clip_length
+
+        assert clip_length(0.37) == "<1s"
+
+    def test_a_normal_clip_rounds_to_seconds(self) -> None:
+        from story_book.export.report import clip_length
+
+        assert clip_length(77.6) == "78s"
+
+    def test_no_duration_renders_empty(self) -> None:
+        from story_book.export.report import clip_length
+
+        assert clip_length(None) == ""

@@ -7,6 +7,8 @@
   {%- else -%}
     <div class="missing">no preview<br><small>{{ asset.filename }}</small></div>
   {%- endif -%}
+  {%- set written = captions.get(asset.asset_id) if captions else None %}
+  {%- if written %}<div class="written">{{ written }}</div>{% endif %}
   <figcaption>
     <code>{{ asset.asset_id }}</code>
     {{ asset.taken_local | clock }}{% if asset.taken_local %} · {% endif %}{{ asset.filename }}
@@ -14,8 +16,7 @@
       <span class="badge" title="Pinned in overrides.toml">pinned</span>
     {%- endif %}
     {%- if asset.kind == "video" %}
-      <span class="badge video">video{% if asset.video.duration_seconds %}
-        {{ asset.video.duration_seconds | round | int }}s{% endif %}</span>
+      <span class="badge video">video {{ asset.video.duration_seconds | clip_length }}</span>
       {%- if asset.video.transcript_status == "no_speech" %}
         <span class="badge" title="Processed; no speech found">silent</span>
       {%- elif asset.video.transcript_status == "not_processed" %}
