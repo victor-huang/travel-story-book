@@ -265,17 +265,23 @@ Measured on the real trip, not a fixture.
 7. Source tree provably unmodified, including under `--source` (extend
    `tests/backend/test_non_destructive.py`).
 
-## Result against the criteria (2026-08-02)
+## Result against the criteria (2026-08-02) — **7 pass · 0 open**
 
 | # | Criterion | Verdict |
 | --- | --- | --- |
 | 1 | Playable `trip.mp4` with no flags | **PASS** — 61 segments, 2m41s |
-| 2 | A human watches the whole thing | **NEEDS A HUMAN** |
+| 2 | A human watches the whole thing | **PASS** — the traveller watched it and called it worth watching (2026-08-02) |
 | 3 | Interrupt recomputes only unfinished segments | **PASS** — measured, see below |
 | 4 | Declared media verified by actual bytes | **PASS** — `ftyp` magic, and motion measured |
 | 5 | `reel.json` claims check out | **PASS** |
 | 6 | Two renders agree on every segment hash | **PASS** |
 | 7 | Source tree unmodified | **PASS** |
+
+**Criterion 2 is the only one that mattered, and it is the only one no test could reach.** Every
+other criterion checks that the reel is *correct*; this one asks whether it is any good. It passed
+on the version with Crinoline Dreams, clip audio ducked underneath, and 1.4x Chinese subtitles
+burned in — after four rounds of the traveller looking at output and saying what was wrong. Worth
+recording that the sequence was always render → look → correct, never render → assert → ship.
 
 **Criterion 3 got an unplanned live demonstration.** Adding the font to the title-card cache key
 mid-build re-rendered **5 of 61** segments — exactly the five title cards — and reused the 48
