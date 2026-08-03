@@ -63,15 +63,28 @@ the top. `reel.json` records what was used:
 drawing blanks and handing you a file that looks finished and says nothing. On Linux, install
 Noto Sans CJK. The soft track needs no font at all and keeps working either way.
 
-## One reel per day
+## Cutting a long trip into parts
 
-`--day 2026-07-21` renders a single day, and writes `trip.2026-07-21.mp4` with a matching
-`reel.2026-07-21.json` — so several day reels can sit beside the whole-trip one without
-overwriting it or each other. Subtitle sidecars follow the same stem
-(`trip.2026-07-21.zh.vtt`).
+A 22-day trip is about 13 minutes as one montage, which is longer than anyone watches. The seams
+that matter are usually geographic, so a reel can be narrowed by date, by place, or by both:
 
-Segments are cached by content, so a day reel costs only its own title card once the whole-trip
-reel exists.
+```bash
+story-book reel --out <dir> --name "Zillertal & Tyrol"    --to 2026-07-11
+story-book reel --out <dir> --name "Vienna"               --place Vienna
+story-book reel --out <dir> --name "Salzburg & the Lakes"  \
+    --from 2026-07-12 --to 2026-07-17 --place "Salzburg,Styria,Upper Austria,Bavaria,Tyrol"
+```
+
+- `--from` / `--to` are inclusive day bounds; `--day` is shorthand for one day.
+- `--place` matches a comma-separated list against each asset's **poi, city, region or country**,
+  case-insensitively. Quote it if any value contains a space.
+- The two compose with AND, which is what a travel day needs: on a day that runs Salzburg →
+  Vienna, dates alone cannot split it and places alone cannot separate two visits to one city.
+- `--name` sets both the output filename and the opening title card.
+
+Each part gets its own files — `trip.vienna.mp4`, `reel.vienna.json`, `trip.vienna.en.vtt` — so
+parts sit beside the whole-trip reel without overwriting it or each other. Segments are cached by
+content, so once one part is rendered the others only pay for what they do not share.
 
 ## Why soft tracks by default
 

@@ -395,9 +395,13 @@ def mux_subtitles(video: Path, tracks: list[tuple[str, Path]]) -> bool:
     command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(video)]
     for _, path in tracks:
         command += ["-i", str(path)]
-    command += ["-map", "0"]
+    # Video and audio explicitly, never `-map 0`. That would copy any subtitle stream the input
+    # already has, so re-rendering a reel under the same name *appended* a second track instead of
+    # replacing the first -- and the stale one carries no language tag, so a player shows a
+    # nameless duplicate.
+    command += ["-map", "0:v", "-map", "0:a?"]
     for index in range(len(tracks)):
-        command += ["-map", str(index + 1)]
+        command += ["-map", f"{index + 1}:s"]
     command += ["-c", "copy", "-c:s", "mov_text"]
     for index, (language, _) in enumerate(tracks):
         code = ISO_639_2.get(language.lower(), language.lower())

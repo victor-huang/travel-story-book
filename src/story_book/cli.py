@@ -34,6 +34,7 @@ from story_book.export.package import (
 )
 from story_book.export.reel import (
     ReelError,
+    ReelSelection,
     build_plan,
     ffmpeg_available,
     render_reel,
@@ -527,6 +528,27 @@ def reel(
     day: Annotated[
         str | None, typer.Option("--day", help="Render one day (YYYY-MM-DD) instead of the trip.")
     ] = None,
+    date_from: Annotated[
+        str | None, typer.Option("--from", help="First day to include (YYYY-MM-DD).")
+    ] = None,
+    date_to: Annotated[
+        str | None, typer.Option("--to", help="Last day to include (YYYY-MM-DD), inclusive.")
+    ] = None,
+    places: Annotated[
+        str | None,
+        typer.Option(
+            "--place",
+            help="Only media whose city, region, POI or country matches one of these "
+            "comma-separated words. Composes with --from/--to.",
+        ),
+    ] = None,
+    name: Annotated[
+        str | None,
+        typer.Option(
+            "--name",
+            help="Name this part. Becomes the output filename and the opening title card.",
+        ),
+    ] = None,
     story_path: Annotated[
         Path | None,
         typer.Option("--story", exists=True, dir_okay=False, help="A model's story.json."),
@@ -587,7 +609,14 @@ def reel(
 
     try:
         sources = resolve_clip_sources(document, out, source)
-        plan = build_plan(document, config, story=story, clip_sources=sources, only_day=day)
+        selection = ReelSelection(
+            day=day,
+            date_from=date_from,
+            date_to=date_to,
+            places=tuple(part.strip() for part in (places or "").split(",") if part.strip()),
+            name=name,
+        )
+        plan = build_plan(document, config, story=story, clip_sources=sources, selection=selection)
     except ReelError as exc:
         console.print(f"[red]reel error:[/] {exc}")
         raise typer.Exit(2) from exc

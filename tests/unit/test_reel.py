@@ -14,7 +14,9 @@ from story_book.export.reel import (
     ClipSource,
     ReelError,
     ReelPlan,
+    ReelSelection,
     Segment,
+    StoryScene,
     _audio_graph,
     _clip_excerpt,
     _fill_filter,
@@ -23,6 +25,7 @@ from story_book.export.reel import (
     build_plan,
     frame_size,
     parse_aspect,
+    reel_filenames,
     segment_key,
     write_reel_json,
 )
@@ -156,6 +159,142 @@ class TestBuildPlanSelection:
         assert [s.asset_id for s in plan.segments if s.kind == "still"] == ["b"]
 
 
+def _multiday_doc() -> dict:
+    """Three days in two regions, so date and place filters can be told apart."""
+    assets = {}
+    for index, (asset_id, date, city, region) in enumerate(
+        [
+            ("t1", "2026-07-05", "Mayrhofen", "Tyrol"),
+            ("t2", "2026-07-05", "Schmirn", "Tyrol"),
+            ("s1", "2026-07-14", "Salzburg", "Salzburg"),
+            ("s2", "2026-07-14", "Hallein", "Salzburg"),
+            ("v1", "2026-07-18", "Vienna", "Vienna"),
+        ]
+    ):
+        assets[asset_id] = _asset(
+            asset_id,
+            day=date,
+            taken_utc=f"{date}T0{index}:00:00+00:00",
+            location={"place": {"city": city, "region": region, "country": "AT"}},
+        )
+    days = {}
+    for asset_id, asset in assets.items():
+        days.setdefault(asset["day"], []).append(asset_id)
+    return {
+        "trip": {"name": "Europe 2026", "start_local": "2026-06-28", "end_local": "2026-07-23"},
+        "assets": assets,
+        "days": [
+            {
+                "date": date,
+                "highlights": ids,
+                "events": [{"id": f"{date}#1", "assets": ids}],
+            }
+            for date, ids in sorted(days.items())
+        ],
+    }
+
+
+class TestReelSelection:
+    """A 22-day trip is 13 minutes as one montage, so it wants cutting into parts -- and the seams
+    are geographic. Dates cannot express "the Salzburg leg" when a travel day straddles two
+    regions; places cannot separate two visits to one city. Both compose."""
+
+    def _stills(self, plan) -> list[str]:
+        return [s.asset_id for s in plan.segments if s.kind == "still"]
+
+    def test_a_date_floor_drops_earlier_days(self):
+        plan = build_plan(
+            _multiday_doc(), Config(), selection=ReelSelection(date_from="2026-07-14")
+        )
+        assert self._stills(plan) == ["s1", "s2", "v1"]
+
+    def test_a_date_ceiling_drops_later_days_inclusively(self):
+        plan = build_plan(_multiday_doc(), Config(), selection=ReelSelection(date_to="2026-07-14"))
+        assert self._stills(plan) == ["t1", "t2", "s1", "s2"]
+
+    def test_a_place_filter_selects_across_days(self):
+        plan = build_plan(_multiday_doc(), Config(), selection=ReelSelection(places=("Salzburg",)))
+        assert self._stills(plan) == ["s1", "s2"]
+
+    def test_a_place_matches_region_as_well_as_city(self):
+        plan = build_plan(_multiday_doc(), Config(), selection=ReelSelection(places=("Tyrol",)))
+        assert self._stills(plan) == ["t1", "t2"]
+
+    def test_place_matching_is_case_insensitive(self):
+        plan = build_plan(_multiday_doc(), Config(), selection=ReelSelection(places=("vIeNnA",)))
+        assert self._stills(plan) == ["v1"]
+
+    def test_several_places_are_a_union(self):
+        plan = build_plan(
+            _multiday_doc(), Config(), selection=ReelSelection(places=("Vienna", "Hallein"))
+        )
+        assert self._stills(plan) == ["s2", "v1"]
+
+    def test_dates_and_places_compose_with_and(self):
+        """The case that needs both: a travel day where only one region belongs to this part."""
+        plan = build_plan(
+            _multiday_doc(),
+            Config(),
+            selection=ReelSelection(date_from="2026-07-14", places=("Salzburg",)),
+        )
+        assert self._stills(plan) == ["s1", "s2"]
+
+    def test_a_day_left_empty_by_a_place_filter_gets_no_title_card(self):
+        plan = build_plan(_multiday_doc(), Config(), selection=ReelSelection(places=("Vienna",)))
+        assert [s.day for s in plan.segments if s.kind == "title"] == [None, "2026-07-18"]
+
+    def test_a_selection_matching_nothing_is_an_error(self):
+        with pytest.raises(ReelError, match="no highlights or previews match"):
+            build_plan(_multiday_doc(), Config(), selection=ReelSelection(places=("Lisbon",)))
+
+    def test_a_date_range_covering_no_day_is_an_error(self):
+        with pytest.raises(ReelError, match="no day between"):
+            build_plan(
+                _multiday_doc(),
+                Config(),
+                selection=ReelSelection(date_from="2027-01-01", date_to="2027-02-01"),
+            )
+
+    def test_the_name_becomes_the_opening_title_card(self):
+        plan = build_plan(
+            _multiday_doc(), Config(), selection=ReelSelection(places=("Vienna",), name="Vienna")
+        )
+        assert plan.segments[0].title == "Vienna"
+
+    def test_a_narrowed_reel_still_opens_with_a_title_card(self):
+        plan = build_plan(_multiday_doc(), Config(), selection=ReelSelection(places=("Vienna",)))
+        assert plan.segments[0].kind == "title"
+        assert plan.segments[0].day is None
+
+
+class TestReelSelectionSlugs:
+    def test_the_whole_trip_has_no_slug_so_it_keeps_trip_mp4(self):
+        assert ReelSelection().slug is None
+        assert reel_filenames(None) == ("trip.mp4", "reel.json")
+
+    def test_a_name_becomes_the_filename(self):
+        assert reel_filenames(ReelSelection(name="Salzburg & the Lakes").slug)[0] == (
+            "trip.salzburg-the-lakes.mp4"
+        )
+
+    def test_a_single_day_keeps_its_date_as_the_slug(self):
+        assert ReelSelection(day="2026-07-18").slug == "2026-07-18"
+
+    def test_places_form_a_slug_when_unnamed(self):
+        assert ReelSelection(places=("Vienna",)).slug == "vienna"
+
+    def test_a_date_range_forms_a_slug_when_unnamed(self):
+        assert ReelSelection(date_from="2026-06-28", date_to="2026-07-11").slug == (
+            "2026-06-28_2026-07-11"
+        )
+
+    def test_slugs_never_contain_path_separators(self):
+        assert "/" not in ReelSelection(name="a/b c").slug
+
+    def test_an_unusable_name_still_yields_something(self):
+        assert ReelSelection(name="!!!").slug == "part"
+
+
 class TestClipHandling:
     def test_a_clip_with_footage_becomes_a_clip_segment(self):
         doc = _doc([_video("v", 40.0)])
@@ -204,10 +343,26 @@ class TestClipExcerpt:
         assert _clip_excerpt(_video("v", 0.0), Config(), None) is None
 
     def test_a_story_range_beyond_the_clip_is_clamped_not_trusted(self):
-        result = _clip_excerpt(_video("v", 10.0), Config(), (8.0, 30.0))
+        result = _clip_excerpt(_video("v", 10.0), Config(), StoryScene(8.0, 30.0, None))
         assert result is not None
         start, seconds, _ = result
         assert start + seconds <= 10.0
+
+    def test_the_storys_own_timeline_duration_wins_over_its_source_range(self):
+        """A story that cuts 0-12s but asks for 6s on screen gets 6s. Honouring the range instead
+        turned 67 clips into 12.4 minutes where the story had asked for 6.5."""
+        result = _clip_excerpt(_video("v", 40.0), Config(), StoryScene(0.0, 12.0, 6.0))
+        assert result == (0.0, 6.0, "story_range")
+
+    def test_a_story_range_is_still_capped_by_clip_max_seconds(self):
+        config = Config(reel=ReelConfig(clip_max_seconds=4.0))
+        result = _clip_excerpt(_video("v", 40.0), config, StoryScene(0.0, 12.0, 10.0))
+        assert result == (0.0, 4.0, "story_range")
+
+    def test_an_arbitrary_excerpt_is_capped_too(self):
+        config = Config(reel=ReelConfig(clip_seconds=30.0, clip_max_seconds=6.0))
+        _, seconds, why = _clip_excerpt(_video("v", 120.0), config, None)
+        assert (seconds, why) == (6.0, "fixed_head")
 
 
 class TestSegmentKey:

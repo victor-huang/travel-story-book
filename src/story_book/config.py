@@ -165,6 +165,11 @@ class ReelConfig:
     clip_seconds: float = 5.0
     clip_min_seconds: float = 1.0
 
+    # Ceiling on any single clip, including one whose length a story chose. A story asking for
+    # 12 seconds each across 67 clips is 13 minutes of footage before a single photograph -- how
+    # long a montage runs is a rendering decision, not an editorial one.
+    clip_max_seconds: float = 8.0
+
     # Mix a user-supplied track under the reel. Nothing ships with the tool: no audio can be
     # redistributed without a licence, so this is always a path the user provides.
     music_volume: float = 0.6

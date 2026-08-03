@@ -25,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import shutil
 import subprocess
 from collections.abc import Sequence
@@ -57,15 +58,72 @@ REEL_FILENAME = "trip.mp4"
 REEL_JSON_FILENAME = "reel.json"
 
 
-def reel_filenames(day: str | None) -> tuple[str, str]:
-    """`(video, manifest)` names. A single-day render gets its own pair.
+def reel_filenames(slug: str | None) -> tuple[str, str]:
+    """`(video, manifest)` names. Any narrowed render gets its own pair.
 
-    Without this, `--day` writes `trip.mp4` every time and rendering five days in a row leaves
-    only the fifth.
+    Without this, `--day` writes `trip.mp4` every time and rendering five in a row leaves only the
+    fifth -- silently replacing the whole-trip reel on the way.
     """
-    if not day:
+    if not slug:
         return REEL_FILENAME, REEL_JSON_FILENAME
-    return f"trip.{day}.mp4", f"reel.{day}.json"
+    return f"trip.{slug}.mp4", f"reel.{slug}.json"
+
+
+SLUG_UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def slugify(text: str) -> str:
+    return SLUG_UNSAFE.sub("-", text.strip()).strip("-").lower() or "part"
+
+
+@dataclass(frozen=True, slots=True)
+class ReelSelection:
+    """Which slice of the trip a reel covers.
+
+    A 22-day trip is 13 minutes as one montage, so it wants cutting into parts -- and the natural
+    seams are geographic, not arithmetic. Dates alone cannot express "the Salzburg leg" when a
+    travel day straddles two regions, and places alone cannot separate two visits to the same city.
+    Both filters compose with AND so either can carry the work.
+    """
+
+    day: str | None = None
+    date_from: str | None = None
+    date_to: str | None = None
+    places: tuple[str, ...] = ()
+    """Case-insensitive substrings matched against an asset's poi, city, region or country."""
+    name: str | None = None
+
+    @property
+    def is_whole_trip(self) -> bool:
+        return not (self.day or self.date_from or self.date_to or self.places)
+
+    @property
+    def slug(self) -> str | None:
+        if self.name:
+            return slugify(self.name)
+        if self.is_whole_trip:
+            return None
+        if self.day:
+            return self.day
+        if self.places:
+            return slugify("-".join(self.places))
+        return slugify(f"{self.date_from or 'start'}_{self.date_to or 'end'}")
+
+    def covers_day(self, date: str) -> bool:
+        if self.day:
+            return date == self.day
+        if self.date_from and date < self.date_from:
+            return False
+        return not (self.date_to and date > self.date_to)
+
+    def covers_asset(self, asset: dict) -> bool:
+        if not self.places:
+            return True
+        place = (asset.get("location") or {}).get("place") or {}
+        haystack = " ".join(
+            str(place.get(key) or "") for key in ("poi", "city", "region", "country")
+        ).lower()
+        return any(needle.lower() in haystack for needle in self.places)
 
 
 SEGMENT_CACHE_DIRNAME = ".cache/segments"
@@ -155,8 +213,8 @@ class ReelPlan:
     clips_without_sound: list[str] = field(default_factory=list)
     subtitle_tracks: list[SubtitleTrack] = field(default_factory=list)
     burned_in: str | None = None
-    day: str | None = None
-    """Set when only one day was rendered, so the output does not overwrite the whole-trip reel."""
+    slug: str | None = None
+    """Set when the render is narrower than the whole trip, so it gets its own filename."""
     clip_timeline_starts: dict[str, float] = field(default_factory=dict)
     """Asset id -> when the clip begins *in the finished reel*, in seconds.
 
@@ -210,15 +268,32 @@ def _story_days(story: dict | None) -> dict[str, dict]:
     return {d["date"]: d for d in story.get("days", []) if d.get("date")}
 
 
-def _story_ranges(story: dict | None) -> dict[str, tuple[float, float]]:
+@dataclass(frozen=True, slots=True)
+class StoryScene:
+    """What a story asked for on one clip: where to cut, and how long to run it."""
+
+    start: float
+    end: float
+    timeline_seconds: float | None
+    """`timeline_duration_seconds` -- how long the story wants it *on screen*, which is not the
+    same as the length of the source range it chose. Honouring the range and ignoring this made 67
+    clips into 12.4 minutes of footage where the story had asked for 6.5."""
+
+
+def _story_ranges(story: dict | None) -> dict[str, StoryScene]:
     """Source ranges a story named, keyed by asset. Only `video_scenes`, the contract shape."""
-    ranges: dict[str, tuple[float, float]] = {}
+    ranges: dict[str, StoryScene] = {}
     for scene in (story or {}).get("video_scenes", []) or []:
         asset_id = scene.get("asset_id")
         start, end = scene.get("source_start_seconds"), scene.get("source_end_seconds")
         usable = isinstance(start, int | float) and isinstance(end, int | float) and end > start
         if asset_id and usable:
-            ranges[asset_id] = (float(start), float(end))
+            wanted = scene.get("timeline_duration_seconds")
+            ranges[asset_id] = StoryScene(
+                float(start),
+                float(end),
+                float(wanted) if isinstance(wanted, int | float) and wanted > 0 else None,
+            )
     return ranges
 
 
@@ -231,7 +306,7 @@ def _place_label(asset: dict) -> str | None:
 
 
 def _clip_excerpt(
-    asset: dict, config: Config, story_range: tuple[float, float] | None
+    asset: dict, config: Config, story_range: StoryScene | None
 ) -> tuple[float, float, str] | None:
     """`(start, seconds, why)` for a clip, or None if there is not enough footage to use."""
     duration = ((asset.get("video") or {}).get("duration_seconds")) or 0.0
@@ -239,8 +314,15 @@ def _clip_excerpt(
         return None
 
     if story_range is not None:
-        start = max(0.0, min(story_range[0], duration))
-        seconds = min(story_range[1] - story_range[0], duration - start)
+        start = max(0.0, min(story_range.start, duration))
+        # The story's own on-screen duration wins over the length of the range it cut from, and
+        # `clip_max_seconds` caps both: how long the montage runs is the renderer's call.
+        seconds = min(
+            story_range.timeline_seconds or (story_range.end - story_range.start),
+            story_range.end - story_range.start,
+            duration - start,
+            config.reel.clip_max_seconds,
+        )
         if seconds >= config.reel.clip_min_seconds:
             return start, seconds, "story_range"
 
@@ -250,7 +332,7 @@ def _clip_excerpt(
         return 0.0, duration, "whole_clip"
 
     start = min(duration * POSTER_TIME_FRACTION, POSTER_TIME_MAX_SECONDS)
-    seconds = min(config.reel.clip_seconds, duration - start)
+    seconds = min(config.reel.clip_seconds, duration - start, config.reel.clip_max_seconds)
     if seconds < config.reel.clip_min_seconds:
         return None
     return start, seconds, "fixed_head"
@@ -263,6 +345,7 @@ def build_plan(
     story: dict | None = None,
     clip_sources: dict[str, ClipSource] | None = None,
     only_day: str | None = None,
+    selection: ReelSelection | None = None,
 ) -> ReelPlan:
     """Decide what the reel contains. Pure: no filesystem, no ffmpeg, no clock.
 
@@ -270,6 +353,7 @@ def build_plan(
     mixing the two is how this project broke event durations and trip bounds on separate days.
     """
     width, height = frame_size(config)
+    selection = selection or ReelSelection(day=only_day)
     clip_sources = clip_sources or {}
     assets = doc.get("assets", {})
     story_by_day = _story_days(story)
@@ -284,17 +368,24 @@ def build_plan(
     )
 
     trip = doc.get("trip", {})
-    days = [d for d in doc.get("days", []) if only_day is None or d["date"] == only_day]
-    if only_day is not None and not days:
-        raise ReelError(f"no day {only_day} in this trip")
-    plan.day = only_day
+    days = [d for d in doc.get("days", []) if selection.covers_day(d["date"])]
+    if selection.day and not days:
+        raise ReelError(f"no day {selection.day} in this trip")
+    if not days:
+        raise ReelError(
+            f"no day between {selection.date_from or 'the start'} and "
+            f"{selection.date_to or 'the end'} of this trip"
+        )
+    plan.slug = selection.slug
 
-    if only_day is None:
+    # A narrowed reel still opens on a title card; only a single-day render skips it, because the
+    # day's own card follows immediately.
+    if not selection.day:
         plan.segments.append(
             Segment(
                 kind="title",
                 seconds=float(config.reel.seconds_per_title),
-                title=(story or {}).get("title") or trip.get("name") or "Trip",
+                title=selection.name or (story or {}).get("title") or trip.get("name") or "Trip",
                 subtitle=(story or {}).get("subtitle") or _trip_dates(trip),
             )
         )
@@ -302,11 +393,15 @@ def build_plan(
     for day in days:
         date = day["date"]
         day_story = story_by_day.get(date, {})
-        chosen = {a for a in day.get("highlights", []) if a in assets}
+        chosen = {
+            a
+            for a in day.get("highlights", [])
+            if a in assets and selection.covers_asset(assets[a])
+        }
         videos = {
             a["asset_id"]
             for a in (assets[i] for i in _day_asset_ids(day, assets))
-            if a.get("kind") == "video"
+            if a.get("kind") == "video" and selection.covers_asset(a)
         }
         members = sorted(chosen | videos, key=lambda i: (assets[i].get("taken_utc") or "", i))
         if not members:
@@ -334,7 +429,10 @@ def build_plan(
                 plan.segments.append(segment)
 
     if len(plan.segments) < 2:
-        raise ReelError("nothing to render: the trip has no highlights or previews")
+        raise ReelError(
+            "nothing to render: no highlights or previews match this selection"
+            + (f" (places: {', '.join(selection.places)})" if selection.places else "")
+        )
 
     if plan.clips_as_stills:
         plan.notes.append(
@@ -378,7 +476,7 @@ def _clip_segment(
     asset: dict,
     config: Config,
     clip_sources: dict[str, ClipSource],
-    ranges: dict[str, tuple[float, float]],
+    ranges: dict[str, StoryScene],
     plan: ReelPlan,
 ) -> Segment | None:
     asset_id = asset["asset_id"]
@@ -644,6 +742,9 @@ def render_segment(
         return target
     target.parent.mkdir(parents=True, exist_ok=True)
     partial = target.with_suffix(".partial.mp4")
+    # An interrupted run leaves a half-written partial behind. It is never valid, and leaving it
+    # invites ffmpeg or a later reader to treat it as real.
+    partial.unlink(missing_ok=True)
 
     encode = [
         "-c:v",
@@ -700,7 +801,13 @@ def render_segment(
             str(partial),
         ]  # fmt: skip
 
-    _run_ffmpeg(command, segment.filename or segment.title or segment.kind)
+    what = segment.filename or segment.title or segment.kind
+    _run_ffmpeg(command, what)
+    if not partial.exists():
+        # ffmpeg can exit 0 and still write nothing -- a filter that yields no frames reports a
+        # warning, not an error. Checking the exit code alone let that surface as a bare
+        # FileNotFoundError from the rename, three frames of stack away from the cause.
+        raise ReelError(f"ffmpeg reported success but produced no output for {what}")
     partial.replace(target)  # atomic: a killed render never leaves a valid-looking cache entry
     return target
 
@@ -808,7 +915,7 @@ def render_reel(
         filters.extend(audio_parts)
         maps += ["-map", audio_label, "-c:a", "aac", "-b:a", "192k"]
 
-    video_name, _ = reel_filenames(plan.day)
+    video_name, _ = reel_filenames(plan.slug)
     target = reel_dir / video_name
     command += [
         "-filter_complex", ";".join(filters),
@@ -934,7 +1041,7 @@ def write_reel_json(
         "reel_version": REEL_VERSION,
         "generator": f"story-book reel (reel_version {REEL_VERSION})",
         "video": {
-            "file": reel_filenames(plan.day)[0],
+            "file": reel_filenames(plan.slug)[0],
             "width": plan.width,
             "height": plan.height,
             "aspect": config.reel.aspect,
@@ -992,7 +1099,7 @@ def write_reel_json(
             "tracks": [
                 {
                     "language": t.language,
-                    "file": f"{Path(reel_filenames(plan.day)[0]).stem}.{t.language}.vtt",
+                    "file": f"{Path(reel_filenames(plan.slug)[0]).stem}.{t.language}.vtt",
                     "cues": len(t.cues),
                     "translated_cues": t.translated_count,
                     "fully_translated": t.fully_translated,
@@ -1011,7 +1118,7 @@ def write_reel_json(
         },
         "notes": plan.notes,
     }
-    _, manifest_name = reel_filenames(plan.day)
+    _, manifest_name = reel_filenames(plan.slug)
     target = reel_dir / manifest_name
     target.write_text(json.dumps(document, indent=2) + "\n")
     return target

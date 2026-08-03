@@ -294,6 +294,29 @@ class TestSegmentCache:
             segment_key(s, second, config) for s in second.segments
         ]
 
+    def test_a_stale_partial_from_a_killed_run_is_discarded(self, trip, tmp_path):
+        """An interrupted render leaves a half-written `.partial.mp4`. It is never valid."""
+        config = _fast_config()
+        plan = build_plan(trip, config)
+        cache = tmp_path / "reel" / SEGMENT_CACHE_DIRNAME
+        cache.mkdir(parents=True)
+        key = segment_key(plan.segments[0], plan, config)
+        stale = cache / f"{key}.partial.mp4"
+        stale.write_bytes(b"truncated garbage")
+
+        render_reel(plan, config, tmp_path)
+
+        assert not stale.exists()
+        assert _is_mp4(cache / f"{key}.mp4")
+
+    def test_ffmpeg_succeeding_without_output_is_a_clear_error(self, trip, tmp_path, mocker):
+        """ffmpeg can exit 0 and write nothing. Checking only the exit code turned that into a
+        FileNotFoundError from a rename, three frames from the cause."""
+        mocker.patch("story_book.export.reel._run_ffmpeg", return_value=None)
+        config = _fast_config()
+        with pytest.raises(ReelError, match="produced no output"):
+            render_reel(build_plan(trip, config), config, tmp_path)
+
     def test_an_interrupted_render_leaves_no_valid_looking_cache_entry(self, trip, tmp_path):
         """A half-written segment must not be mistaken for a finished one on the next run."""
         config = _fast_config()
@@ -642,6 +665,19 @@ class TestSubtitles:
         assert track["language"] == "zh"
         assert track["translated_cues"] < track["cues"]
         assert track["fully_translated"] is False
+
+    def test_re_rendering_replaces_the_track_rather_than_appending(self, trip, tmp_path):
+        """`-map 0` copied the input's existing subtitles, so a second render of the same reel
+        appended a duplicate — and the stale one carries no language tag, so a player shows a
+        nameless extra entry."""
+        self._render(trip, tmp_path, ["zh"])
+        rendered, _ = self._render(trip, tmp_path, ["zh"])
+        assert _probe(rendered.path, "stream=codec_type").count("subtitle") == 1
+
+    def test_re_rendering_with_a_different_language_does_not_keep_the_old_one(self, trip, tmp_path):
+        self._render(trip, tmp_path, ["zh", "en"])
+        rendered, _ = self._render(trip, tmp_path, ["en"])
+        assert _probe(rendered.path, "stream=codec_type").count("subtitle") == 1
 
     def test_no_subtitle_request_means_no_track(self, trip, tmp_path):
         rendered, _ = self._render(trip, tmp_path, [])
