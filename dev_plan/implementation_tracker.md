@@ -503,6 +503,7 @@ reads no new signal from the media, and touches no frozen contract.
 | ID | Task | Status | Owner | Depends on |
 | --- | --- | --- | --- | --- |
 | T50 | Reel v1 — montage renderer + `story-book reel` | done | claude (main) | T31 |
+| T54 | Subtitle tracks in another language | done | claude (main) | T50 |
 | T51 | Beat-synced cutting | todo | — | T50 |
 | T52 | Ken Burns motion | todo | — | T50 |
 | T53 | Animated per-day map segment | todo | — | T50, T40 |
@@ -525,6 +526,23 @@ dependency.
 thing; `file -b` confirms the container and one clip is confirmed to contain motion rather than
 a repeated still; a real `SIGINT` mid-render recomputes only unfinished segments, proven by
 segment count and not by exit code alone.
+
+### T54 — Subtitle tracks *(added 2026-08-02)*
+**Owns:** `src/story_book/export/subtitles.py`, tests. Also touches `story_schema.json` and
+`prompt.md` — a published request format ships with a published response format, so both change
+together.
+
+`--subtitles zh,en` writes a `.vtt` per language beside the video and muxes each in as a selectable
+`mov_text` stream. Text comes from `story.json`'s `translations` blocks (top level, per day, per
+caption), keyed by ISO 639-1. Cues are clamped so they never overlap, since segments overlap by the
+crossfade. **Soft tracks only** — no CJK font and no libass build can be assumed, and the ffmpeg
+this was developed against has no `subtitles` filter at all.
+
+**Acceptance:** a language with no translations gets **no track**, only a warning — a track
+labelled one language while holding another's text misrepresents itself. Verified by extracting the
+embedded stream back out of the MP4 and diffing against the sidecar, because `mov_text` is where
+encodings break: 28 cues in, 28 out, CJK intact. Full docs in
+[`docs/subtitles.md`](../docs/subtitles.md).
 
 ### T51 — Beat-synced cutting
 **Depends on:** T50. Onset detection via `librosa` or `aubio` behind a new optional extra; cut
@@ -657,6 +675,7 @@ decision made.
 
 | Date | Who | Entry |
 | --- | --- | --- |
+| 2026-08-02 | claude | **T54 done: selectable subtitle tracks.** `--subtitles zh,en` on the real trip gives 28 cues per language, muxed as `mov_text` tagged `zho`/`eng`. Soft tracks rather than burn-in: a viewer can switch or turn them off, adding a language is a re-mux not a re-render, and no CJK font is needed — the dev machine's ffmpeg has no `subtitles` filter, so burn-in was not even available. Story schema and `prompt.md` both gained `translations`, since a published response format has to be requested to arrive. **1492 tests pass.** Two of my own mistakes: I repeated the `zip(xs, xs[1:], strict=True)` off-by-one I had written a retro about *the same day*, and `console.print(f"[{lang}]")` silently swallowed the language because Rich read `[zh]` as a style tag. |
 | 2026-08-02 | claude | **Clip audio + music ducking added to T50**, at the traveller's request and now on by default: a clip's own sound is usually why it is in the reel. Sound lands where the picture does — audible stretches at **17.7/42.1/65.7/98.9 s** vs motion at **17.5/42.0/65.5/98.8 s**, no drift across 8 clips. Duck depth tuned by measurement (5.0 → 7.1 → **8.4** → 8.8 dB across four settings; 0.005/20 chosen where the curve flattens), isolating the music in its own frequency band so clip audio could not be counted as music. **1449 tests pass.** Two of my own tests were wrong first: `volumedetect` logs at info level so `-v error` made every reading the "no data" sentinel, which compares equal to itself; and the clip sat last in time order, so the music's tail fade read as 7.7 dB of "ducking" with ducking switched off. |
 | 2026-08-02 | claude | **T50 done. The reel renders.** Real trip: 61 segments → **2m41s at 1920×1080**, 78 s cold, 28 s from cache; 5 title cards, 48 stills, 8 clips all with real proxy footage. 95 new tests, **1422 pass, 0 skips**. Aspect is a free-form `W:H` (16:9 default, 9:16 tested); music is `--music`, user-supplied, looped with a tail fade. Cache invalidation demonstrated live: adding the font to the title-card key re-rendered exactly 5 of 61 segments. Motion verified rather than assumed — max inter-frame change **99.15 with footage vs 0.12 poster-only**, run both ways to show the assertion can fail. |
 | 2026-08-02 | claude | **Found and fixed a live defect in an existing artifact: Pillow's bundled font has no `é ü ö à ñ – —`.** A story subtitle rendered as `July 17□20`. `contact_sheet.py` used the same font, so every sheet shared the bug latently — a German or French place name would have drawn boxes. New `export/fonts.py` prefers a real system font and otherwise transliterates (`München` → `Munchen`), and the resolved font is now part of the title-card cache key, because installing a font changes the pixels. |

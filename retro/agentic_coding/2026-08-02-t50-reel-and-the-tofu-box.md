@@ -105,6 +105,35 @@ clip's sound 4.8 s from its picture — subtly wrong, and invisible in any singl
 stretches came out at 17.7/42.1/65.7/98.9 s against motion at 17.5/42.0/65.5/98.8 s. A unit test
 now asserts the two functions agree.
 
+## Third pass: subtitles, and repeating a mistake from the same day
+
+`--subtitles zh,en` landed. Two failures, both mine, both worth recording because one was a
+*recurrence*.
+
+**I repeated the `zip` off-by-one I had written up hours earlier.** In the clip-audio pass I hit
+`zip(frames, frames[1:], strict=True)` and wrote a retro paragraph about it. In the subtitle pass I
+wrote `zip(track.cues, track.cues[1:], strict=True)`. Identical shape, identical failure. Writing a
+lesson down did not stop me reaching for the same wrong idiom the next time I needed adjacent
+pairs — which says the retro entry was the wrong *kind* of fix. A prose note about a habitual typo
+is weak; the enforceable version is a lint rule or a tiny helper (`pairwise`, which is in
+`itertools` and would have been correct by construction). **When a mistake is mechanical, encode a
+mechanical fix.**
+
+**Rich swallowed the thing I was printing.** `console.print(f"subtitles [{track.language}]: ...")`
+rendered as `subtitles : 28 cue(s)` — Rich reads `[zh]` as a style tag and eats it. No error, no
+warning, just a missing word in the one line whose whole job was to say which language. Found only
+by reading the terminal output rather than the code, which is the same "look at the output" lesson
+in yet another medium. Any `[...]` in a `console.print` f-string is a markup risk.
+
+**One decision the environment made for me.** I had planned to visually verify by burning a frame
+with ffmpeg's `subtitles` filter. This machine's ffmpeg has **no `subtitles` filter** — no libass.
+That is worth knowing beyond the inconvenience: it retroactively confirmed the soft-track design,
+because a burn-in feature would have been unbuildable here and unavailable to any user on a stock
+Homebrew ffmpeg. Verification instead extracted the embedded `mov_text` stream back out of the MP4
+and diffed it against the sidecar — 28 cues in, 28 out, CJK intact. That is the better check
+anyway: `mov_text` is exactly where an encoding gets mangled, and a burned-in frame would not have
+tested the muxed track at all.
+
 ## Honest gaps in what shipped
 
 - **No excerpt is the best five seconds of a clip.** `motion_score` is per clip, not per window,

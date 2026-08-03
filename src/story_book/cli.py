@@ -530,6 +530,14 @@ def reel(
         Path | None,
         typer.Option("--story", exists=True, dir_okay=False, help="A model's story.json."),
     ] = None,
+    subtitles: Annotated[
+        str | None,
+        typer.Option(
+            "--subtitles",
+            help="Comma-separated languages for selectable subtitle tracks, e.g. 'zh' or 'zh,en'. "
+            "Needs `translations` in story.json for anything but its own language.",
+        ),
+    ] = None,
 ) -> None:
     """Render a video montage from `trip.json`.
 
@@ -565,6 +573,14 @@ def reel(
         console.print(f"[red]reel error:[/] {exc}")
         raise typer.Exit(2) from exc
 
+    languages = [part.strip() for part in (subtitles or "").split(",") if part.strip()]
+    if languages and story is None:
+        console.print(
+            "[red]--subtitles needs a story:[/] the subtitle text is the story's titles and "
+            "captions. Put story.json in <out>/story/ or pass --story."
+        )
+        raise typer.Exit(2)
+
     kinds = Counter(s.kind for s in plan.segments)
     console.print(
         f"{len(plan.segments)} segment(s) [{kinds['title']} title, {kinds['still']} still, "
@@ -587,6 +603,8 @@ def reel(
                 out,
                 music=music,
                 progress=lambda segment, was_cached: bar.advance(task),
+                story=story,
+                subtitle_languages=languages,
             )
     except ReelError as exc:
         console.print(f"[red]reel error:[/] {exc}")
@@ -595,6 +613,10 @@ def reel(
 
     for note in plan.notes:
         console.print(f"[yellow]{note}[/]")
+    for track in plan.subtitle_tracks:
+        state = "" if track.fully_translated else f", {track.translated_count} translated"
+        # No square brackets around the language: Rich reads `[zh]` as a style tag and swallows it.
+        console.print(f"subtitles {track.language}: {len(track.cues)} cue(s){state}")
     if plan.clips_with_sound:
         ducked = " (music ducked under them)" if music else ""
         console.print(f"{len(plan.clips_with_sound)} clip(s) play their own audio{ducked}")

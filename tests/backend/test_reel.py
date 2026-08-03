@@ -15,6 +15,7 @@ import json
 import re
 import shutil
 import subprocess
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
@@ -116,10 +117,7 @@ def _frame_change(path: Path, width: int = 32, height: int = 18) -> float:
     frames = [dump.stdout[i * size : (i + 1) * size] for i in range(len(dump.stdout) // size)]
     if len(frames) < 2:
         return 0.0
-    diffs = [
-        sum(abs(a - b) for a, b in zip(x, y, strict=True)) / size
-        for x, y in zip(frames[:-1], frames[1:], strict=True)
-    ]
+    diffs = [sum(abs(a - b) for a, b in zip(x, y, strict=True)) / size for x, y in pairwise(frames)]
     return max(diffs)
 
 
@@ -530,6 +528,117 @@ class TestReelJsonOnDisk:
         render_reel(build_plan(trip, config), config, tmp_path)
         document = json.loads((tmp_path / "reel" / REEL_JSON_FILENAME).read_text())
         assert document["audio"]["music_supplied"] is False
+
+
+class TestSubtitles:
+    """A selectable track, in real Chinese bytes, muxed into a real MP4."""
+
+    STORY = {
+        "title": "Fixture Trip",
+        "subtitle": "July 2026",
+        "language": "en",
+        "translations": {"zh": {"title": "固定行程", "subtitle": "2026年7月"}},
+        "days": [
+            {
+                "date": "2026-07-18",
+                "title": "A Day in Vienna",
+                "narrative": "x",
+                "translations": {"zh": {"title": "维也纳的一天"}},
+            }
+        ],
+        "captions": [
+            {"asset_id": "asset0", "caption": "A sharp one.", "translations": {"zh": "清晰的一张"}},
+            {"asset_id": "asset1", "caption": "Another.", "translations": {"zh": "另一张"}},
+            {"asset_id": "asset2", "caption": "No translation here."},
+        ],
+    }
+
+    def _render(self, trip, tmp_path, languages, story=None):
+        config = _fast_config()
+        plan = build_plan(trip, config, story=story or self.STORY)
+        rendered = render_reel(
+            plan, config, tmp_path, story=story or self.STORY, subtitle_languages=languages
+        )
+        return rendered, plan
+
+    def test_writes_a_vtt_beside_the_video(self, trip, tmp_path):
+        self._render(trip, tmp_path, ["zh"])
+        assert (tmp_path / "reel" / "trip.zh.vtt").exists()
+
+    def test_the_vtt_holds_real_chinese_not_stripped_text(self, trip, tmp_path):
+        """`renderable()` deletes CJK; a soft track must never go through it."""
+        self._render(trip, tmp_path, ["zh"])
+        body = (tmp_path / "reel" / "trip.zh.vtt").read_text(encoding="utf-8")
+        assert "维也纳的一天" in body
+        assert "清晰的一张" in body
+
+    def test_the_vtt_is_valid_webvtt(self, trip, tmp_path):
+        self._render(trip, tmp_path, ["zh"])
+        body = (tmp_path / "reel" / "trip.zh.vtt").read_text(encoding="utf-8")
+        assert body.startswith("WEBVTT")
+        assert "-->" in body
+
+    def test_the_track_is_muxed_into_the_video(self, trip, tmp_path):
+        rendered, _ = self._render(trip, tmp_path, ["zh"])
+        assert "subtitle" in _probe(rendered.path, "stream=codec_type")
+
+    def test_the_muxed_track_carries_the_right_language_tag(self, trip, tmp_path):
+        rendered, _ = self._render(trip, tmp_path, ["zh"])
+        tags = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "s", "-show_entries",
+             "stream_tags=language", "-of", "default=nw=1:nk=1", str(rendered.path)],
+            capture_output=True, text=True, check=True,
+        )  # fmt: skip
+        assert "zho" in tags.stdout
+
+    def test_the_video_still_plays_after_muxing(self, trip, tmp_path):
+        rendered, plan = self._render(trip, tmp_path, ["zh"])
+        assert _is_mp4(rendered.path)
+        assert float(_probe(rendered.path, "format=duration")) == pytest.approx(
+            plan.duration, abs=0.5
+        )
+
+    def test_two_languages_give_two_selectable_tracks(self, trip, tmp_path):
+        rendered, _ = self._render(trip, tmp_path, ["zh", "en"])
+        assert _probe(rendered.path, "stream=codec_type").count("subtitle") == 2
+
+    def test_a_language_with_no_translations_gets_no_track(self, trip, tmp_path):
+        """A Chinese track full of English would be the artifact overstating itself."""
+        rendered, plan = self._render(trip, tmp_path, ["ja"])
+        assert not (tmp_path / "reel" / "trip.ja.vtt").exists()
+        assert "subtitle" not in _probe(rendered.path, "stream=codec_type")
+        assert any("no 'ja' translations" in n for n in plan.notes)
+
+    def test_a_partly_translated_language_is_written_and_reported(self, trip, tmp_path):
+        _, plan = self._render(trip, tmp_path, ["zh"])
+        assert (tmp_path / "reel" / "trip.zh.vtt").exists()
+        assert any("no translation" in n for n in plan.notes)
+
+    def test_reel_json_reports_the_track_and_its_coverage(self, trip, tmp_path):
+        self._render(trip, tmp_path, ["zh"])
+        document = json.loads((tmp_path / "reel" / REEL_JSON_FILENAME).read_text())
+        track = document["subtitles"]["tracks"][0]
+        assert track["language"] == "zh"
+        assert track["translated_cues"] < track["cues"]
+        assert track["fully_translated"] is False
+
+    def test_no_subtitle_request_means_no_track(self, trip, tmp_path):
+        rendered, _ = self._render(trip, tmp_path, [])
+        assert "subtitle" not in _probe(rendered.path, "stream=codec_type")
+
+    def test_cues_do_not_overlap_in_the_rendered_file(self, trip, tmp_path):
+        self._render(trip, tmp_path, ["zh"])
+        body = (tmp_path / "reel" / "trip.zh.vtt").read_text(encoding="utf-8")
+        stamps = re.findall(r"(\d\d:\d\d:\d\d\.\d\d\d) --> (\d\d:\d\d:\d\d\.\d\d\d)", body)
+
+        def to_secs(s):
+            h, m, rest = s.split(":")
+            return int(h) * 3600 + int(m) * 60 + float(rest)
+
+        spans = [(to_secs(a), to_secs(b)) for a, b in stamps]
+        assert spans
+        for (_, end), (start, _) in pairwise(spans):
+            assert end <= start
 
 
 class TestClipSourceResolution:

@@ -33,6 +33,8 @@ learned per cycle — live in [`retro/agentic_coding/`](./retro/agentic_coding).
 - [Choosing music for the reel](./docs/choosing_music.md) — no audio ships with the tool, so
   `story-book reel --music` always needs a track you supply. Where to find one that is licensed
   for the use, and which of its properties actually matter once clip audio and ducking are in play.
+- [Subtitles on the reel](./docs/subtitles.md) — selectable subtitle tracks in another language,
+  built from `translations` in `story.json`. Soft tracks, so no CJK font or libass build required.
 - [Truth-set format](./docs/truth_set.md) — hand-labelling a trip so the eval harness can score
   events, duplicates and keeper choices.
 

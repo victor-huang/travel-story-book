@@ -659,6 +659,7 @@ check it with `story-book check-story story.json --out <dir>`.
 ```json
 {{
   "schema_version": 1,
+  "language": "en",
   "days": [{{"date": "{day["date"]}", "narrative": "", "summary": ""}}],
   "chapters": [
     {{
@@ -669,6 +670,7 @@ check it with `story-book check-story story.json --out <dir>`.
     }}
   ],
   "captions": [{{"asset_id": "", "caption": ""}}],
+  "translations": {{}},
   "layout_pages": [
     {{"page": 1, "hero_asset_id": "", "asset_ids": [], "note": ""}}
   ],
@@ -687,6 +689,22 @@ check it with `story-book check-story story.json --out <dir>`.
 Every `asset_id` must be one that appears in the brief. `source_event_ids` is required on every
 chapter: it is the only link from your editorial units back to the pipeline's own grouping, and a
 renderer cannot reorganise what it cannot trace.
+
+### Translations, only if asked for
+
+Leave `translations` as `{{}}` unless the traveller asked for another language. If they did, add
+the language's ISO 639-1 code as the key — `"zh"` for Mandarin — at three places: the top level
+(`title`, `subtitle`), inside each `days[]` entry (`title`, `summary`), and inside each
+`captions[]` entry (a plain string). These build a selectable subtitle track on the video reel.
+
+```json
+"translations": {{"zh": {{"title": "...", "subtitle": "..."}}}},
+"captions": [{{"asset_id": "", "caption": "", "translations": {{"zh": "..."}}}}]
+```
+
+Translate the *meaning*, not the words, and keep each caption to one screen-line where you can —
+they are read as subtitles while the photograph is on screen. **Omit a language entirely rather
+than half-filling it**: a partially translated track shows the original text for the gaps.
 
 `uncertainties` is not optional politeness — list anything you inferred rather than read, and
 anything the sheets were too small to judge. `requested_additional_context` is what you would

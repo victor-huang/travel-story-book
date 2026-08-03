@@ -27,6 +27,7 @@ import json
 import logging
 import shutil
 import subprocess
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from story_book.config import Config
 from story_book.export.fonts import font_identity, load_font, renderable
+from story_book.export.subtitles import SubtitleTrack, build_cues, mux_subtitles, write_track
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +131,7 @@ class ReelPlan:
     clips_as_stills: list[str] = field(default_factory=list)
     clips_with_sound: list[str] = field(default_factory=list)
     clips_without_sound: list[str] = field(default_factory=list)
+    subtitle_tracks: list[SubtitleTrack] = field(default_factory=list)
     clip_timeline_starts: dict[str, float] = field(default_factory=dict)
     """Asset id -> when the clip begins *in the finished reel*, in seconds.
 
@@ -708,6 +711,8 @@ def render_reel(
     *,
     music: Path | None = None,
     progress: Any = None,
+    story: dict | None = None,
+    subtitle_languages: Sequence[str] = (),
 ) -> RenderedReel:
     """Render every segment (cached), then join them with crossfades and mix any music."""
     if not ffmpeg_available():
@@ -780,8 +785,58 @@ def render_reel(
     ]  # fmt: skip
     _run_ffmpeg(command, "final assembly")
 
+    plan.subtitle_tracks = _write_subtitles(
+        plan, reel_dir, target, offsets, story, subtitle_languages
+    )
+
     manifest = write_reel_json(plan, config, reel_dir, music=music, duration=total)
     return RenderedReel(target, manifest, plan, total, rendered, cached)
+
+
+def _write_subtitles(
+    plan: ReelPlan,
+    reel_dir: Path,
+    video: Path,
+    offsets: list[float],
+    story: dict | None,
+    languages: Sequence[str],
+) -> list[SubtitleTrack]:
+    """Write a `.vtt` per language and mux them in as selectable tracks.
+
+    A language the story carries no translation for gets **no track at all**, only a warning. A
+    Chinese track holding English text would be the artifact claiming something it cannot back up.
+    """
+    if not languages:
+        return []
+
+    written: list[tuple[str, Path]] = []
+    tracks: list[SubtitleTrack] = []
+    for language in languages:
+        track = build_cues(plan.segments, offsets, story, language)
+        if not track.cues:
+            plan.notes.append(f"no subtitle text found for '{language}'; no track written.")
+            continue
+        if track.translated_count == 0:
+            plan.notes.append(
+                f"story.json carries no '{language}' translations, so no '{language}' track was "
+                "written -- a track in one language holding another's text would be a lie. Ask "
+                "the chat for translations (see the story schema's `translations` field)."
+            )
+            continue
+        if not track.fully_translated:
+            missing = len(track.cues) - track.translated_count
+            plan.notes.append(
+                f"{missing} of {len(track.cues)} '{language}' cues have no translation and show "
+                "the original text."
+            )
+        written.append((language, write_track(track, reel_dir, video.stem)))
+        tracks.append(track)
+
+    if written and not mux_subtitles(video, written):
+        plan.notes.append(
+            "could not mux subtitles into the video; the .vtt files beside it still work."
+        )
+    return tracks
 
 
 def write_reel_json(
@@ -851,6 +906,22 @@ def write_reel_json(
                 for s in clips
                 if s.asset_id
             },
+        },
+        "subtitles": {
+            "tracks": [
+                {
+                    "language": t.language,
+                    "file": f"{Path(REEL_FILENAME).stem}.{t.language}.vtt",
+                    "cues": len(t.cues),
+                    "translated_cues": t.translated_count,
+                    "fully_translated": t.fully_translated,
+                }
+                for t in plan.subtitle_tracks
+            ],
+            "note": (
+                "A language with no translations in story.json gets no track: a track labelled "
+                "one language while holding another's text would misrepresent itself."
+            ),
         },
         "notes": plan.notes,
     }
