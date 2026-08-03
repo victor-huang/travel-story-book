@@ -190,6 +190,15 @@ Python dependency, as planned.
 
 Expected length on the real trip: 47 highlights + 8 clips ≈ **2.5–3 minutes**.
 
+### Subtitles — shipped 2026-08-02 (T54, T55)
+
+Selectable tracks from `story.json`'s `translations`, plus an optional burned-in copy. Soft by
+default for three reasons that all turned out to matter: a viewer can switch or disable them,
+adding a language is a re-mux rather than a re-render, and the player supplies the font. Burn-in
+composites Pillow-drawn PNGs rather than using ffmpeg's `subtitles` filter, because **the ffmpeg
+this project was developed against has no such filter** — libass is not in a stock Homebrew build,
+so a libass-based design would have been unbuildable here and unavailable to most users.
+
 ### v2 — the one that feels intentional
 
 - Beat-synced cuts (`librosa` or `aubio`, optional extra `--extra audio`).

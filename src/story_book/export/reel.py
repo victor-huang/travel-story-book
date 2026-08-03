@@ -35,8 +35,15 @@ from typing import Any
 from PIL import Image, ImageDraw, ImageFont
 
 from story_book.config import Config
-from story_book.export.fonts import font_identity, load_font, renderable
-from story_book.export.subtitles import SubtitleTrack, build_cues, mux_subtitles, write_track
+from story_book.export.fonts import can_render, font_for, font_identity, renderable
+from story_book.export.subtitles import (
+    SubtitleTrack,
+    build_cues,
+    burn_in,
+    mux_subtitles,
+    render_cue_images,
+    write_track,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +139,7 @@ class ReelPlan:
     clips_with_sound: list[str] = field(default_factory=list)
     clips_without_sound: list[str] = field(default_factory=list)
     subtitle_tracks: list[SubtitleTrack] = field(default_factory=list)
+    burned_in: str | None = None
     clip_timeline_starts: dict[str, float] = field(default_factory=dict)
     """Asset id -> when the clip begins *in the finished reel*, in seconds.
 
@@ -434,8 +442,10 @@ def render_title_card(segment: Segment, width: int, height: int, target: Path) -
     image = Image.new("RGB", (width, height), TITLE_BACKGROUND)
     draw = ImageDraw.Draw(image)
 
-    title_font = load_font(max(28, height // 14))
-    subtitle_font = load_font(max(18, height // 30))
+    # Chosen by what has to be drawn, not by a fixed default -- a Chinese day title needs a CJK
+    # font, and Arial would silently render it as nothing at all.
+    title_font = font_for(segment.title or "", max(28, height // 14))
+    subtitle_font = font_for(segment.subtitle or "", max(18, height // 30))
 
     title = renderable(segment.title or "", title_font)
     subtitle = renderable(segment.subtitle or "", subtitle_font)
@@ -713,6 +723,7 @@ def render_reel(
     progress: Any = None,
     story: dict | None = None,
     subtitle_languages: Sequence[str] = (),
+    burn_in_language: str | None = None,
 ) -> RenderedReel:
     """Render every segment (cached), then join them with crossfades and mix any music."""
     if not ffmpeg_available():
@@ -788,9 +799,44 @@ def render_reel(
     plan.subtitle_tracks = _write_subtitles(
         plan, reel_dir, target, offsets, story, subtitle_languages
     )
+    if burn_in_language:
+        plan.burned_in = _burn_in_track(plan, config, reel_dir, target, burn_in_language)
 
     manifest = write_reel_json(plan, config, reel_dir, music=music, duration=total)
     return RenderedReel(target, manifest, plan, total, rendered, cached)
+
+
+def _burn_in_track(
+    plan: ReelPlan, config: Config, reel_dir: Path, video: Path, language: str
+) -> str | None:
+    """Write a second video with `language` drawn into the frames. Returns its filename.
+
+    A separate file: burn-in re-encodes and cannot be undone, so the clean reel stays as it is.
+    """
+    track = next((t for t in plan.subtitle_tracks if t.language == language), None)
+    if track is None:
+        plan.notes.append(
+            f"cannot burn in '{language}': no subtitle track was written for it. Add it to "
+            "--subtitles, and make sure story.json carries its translations."
+        )
+        return None
+
+    joined = " ".join(c.text for c in track.cues)
+    if not can_render(joined):
+        plan.notes.append(
+            f"cannot burn in '{language}': no font on this machine can draw its characters, and "
+            "drawing blanks would be worse than not drawing. The soft track still works. On Linux "
+            "install Noto Sans CJK; the .vtt beside the video needs no font at all."
+        )
+        return None
+
+    cues_dir = reel_dir / SEGMENT_CACHE_DIRNAME.replace("segments", f"cues-{language}")
+    images = render_cue_images(track, plan.width, plan.height, cues_dir)
+    target = reel_dir / f"{video.stem}.{language}.mp4"
+    if not burn_in(video, images, target, preset=config.reel.x264_preset, crf=config.reel.x264_crf):
+        plan.notes.append(f"burn-in for '{language}' failed; the soft track is unaffected.")
+        return None
+    return target.name
 
 
 def _write_subtitles(
@@ -918,6 +964,7 @@ def write_reel_json(
                 }
                 for t in plan.subtitle_tracks
             ],
+            "burned_in_file": plan.burned_in,
             "note": (
                 "A language with no translations in story.json gets no track: a track labelled "
                 "one language while holding another's text would misrepresent itself."

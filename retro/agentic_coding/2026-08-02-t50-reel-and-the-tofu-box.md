@@ -134,6 +134,47 @@ and diffed it against the sidecar — 28 cues in, 28 out, CJK intact. That is th
 anyway: `mov_text` is exactly where an encoding gets mangled, and a burned-in frame would not have
 tested the muxed track at all.
 
+## Fourth pass: burn-in, and the other half of the font bug
+
+The CJK half of the font bug turned out to be worse than the tofu box that started this file.
+
+```
+'维也纳的艺术与音乐'  →  ''
+```
+
+`renderable()` transliterates what it can and drops what it cannot. Chinese does not decompose to
+ASCII, so the whole string was **deleted**. A box says "something is broken"; an empty string says
+"there was nothing here". The fix I shipped in the first pass made one failure mode louder and
+another one silent, and I did not notice because the only text in play was Latin. **A fallback that
+degrades gracefully for one script can fail silently for another — the test set has to include the
+scripts the fallback cannot handle.**
+
+The real fix is not a better fallback but a better choice of font: `font_for(text, size)` picks the
+first available font that can draw *every* character it is given. Latin text still gets Arial, so
+nothing about the existing look changed; Chinese gets Hiragino Sans GB. Title cards use it too, so
+a translated day title renders instead of vanishing.
+
+**`crop=w:h:x` silently centres `y`.** The burn-in test compares the bottom of the frame against
+the clean reel. My helper built `crop=in_w:in_h/5:in_h*4/5` — three parameters, so ffmpeg read the
+third as `x` and centred `y`. Both the "top" and "bottom" bands sampled the *middle* of the frame,
+came back identical, and the test failed with `0.0048 > 0.0097`. It failed for the right reason by
+luck: the two sentinels were equal, and `>` rejects that. Had the assertion been `>=`, or had I
+compared against a constant instead of a control band, it would have passed while measuring a
+region with no subtitles in it. **Third time this cycle that a measurement helper, not the code,
+was the bug.**
+
+The control band is what makes the burn-in assertion mean anything. Final numbers: bottom-of-frame
+difference **6.24 over a title card against 0.00 at the top**, and **0.11 during a clip with no
+caption against 0.14 at the top**. Text where a cue is, nothing where none is — and the third
+measurement is a control I did not have to construct, because the reel already contains segments
+with no caption.
+
+**The environment settled a design question again.** Burn-in composites Pillow-drawn PNGs through
+ffmpeg's `overlay` rather than using the `subtitles` filter, because this machine's ffmpeg has no
+`subtitles` filter — libass is absent from a stock Homebrew build. The user offered to install a
+libass build, and declining was right: the tool must run on what users actually have, and the
+Pillow route has no such dependency at all.
+
 ## Honest gaps in what shipped
 
 - **No excerpt is the best five seconds of a clip.** `motion_score` is per clip, not per window,

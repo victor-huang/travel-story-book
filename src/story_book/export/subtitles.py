@@ -13,6 +13,9 @@ Design notes:
   translation for a language, no track is written for it. A Chinese subtitle track full of English
   is the artifact overstating its contents, which is the failure this project keeps guarding
   against. Partial translation is allowed, reported, and falls back per cue.
+* **Burn-in composites Pillow-drawn PNGs, not ffmpeg's `subtitles` filter**, which needs a build
+  with libass -- a stock Homebrew ffmpeg has no such filter at all. Same reasoning as the title
+  cards, and it means the font is chosen by what has to be drawn.
 * **Cues are clamped so they never overlap.** Segments overlap by `crossfade_seconds`, so the
   naive span (offset -> offset + duration) would put two cues on screen at once.
 """
@@ -23,6 +26,8 @@ import logging
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from story_book.export.fonts import font_for, renderable
 
 logger = logging.getLogger(__name__)
 
@@ -225,6 +230,140 @@ def write_track(track: SubtitleTrack, directory: Path, stem: str) -> Path:
     target = directory / f"{stem}.{track.language}.vtt"
     target.write_text(to_webvtt(track), encoding="utf-8")
     return target
+
+
+CUE_BOTTOM_MARGIN_FRACTION = 0.07
+CUE_TEXT_WIDTH_FRACTION = 0.86
+CUE_FONT_HEIGHT_DIVISOR = 26
+CUE_COLOR = (255, 255, 255, 255)
+CUE_OUTLINE = (0, 0, 0, 230)
+"""A stroke rather than a background box: subtitles sit over photographs of every brightness, and
+an outline stays legible on both without covering the picture."""
+
+
+def render_cue_images(
+    track: SubtitleTrack, width: int, height: int, directory: Path
+) -> list[tuple[Cue, Path]]:
+    """One transparent full-frame PNG per cue, text bottom-centred with an outline.
+
+    Full-frame rather than a cropped strip so ffmpeg can composite at `0:0` and the vertical
+    placement is decided here, in the code that measured the text.
+    """
+    from PIL import Image, ImageDraw  # local: keeps the module importable without Pillow
+
+    directory.mkdir(parents=True, exist_ok=True)
+    size = max(16, height // CUE_FONT_HEIGHT_DIVISOR)
+    made: list[tuple[Cue, Path]] = []
+
+    for index, cue in enumerate(track.cues):
+        font = font_for(cue.text, size)
+        text = renderable(cue.text, font)
+        image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+
+        lines = _wrap_lines(draw, text, font, int(width * CUE_TEXT_WIDTH_FRACTION))
+        line_height = int(size * 1.35)
+        bottom = height - int(height * CUE_BOTTOM_MARGIN_FRACTION)
+        top = bottom - line_height * len(lines)
+
+        for line_index, line in enumerate(lines):
+            span = draw.textlength(line, font=font)
+            draw.text(
+                ((width - span) / 2, top + line_index * line_height),
+                line,
+                font=font,
+                fill=CUE_COLOR,
+                stroke_width=max(2, size // 12),
+                stroke_fill=CUE_OUTLINE,
+            )
+
+        target = directory / f"cue{index:04d}.png"
+        image.save(target)
+        made.append((cue, target))
+    return made
+
+
+def _wrap_lines(draw, text: str, font, max_width: int) -> list[str]:
+    """Wrap on spaces, and on characters when there are none -- CJK has no word spaces."""
+    lines: list[str] = []
+    for paragraph in text.split("\n"):
+        if " " in paragraph:
+            current = ""
+            for word in paragraph.split():
+                candidate = f"{current} {word}".strip()
+                if draw.textlength(candidate, font=font) <= max_width or not current:
+                    current = candidate
+                else:
+                    lines.append(current)
+                    current = word
+            if current:
+                lines.append(current)
+        else:
+            current = ""
+            for char in paragraph:
+                if draw.textlength(current + char, font=font) <= max_width or not current:
+                    current += char
+                else:
+                    lines.append(current)
+                    current = char
+            if current:
+                lines.append(current)
+    return lines or [""]
+
+
+def burn_in(
+    video: Path,
+    cue_images: list[tuple[Cue, Path]],
+    target: Path,
+    *,
+    preset: str = "veryfast",
+    crf: int = 20,
+) -> bool:
+    """Composite the cue images onto `video`, writing `target`. False if ffmpeg fails.
+
+    Re-encodes the picture, so it is slower and lossier than a soft track and writes a *separate*
+    file -- the clean reel is never overwritten. Audio is stream-copied.
+
+    Uses `overlay` with a time `enable` expression rather than the `subtitles` filter, which needs
+    an ffmpeg built with libass. A stock Homebrew build has no such filter, and the tool must work
+    on one.
+    """
+    if not cue_images:
+        return False
+
+    command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(video)]
+    for _, path in cue_images:
+        command += ["-i", str(path)]
+
+    parts, label = [], "[0:v]"
+    for index, (cue, _) in enumerate(cue_images, start=1):
+        out = f"[v{index}]"
+        # `repeatlast` is on by default, so a single-frame image persists; `enable` decides when it
+        # is actually drawn.
+        parts.append(
+            f"{label}[{index}:v]overlay=0:0:enable='between(t,{cue.start:.3f},{cue.end:.3f})'{out}"
+        )
+        label = out
+    parts.append(f"{label}format=yuv420p[vout]")
+
+    command += [
+        "-filter_complex", ";".join(parts),
+        "-map", "[vout]", "-map", "0:a?",
+        "-c:v", "libx264", "-preset", preset, "-crf", str(crf),
+        "-c:a", "copy", "-movflags", "+faststart",
+        str(target),
+    ]  # fmt: skip
+
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=1800)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        logger.warning("subtitle burn-in failed: %s", exc)
+        return False
+    if result.returncode != 0 or not target.exists():
+        logger.warning("subtitle burn-in failed: %s", result.stderr[-400:])
+        target.unlink(missing_ok=True)
+        return False
+    return True
 
 
 def mux_subtitles(video: Path, tracks: list[tuple[str, Path]]) -> bool:

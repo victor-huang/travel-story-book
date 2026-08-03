@@ -538,6 +538,14 @@ def reel(
             "Needs `translations` in story.json for anything but its own language.",
         ),
     ] = None,
+    burn_in: Annotated[
+        str | None,
+        typer.Option(
+            "--burn-in",
+            help="Also write a second video with this language drawn into the frames, for players "
+            "with no subtitle support. Re-encodes; the clean reel is left alone.",
+        ),
+    ] = None,
 ) -> None:
     """Render a video montage from `trip.json`.
 
@@ -574,6 +582,10 @@ def reel(
         raise typer.Exit(2) from exc
 
     languages = [part.strip() for part in (subtitles or "").split(",") if part.strip()]
+    if burn_in and burn_in not in languages:
+        # Burn-in draws a track, so the track has to be built first. Asking for one without the
+        # other is a slip, not a request to render nothing.
+        languages.append(burn_in)
     if languages and story is None:
         console.print(
             "[red]--subtitles needs a story:[/] the subtitle text is the story's titles and "
@@ -605,6 +617,7 @@ def reel(
                 progress=lambda segment, was_cached: bar.advance(task),
                 story=story,
                 subtitle_languages=languages,
+                burn_in_language=burn_in,
             )
     except ReelError as exc:
         console.print(f"[red]reel error:[/] {exc}")
@@ -613,6 +626,8 @@ def reel(
 
     for note in plan.notes:
         console.print(f"[yellow]{note}[/]")
+    if plan.burned_in:
+        console.print(f"burned-in copy -> [bold]{out / 'reel' / plan.burned_in}[/]")
     for track in plan.subtitle_tracks:
         state = "" if track.fully_translated else f", {track.translated_count} translated"
         # No square brackets around the language: Rich reads `[zh]` as a style tag and swallows it.

@@ -19,14 +19,33 @@ reel/
   trip.en.vtt
 ```
 
-## Why soft tracks rather than burned-in text
+## Burned-in, for players that ignore subtitle tracks
+
+```bash
+story-book reel --out <dir> --subtitles zh --burn-in zh
+```
+
+That writes a **second** file, `trip.zh.mp4`, with the text drawn into the frames. The clean
+`trip.mp4` is never overwritten — burn-in re-encodes and cannot be undone.
+
+Use it when the player can't be trusted: a TV over USB, a social upload that strips subtitle
+tracks, someone else's phone. Prefer the soft track everywhere else.
+
+The text is drawn with **Pillow and composited by ffmpeg's `overlay`**, not by the `subtitles`
+filter, which needs a build with libass — a stock Homebrew ffmpeg has none, so that route would
+simply fail. The font is chosen per cue by *what has to be drawn*, so Chinese gets a CJK font and
+English keeps the Latin one.
+
+**If no font on the machine can draw the text, burn-in is declined** with a reason, rather than
+drawing blanks and handing you a file that looks finished and says nothing. On Linux, install
+Noto Sans CJK. The soft track needs no font at all and keeps working either way.
+
+## Why soft tracks by default
 
 - A viewer can **turn them off**, or pick between languages. Burned-in text offers neither.
-- Adding or fixing a language is a **re-mux, not a re-render** — a second or two, no re-encode.
-- **No font problem.** The player draws the text with its own fonts. Burning Chinese into the
-  frames would need a CJK font present on the machine *and* an ffmpeg built with libass, and
-  neither can be assumed — the ffmpeg this project was developed against has no `subtitles`
-  filter at all.
+- Adding or fixing a language is a **re-mux, not a re-render** — a second or two, no re-encode,
+  no quality loss.
+- **No font problem.** The player draws the text with its own fonts.
 
 ## Where the translations come from
 
@@ -110,3 +129,27 @@ head /tmp/roundtrip.vtt
 ```
 
 Cue count and characters should match the sidecar exactly.
+
+For a **burned-in** file the only real check is the pixels — a filter that silently drew an empty
+string produces a perfectly valid video. Compare the bottom of the frame against the clean reel at
+a moment a cue is on screen, and at a moment none is:
+
+```bash
+python3 - <<'EOF'
+import subprocess
+def band(path, at, bottom):
+    crop = "in_w:in_h/5:0:in_h*4/5" if bottom else "in_w:in_h/5:0:0"
+    return subprocess.run(["ffmpeg","-v","error","-ss",str(at),"-i",path,"-vf",
+        f"crop={crop},scale=64:16,format=gray","-frames:v","1","-f","rawvideo","-"],
+        capture_output=True, check=True).stdout
+def diff(a, b, at, bottom=True):
+    x, y = band(a, at, bottom), band(b, at, bottom)
+    return sum(abs(p-q) for p, q in zip(x, y)) / len(x)
+clean, burned = "reel/trip.mp4", "reel/trip.zh.mp4"
+for at in (1.0, 22.0):
+    print(f"t={at}: bottom {diff(clean,burned,at):.2f}  top {diff(clean,burned,at,False):.2f}")
+EOF
+```
+
+On the real trip that reads **6.24 bottom / 0.00 top** over a title card, and **0.11 / 0.14** during
+a clip with no caption — text where a cue is, nothing where none is.

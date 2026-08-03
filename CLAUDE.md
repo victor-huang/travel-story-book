@@ -215,7 +215,15 @@ lived in places a per-stage test cannot reach.
 - **A bundled default is still a design choice.** Pillow's `load_default` font was picked because
   it is always present — and it has no `é ü ö à ñ – —`, so a title card read `July 17□20` and
   every contact sheet would have drawn boxes for a German place name. "Always available" and
-  "renders your text" are different properties. Text in images goes through `export/fonts.py`.
+  "renders your text" are different properties. Text in images goes through `export/fonts.py`,
+  which picks a font by **what has to be drawn** — the first fix transliterated instead, which
+  degraded gracefully for accents and *silently deleted* every CJK character. A fallback that is
+  graceful for one script can be silent for another; test the scripts it cannot handle.
+- **A geometry or measurement helper is as likely to be the bug as the code.** Three times in one
+  cycle: `zip(xs, xs[1:], strict=True)` off by one, `ffmpeg -v error` silencing the
+  `volumedetect` output being parsed, and `crop=w:h:x` silently centring `y` so two "different"
+  bands sampled the same region. Each failed only because the assertion happened to reject equal
+  sentinels. **Pair every measurement with a control that must differ from it.**
 - **Look at real output.** A rendered contact sheet exposed the flat-score bug in seconds; no
   assertion had. Loading the report found that every image 404'd while the HTML validated
   perfectly — **when output references external files, resolve the references**, since the markup

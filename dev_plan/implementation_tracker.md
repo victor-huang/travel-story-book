@@ -504,6 +504,7 @@ reads no new signal from the media, and touches no frozen contract.
 | --- | --- | --- | --- | --- |
 | T50 | Reel v1 — montage renderer + `story-book reel` | done | claude (main) | T31 |
 | T54 | Subtitle tracks in another language | done | claude (main) | T50 |
+| T55 | Burned-in subtitles + content-aware fonts | done | claude (main) | T54 |
 | T51 | Beat-synced cutting | todo | — | T50 |
 | T52 | Ken Burns motion | todo | — | T50 |
 | T53 | Animated per-day map segment | todo | — | T50, T40 |
@@ -543,6 +544,22 @@ labelled one language while holding another's text misrepresents itself. Verifie
 embedded stream back out of the MP4 and diffing against the sidecar, because `mov_text` is where
 encodings break: 28 cues in, 28 out, CJK intact. Full docs in
 [`docs/subtitles.md`](../docs/subtitles.md).
+
+### T55 — Burned-in subtitles *(added 2026-08-02)*
+`--burn-in zh` writes a **second** file, `trip.<lang>.mp4`, with the cues drawn into the frames;
+the clean reel is untouched because burn-in re-encodes and cannot be undone. Composited from
+Pillow-drawn transparent PNGs via ffmpeg `overlay` with a time `enable` expression — **not** the
+`subtitles` filter, which needs libass that a stock Homebrew ffmpeg does not have.
+
+Also fixes the CJK half of the font bug: `fonts.font_for(text, size)` picks a font by *what has to
+be drawn*, so a Chinese caption gets a CJK font instead of Arial silently deleting every character.
+Title cards use it too, so a translated day title now renders.
+
+**Acceptance:** verified in the pixels, not by presence — a filter that drew an empty string yields
+a perfectly valid video. Bottom-of-frame difference against the clean reel: **6.24 over a title
+card (top 0.00)**, and **0.11 during a clip with no caption (top 0.14)**. Text where a cue is,
+nothing where none is. If no font can draw the text, burn-in is **declined with a reason** rather
+than drawing blanks.
 
 ### T51 — Beat-synced cutting
 **Depends on:** T50. Onset detection via `librosa` or `aubio` behind a new optional extra; cut
@@ -675,6 +692,7 @@ decision made.
 
 | Date | Who | Entry |
 | --- | --- | --- |
+| 2026-08-02 | claude | **T55 done: burned-in subtitles, and the CJK font gap closed.** `--burn-in zh` writes a second file with the text in the frames; Pillow draws it and ffmpeg `overlay` composites it, because a stock Homebrew ffmpeg has no `subtitles` filter. `font_for(text, size)` now selects a font by what it must draw — previously `renderable()` **silently deleted** all CJK (`'维也纳' -> ''`), which is worse than the tofu box it replaced because an empty string looks like there was no text. Verified in the pixels: bottom-band difference **6.24 over a title card vs 0.00 at the top**, and **0.11 during a clip with no caption**. My test helper was wrong first — `crop=w:h:x` silently centres `y`, so both "bands" sampled the middle of the frame and compared equal. **1519 tests pass.** |
 | 2026-08-02 | claude | **T54 done: selectable subtitle tracks.** `--subtitles zh,en` on the real trip gives 28 cues per language, muxed as `mov_text` tagged `zho`/`eng`. Soft tracks rather than burn-in: a viewer can switch or turn them off, adding a language is a re-mux not a re-render, and no CJK font is needed — the dev machine's ffmpeg has no `subtitles` filter, so burn-in was not even available. Story schema and `prompt.md` both gained `translations`, since a published response format has to be requested to arrive. **1492 tests pass.** Two of my own mistakes: I repeated the `zip(xs, xs[1:], strict=True)` off-by-one I had written a retro about *the same day*, and `console.print(f"[{lang}]")` silently swallowed the language because Rich read `[zh]` as a style tag. |
 | 2026-08-02 | claude | **Clip audio + music ducking added to T50**, at the traveller's request and now on by default: a clip's own sound is usually why it is in the reel. Sound lands where the picture does — audible stretches at **17.7/42.1/65.7/98.9 s** vs motion at **17.5/42.0/65.5/98.8 s**, no drift across 8 clips. Duck depth tuned by measurement (5.0 → 7.1 → **8.4** → 8.8 dB across four settings; 0.005/20 chosen where the curve flattens), isolating the music in its own frequency band so clip audio could not be counted as music. **1449 tests pass.** Two of my own tests were wrong first: `volumedetect` logs at info level so `-v error` made every reading the "no data" sentinel, which compares equal to itself; and the clip sat last in time order, so the music's tail fade read as 7.7 dB of "ducking" with ducking switched off. |
 | 2026-08-02 | claude | **T50 done. The reel renders.** Real trip: 61 segments → **2m41s at 1920×1080**, 78 s cold, 28 s from cache; 5 title cards, 48 stills, 8 clips all with real proxy footage. 95 new tests, **1422 pass, 0 skips**. Aspect is a free-form `W:H` (16:9 default, 9:16 tested); music is `--music`, user-supplied, looped with a tail fade. Cache invalidation demonstrated live: adding the font to the title-card key re-rendered exactly 5 of 61 segments. Motion verified rather than assumed — max inter-frame change **99.15 with footage vs 0.12 poster-only**, run both ways to show the assertion can fail. |

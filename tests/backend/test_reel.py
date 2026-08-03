@@ -139,6 +139,16 @@ def _loudness(path: Path, start: float, end: float, band: int | None = None) -> 
     return float(match.group(1)) if match else -999.0
 
 
+def _drawn_pixel_fraction(png: Path) -> float:
+    """Fraction of pixels brighter than the card background -- i.e. how much text got drawn."""
+    from PIL import Image
+
+    with Image.open(png) as image:
+        histogram = image.convert("L").histogram()
+    total = sum(histogram)
+    return sum(histogram[91:]) / total if total else 0.0
+
+
 class TestFixturesArePresent:
     def test_the_media_fixtures_this_module_needs_exist(self):
         for name in [
@@ -641,6 +651,205 @@ class TestSubtitles:
             assert end <= start
 
 
+def _band_bytes(path: Path, at: float, *, bottom: bool) -> bytes:
+    """A downscaled greyscale strip from the top or bottom fifth of the frame at time `at`."""
+    # crop is w:h:x:y -- all four. Dropping x silently centres y instead, which sampled the middle
+    # of the frame for both bands and made them compare equal.
+    crop = "in_w:in_h/5:0:in_h*4/5" if bottom else "in_w:in_h/5:0:0"
+    dump = subprocess.run(
+        ["ffmpeg", "-v", "error", "-ss", f"{at:.3f}", "-i", str(path),
+         "-vf", f"crop={crop},scale=64:16,format=gray", "-frames:v", "1",
+         "-f", "rawvideo", "-"],
+        capture_output=True, check=True,
+    )  # fmt: skip
+    return dump.stdout
+
+
+def _band_difference(a: Path, b: Path, at: float, *, bottom: bool) -> float:
+    x, y = _band_bytes(a, at, bottom=bottom), _band_bytes(b, at, bottom=bottom)
+    if not x or len(x) != len(y):
+        return -1.0
+    return sum(abs(p - q) for p, q in zip(x, y, strict=True)) / len(x)
+
+
+class TestBurnIn:
+    """Burn-in has to be checked in the pixels: nothing else distinguishes drawn text from a
+    filter that silently drew an empty string, which is exactly what a CJK font gap causes."""
+
+    def _render(self, trip, tmp_path, *, language="zh"):
+        config = _fast_config()
+        plan = build_plan(trip, config, story=TestSubtitles.STORY)
+        rendered = render_reel(
+            plan,
+            config,
+            tmp_path,
+            story=TestSubtitles.STORY,
+            subtitle_languages=[language],
+            burn_in_language=language,
+        )
+        return rendered, plan
+
+    def test_writes_a_separate_file_and_leaves_the_clean_reel_alone(self, trip, tmp_path):
+        rendered, plan = self._render(trip, tmp_path)
+        assert plan.burned_in == "trip.zh.mp4"
+        assert (tmp_path / "reel" / "trip.zh.mp4").exists()
+        assert rendered.path.name == "trip.mp4"
+
+    def test_the_burned_copy_is_a_real_playable_mp4(self, trip, tmp_path):
+        self._render(trip, tmp_path)
+        burned = tmp_path / "reel" / "trip.zh.mp4"
+        assert _is_mp4(burned)
+        assert _probe(burned, "stream=codec_name").splitlines()[0] == "h264"
+
+    def test_the_burned_copy_keeps_the_same_duration(self, trip, tmp_path):
+        _, plan = self._render(trip, tmp_path)
+        burned = tmp_path / "reel" / "trip.zh.mp4"
+        assert float(_probe(burned, "format=duration")) == pytest.approx(plan.duration, abs=0.5)
+
+    def test_text_actually_reaches_the_bottom_of_the_frame(self, trip, tmp_path):
+        """The load-bearing assertion: pixels differ where the subtitle is drawn."""
+        rendered, plan = self._render(trip, tmp_path)
+        burned = tmp_path / "reel" / "trip.zh.mp4"
+        cue = plan.subtitle_tracks[0].cues[0]
+        at = (cue.start + cue.end) / 2
+        assert _band_difference(rendered.path, burned, at, bottom=True) > 1.0
+
+    def test_the_rest_of_the_picture_is_left_alone(self, trip, tmp_path):
+        """A control: if the whole frame differed, the difference above would prove nothing."""
+        rendered, plan = self._render(trip, tmp_path)
+        burned = tmp_path / "reel" / "trip.zh.mp4"
+        cue = plan.subtitle_tracks[0].cues[0]
+        at = (cue.start + cue.end) / 2
+        top = _band_difference(rendered.path, burned, at, bottom=False)
+        bottom = _band_difference(rendered.path, burned, at, bottom=True)
+        assert bottom > top * 2
+
+    def test_audio_is_copied_not_dropped(self, trip, tmp_path):
+        clip = FIXTURES / "clip_speech.mov"
+        trip["assets"]["vid"] = {
+            "asset_id": "vid",
+            "filename": "clip_speech.mov",
+            "kind": "video",
+            "taken_utc": "2026-07-18T09:01:30+00:00",
+            "day": "2026-07-18",
+            "preview": "previews/asset0.jpg",
+            "thumbnail": "previews/asset0.jpg",
+            "video": {"duration_seconds": float(_probe(clip, "format=duration"))},
+            "location": {"place": {"city": "Vienna"}},
+        }
+        trip["days"][0]["events"][0]["assets"].append("vid")
+        config = _fast_config()
+        plan = build_plan(
+            trip,
+            config,
+            story=TestSubtitles.STORY,
+            clip_sources={"vid": ClipSource("original", clip)},
+        )
+        render_reel(
+            plan,
+            config,
+            tmp_path,
+            story=TestSubtitles.STORY,
+            subtitle_languages=["zh"],
+            burn_in_language="zh",
+        )
+        assert "audio" in _probe(tmp_path / "reel" / "trip.zh.mp4", "stream=codec_type")
+
+    def test_reel_json_names_the_burned_file(self, trip, tmp_path):
+        self._render(trip, tmp_path)
+        document = json.loads((tmp_path / "reel" / REEL_JSON_FILENAME).read_text())
+        assert document["subtitles"]["burned_in_file"] == "trip.zh.mp4"
+
+    def test_burning_a_language_with_no_track_is_declined_with_a_reason(self, trip, tmp_path):
+        config = _fast_config()
+        plan = build_plan(trip, config, story=TestSubtitles.STORY)
+        render_reel(
+            plan,
+            config,
+            tmp_path,
+            story=TestSubtitles.STORY,
+            subtitle_languages=["zh"],
+            burn_in_language="ja",
+        )
+        assert plan.burned_in is None
+        assert not (tmp_path / "reel" / "trip.ja.mp4").exists()
+        assert any("cannot burn in 'ja'" in n for n in plan.notes)
+
+    def test_no_font_for_the_text_declines_rather_than_drawing_blanks(self, trip, tmp_path, mocker):
+        """Drawing an empty string would produce a file that looks finished and says nothing."""
+        mocker.patch("story_book.export.reel.can_render", return_value=False)
+        config = _fast_config()
+        plan = build_plan(trip, config, story=TestSubtitles.STORY)
+        render_reel(
+            plan,
+            config,
+            tmp_path,
+            story=TestSubtitles.STORY,
+            subtitle_languages=["zh"],
+            burn_in_language="zh",
+        )
+        assert plan.burned_in is None
+        assert any("no font on this machine" in n for n in plan.notes)
+
+    def test_no_burn_in_request_writes_no_extra_file(self, trip, tmp_path):
+        config = _fast_config()
+        plan = build_plan(trip, config, story=TestSubtitles.STORY)
+        render_reel(plan, config, tmp_path, story=TestSubtitles.STORY, subtitle_languages=["zh"])
+        assert plan.burned_in is None
+        assert not (tmp_path / "reel" / "trip.zh.mp4").exists()
+
+
+class TestCueImages:
+    def test_one_png_per_cue(self, tmp_path):
+        from story_book.export.subtitles import Cue, SubtitleTrack, render_cue_images
+
+        track = SubtitleTrack("zh", [Cue(0, 2, "维也纳", True), Cue(2, 4, "慕尼黑", True)])
+        made = render_cue_images(track, 640, 360, tmp_path / "cues")
+        assert len(made) == 2
+
+    def test_images_are_the_frame_size_with_transparency(self, tmp_path):
+        from PIL import Image
+
+        from story_book.export.subtitles import Cue, SubtitleTrack, render_cue_images
+
+        track = SubtitleTrack("zh", [Cue(0, 2, "维也纳", True)])
+        _, path = render_cue_images(track, 640, 360, tmp_path / "cues")[0]
+        with Image.open(path) as image:
+            assert image.size == (640, 360)
+            assert image.mode == "RGBA"
+
+    def test_the_text_lands_in_the_lower_half(self, tmp_path):
+        from PIL import Image
+
+        from story_book.export.subtitles import Cue, SubtitleTrack, render_cue_images
+
+        track = SubtitleTrack("zh", [Cue(0, 2, "维也纳的艺术与音乐", True)])
+        _, path = render_cue_images(track, 640, 360, tmp_path / "cues")[0]
+        with Image.open(path) as image:
+            alpha = image.split()[-1]
+            top = alpha.crop((0, 0, 640, 180)).getextrema()[1]
+            bottom = alpha.crop((0, 180, 640, 360)).getextrema()[1]
+        assert bottom > 0
+        assert top == 0
+
+    def test_long_text_without_spaces_still_wraps(self, tmp_path):
+        """CJK has no word spaces, so space-only wrapping would overflow the frame."""
+        from story_book.export.subtitles import Cue, SubtitleTrack, render_cue_images
+
+        long_cjk = "维也纳的艺术与音乐" * 6
+        track = SubtitleTrack("zh", [Cue(0, 2, long_cjk, True)])
+        _, path = render_cue_images(track, 640, 360, tmp_path / "cues")[0]
+        from PIL import Image
+
+        with Image.open(path) as image:
+            alpha = image.split()[-1]
+            # Wrapped text occupies several rows; a single overflowing line would not.
+            rows = [
+                y for y in range(0, 360, 4) if alpha.crop((0, y, 640, y + 4)).getextrema()[1] > 0
+            ]
+        assert len(rows) > 4
+
+
 class TestClipSourceResolution:
     def test_finds_a_package_proxy(self, trip, tmp_path):
         trip["assets"]["vid"] = {"asset_id": "vid", "kind": "video", "filename": "c.mov"}
@@ -722,15 +931,9 @@ class TestTitleCard:
         with Image.open(target) as image:
             assert image.size == (640, 360)
 
-    def test_text_the_font_cannot_draw_does_not_become_boxes(self, tmp_path, mocker):
-        from PIL import ImageFont
-
+    def test_accented_text_renders_without_boxes(self, tmp_path):
         from story_book.export.reel import Segment
 
-        mocker.patch(
-            "story_book.export.reel.load_font",
-            side_effect=lambda size: ImageFont.load_default(size=size),
-        )
         target = tmp_path / "card.png"
         render_title_card(
             Segment(kind="title", seconds=2.5, title="München", subtitle="July 17–20"),
@@ -738,7 +941,24 @@ class TestTitleCard:
             360,
             target,
         )
-        assert target.exists()
+        assert _drawn_pixel_fraction(target) > 0.001
+
+    def test_a_chinese_title_card_is_not_blank(self, tmp_path):
+        """`renderable()` alone deletes CJK outright, so this card came out empty. `font_for`
+        picks a font that can draw it -- and only the pixels can tell the difference."""
+        from story_book.export.fonts import can_render
+        from story_book.export.reel import Segment
+
+        if not can_render("维也纳的艺术与音乐"):
+            pytest.skip("no CJK font installed on this machine")
+
+        chinese = tmp_path / "zh.png"
+        blank = tmp_path / "blank.png"
+        render_title_card(
+            Segment(kind="title", seconds=2.5, title="维也纳的艺术与音乐"), 640, 360, chinese
+        )
+        render_title_card(Segment(kind="title", seconds=2.5, title=""), 640, 360, blank)
+        assert _drawn_pixel_fraction(chinese) > _drawn_pixel_fraction(blank) + 0.001
 
 
 class TestSingleDay:

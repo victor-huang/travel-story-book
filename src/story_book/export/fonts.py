@@ -30,6 +30,20 @@ FONT_CANDIDATES: tuple[str, ...] = (
     "/usr/share/fonts/TTF/DejaVuSans.ttf",
 )
 
+CJK_FONT_CANDIDATES: tuple[str, ...] = (
+    # macOS. `PingFang.ttc` exists but Pillow cannot open it, so it is deliberately absent.
+    "/System/Library/Fonts/Supplemental/Hiragino Sans GB.ttc",
+    "/System/Library/Fonts/Hiragino Sans GB.ttc",
+    "/System/Library/Fonts/STHeiti Medium.ttc",
+    "/Library/Fonts/Arial Unicode.ttf",
+    # Linux
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf",
+)
+"""Tried only when the Latin fonts cannot draw the text in hand -- see `font_for`."""
+
 # Typographic characters a model's prose reliably produces, mapped to ASCII that any font has.
 # Applied only when the font actually lacks the character.
 PUNCTUATION: dict[str, str] = {
@@ -61,6 +75,50 @@ def load_font(size: int) -> ImageFont.FreeTypeFont:
         except OSError:
             continue
     return ImageFont.load_default(size=size)
+
+
+@lru_cache(maxsize=64)
+def _try_load(path: str, size: int) -> ImageFont.FreeTypeFont | None:
+    if not Path(path).exists():
+        return None
+    try:
+        return ImageFont.truetype(path, size=size)
+    except OSError:
+        return None
+
+
+def coverage(font: ImageFont.FreeTypeFont, text: str) -> float:
+    """Fraction of `text`'s non-space characters this font can actually draw."""
+    chars = [c for c in text if not c.isspace()]
+    if not chars:
+        return 1.0
+    return sum(1 for c in chars if supports(font, c)) / len(chars)
+
+
+def font_for(text: str, size: int) -> ImageFont.FreeTypeFont:
+    """The first available font that can draw *every* character of `text`.
+
+    Chosen by what has to be rendered rather than by a fixed default. This is the difference
+    between a Chinese caption appearing and disappearing: `load_font` returns Arial, which has no
+    CJK glyphs, and `renderable` then drops every one of them -- an empty string, not a row of
+    boxes. Latin fonts are tried first so English text keeps the same look it always had.
+    """
+    best: tuple[float, ImageFont.FreeTypeFont] | None = None
+    for path in (*FONT_CANDIDATES, *CJK_FONT_CANDIDATES):
+        font = _try_load(path, size)
+        if font is None:
+            continue
+        score = coverage(font, text)
+        if score >= 1.0:
+            return font
+        if best is None or score > best[0]:
+            best = (score, font)
+    return best[1] if best is not None else ImageFont.load_default(size=size)
+
+
+def can_render(text: str, size: int = 40) -> bool:
+    """Whether any available font can draw all of `text`. Used to refuse burn-in honestly."""
+    return coverage(font_for(text, size), text) >= 1.0
 
 
 def font_identity() -> str:

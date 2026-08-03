@@ -6,10 +6,14 @@ The bug these exist for: Pillow's bundled font has no `é ü ö à ñ – —`, 
 
 from __future__ import annotations
 
+import pytest
 from PIL import ImageFont
 
 from story_book.export.fonts import (
     FONT_CANDIDATES,
+    can_render,
+    coverage,
+    font_for,
     font_identity,
     load_font,
     renderable,
@@ -97,6 +101,62 @@ class TestRenderableWithAFullFont:
         if not supports(font, "ü"):
             return  # no system font here; the bundled-font tests above cover that path
         assert renderable("München — Café", font) == "München — Café"
+
+
+class TestCoverage:
+    def test_full_coverage_for_ascii_in_a_latin_font(self):
+        assert coverage(ImageFont.load_default(size=24), "Vienna") == 1.0
+
+    def test_zero_coverage_for_cjk_in_the_bundled_font(self):
+        assert coverage(ImageFont.load_default(size=24), "维也纳") == 0.0
+
+    def test_whitespace_only_text_counts_as_covered(self):
+        assert coverage(ImageFont.load_default(size=24), "   ") == 1.0
+
+    def test_partial_coverage_is_reported_as_a_fraction(self):
+        assert coverage(ImageFont.load_default(size=24), "ab维") == pytest.approx(2 / 3)
+
+
+class TestFontFor:
+    """The bug: `load_font` returns Arial for everything, and `renderable` then deletes CJK
+    entirely -- an empty string, not a row of boxes."""
+
+    def test_latin_text_keeps_a_latin_font(self):
+        font = font_for("Cathedrals and Palaces", 40)
+        assert coverage(font, "Cathedrals and Palaces") == 1.0
+
+    def test_chinese_text_gets_a_font_that_can_draw_it(self):
+        if not can_render("维也纳的艺术"):
+            pytest.skip("no CJK font installed on this machine")
+        assert coverage(font_for("维也纳的艺术", 40), "维也纳的艺术") == 1.0
+
+    def test_chinese_text_survives_renderable_with_the_chosen_font(self):
+        if not can_render("维也纳的艺术"):
+            pytest.skip("no CJK font installed on this machine")
+        text = "维也纳的艺术"
+        assert renderable(text, font_for(text, 40)) == text
+
+    def test_falls_back_to_the_best_available_when_nothing_covers_it(self, mocker):
+        mocker.patch("story_book.export.fonts.FONT_CANDIDATES", ())
+        mocker.patch("story_book.export.fonts.CJK_FONT_CANDIDATES", ())
+        assert font_for("维也纳", 40) is not None
+
+    def test_never_returns_none(self):
+        assert font_for("", 40) is not None
+
+
+class TestCanRender:
+    def test_true_for_plain_ascii(self):
+        assert can_render("Vienna in Art and Music")
+
+    def test_false_for_something_no_font_here_has(self):
+        """Used to refuse burn-in honestly rather than drawing blanks."""
+        assert not can_render("🎻🎺🥁")
+
+    def test_reports_false_when_no_fonts_are_available(self, mocker):
+        mocker.patch("story_book.export.fonts.FONT_CANDIDATES", ())
+        mocker.patch("story_book.export.fonts.CJK_FONT_CANDIDATES", ())
+        assert not can_render("维也纳")
 
 
 class TestSupports:
