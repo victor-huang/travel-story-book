@@ -304,6 +304,141 @@ class TestConflictDisambiguation:
         assert "nearest same-camera photo" in message
 
 
+class TestOffsetTagWithoutGps:
+    """With no GPS the offset tag is the only evidence about which instant a wall reading names.
+
+    Discarding it assumes the clock was already on the display zone. On a real trip 11 paragliding
+    clips carried `-07:00` with no GPS and no device id: read as local they sat at 02:37, six hours
+    from anything else that day, which also left them too isolated for `gps_backfill` to give them
+    a position -- so they were dropped from every export.
+    """
+
+    def _clip(self, make_media, name: str, stamp: str, **kwargs):
+        return make_media(
+            name, taken_local=stamp, exif_offset_minutes=-420, device_id=None, **kwargs
+        )
+
+    def _daytime(self, make_media, *stamps: str) -> list:
+        return [
+            make_media(
+                f"day{index}",
+                taken_local=stamp,
+                lat=VIENNA[0],
+                lon=VIENNA[1],
+                exif_offset_minutes=120,
+            )
+            for index, stamp in enumerate(stamps)
+        ]
+
+    def test_the_tag_is_used_when_it_lands_the_clip_beside_the_trip(
+        self, make_media, finder: _FakeFinder
+    ) -> None:
+        clip = self._clip(make_media, "clip", "2026-07-05T02:37:10")
+        others = self._daytime(make_media, "2026-07-05T11:30:00", "2026-07-05T11:45:00")
+
+        resolve_timezones(
+            [clip, *others], _with_default_timezone(Config(), "Europe/Vienna"), finder
+        )
+
+        assert clip.taken_local == "2026-07-05T11:37:10"
+
+    def test_the_wall_reading_stands_when_the_trip_is_already_beside_it(
+        self, make_media, finder: _FakeFinder
+    ) -> None:
+        """The conservative direction: a genuinely nocturnal clip must not be dragged into the
+        middle of the day just because daytime is busier."""
+        clip = self._clip(make_media, "clip", "2026-07-05T02:37:10")
+        others = self._daytime(make_media, "2026-07-05T02:30:00", "2026-07-05T02:45:00")
+
+        resolve_timezones(
+            [clip, *others], _with_default_timezone(Config(), "Europe/Vienna"), finder
+        )
+
+        assert clip.taken_local == "2026-07-05T02:37:10"
+
+    def test_the_wall_reading_stands_when_neither_reading_has_neighbours(
+        self, make_media, finder: _FakeFinder
+    ) -> None:
+        clip = self._clip(make_media, "clip", "2026-07-05T02:37:10")
+        others = self._daytime(make_media, "2026-07-20T11:30:00")
+
+        resolve_timezones(
+            [clip, *others], _with_default_timezone(Config(), "Europe/Vienna"), finder
+        )
+
+        assert clip.taken_local == "2026-07-05T02:37:10"
+
+    def test_a_lone_clip_keeps_its_wall_reading(self, make_media, finder: _FakeFinder) -> None:
+        clip = self._clip(make_media, "clip", "2026-07-05T02:37:10")
+
+        [resolved] = resolve_timezones(
+            [clip], _with_default_timezone(Config(), "Europe/Vienna"), finder
+        )
+
+        assert resolved.taken_local == "2026-07-05T02:37:10"
+
+    def test_a_tag_that_already_matches_the_zone_changes_nothing(
+        self, make_media, finder: _FakeFinder
+    ) -> None:
+        clip = make_media("clip", taken_local="2026-07-05T11:37:10", exif_offset_minutes=120)
+        others = self._daytime(make_media, "2026-07-05T11:30:00")
+
+        resolve_timezones(
+            [clip, *others], _with_default_timezone(Config(), "Europe/Vienna"), finder
+        )
+
+        assert clip.taken_local == "2026-07-05T11:37:10"
+
+    def test_no_tag_at_all_leaves_the_wall_reading_alone(
+        self, make_media, finder: _FakeFinder
+    ) -> None:
+        clip = make_media("clip", taken_local="2026-07-05T02:37:10")
+        others = self._daytime(make_media, "2026-07-05T11:30:00")
+
+        resolve_timezones(
+            [clip, *others], _with_default_timezone(Config(), "Europe/Vienna"), finder
+        )
+
+        assert clip.taken_local == "2026-07-05T02:37:10"
+
+    def test_the_utc_instant_matches_the_chosen_local_time(
+        self, make_media, finder: _FakeFinder
+    ) -> None:
+        clip = self._clip(make_media, "clip", "2026-07-05T02:37:10")
+        others = self._daytime(make_media, "2026-07-05T11:30:00")
+
+        resolve_timezones(
+            [clip, *others], _with_default_timezone(Config(), "Europe/Vienna"), finder
+        )
+
+        assert clip.taken_utc == "2026-07-05T09:37:10+00:00"
+
+    def test_a_same_device_neighbour_is_preferred_over_the_whole_trip(
+        self, make_media, finder: _FakeFinder
+    ) -> None:
+        """A camera's own frames say more about its clock than strangers' do."""
+        clip = make_media(
+            "clip", taken_local="2026-07-05T02:37:10", exif_offset_minutes=-420, device_id="gopro"
+        )
+        same_device = make_media(
+            "sibling",
+            taken_local="2026-07-05T02:35:00",
+            lat=VIENNA[0],
+            lon=VIENNA[1],
+            exif_offset_minutes=120,
+            device_id="gopro",
+        )
+        elsewhere = self._daytime(make_media, "2026-07-05T11:30:00")
+
+        resolve_timezones(
+            [clip, same_device, *elsewhere],
+            _with_default_timezone(Config(), "Europe/Vienna"),
+            finder,
+        )
+
+        assert clip.taken_local == "2026-07-05T02:37:10"
+
+
 class TestInterpolatedCoordinatesAreNotEvidence:
     """`gps_backfill` runs *after* this stage, so a second build sees coordinates the first did
     not. Trusting them makes the same source tree resolve to different times on re-run -- and the

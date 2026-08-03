@@ -1,7 +1,7 @@
 # Two causes, one symptom — and a determinism bug hiding under it
 
 **Cycle:** T12 correction, prompted by the traveller importing the rest of a 1193-item trip.
-1549 tests pass.
+1557 tests pass.
 
 ## What happened
 
@@ -81,6 +81,29 @@ The two undetermined are the first and last frame of the trip, which have no nei
 **The new unit tests were shown to fail against the old behaviour** — 5 of 9, with the failure
 message printing the exact defect (`Reading 2026-07-19T15:59 as 2026-07-20T00:59 local`). Forcing
 `NEIGHBOUR_WINDOW = 0` reproduces the old rule, which made that check two lines.
+
+## The follow-on: an exclusion whose cause was three stages upstream
+
+The traveller then asked to export the GoPro clips the home filter had dropped. The filter was
+right — they had no coordinates, and with a home location configured unlocatable media is
+export-unsafe. The tempting fix is an override that forces them through, which would have worked
+and would have weakened a privacy guarantee to paper over a data error.
+
+The chain was: no GPS *and* no device id -> `_resolve_without_gps` had no neighbour, so it fell to
+config and **discarded the offset tag entirely** -> the clips sat at 02:37 instead of 11:37 -> six
+hours from anything else that day -> `gps_backfill` could not interpolate a position -> no
+coordinates -> excluded.
+
+Fixing the timestamp fixed everything downstream: all 11 clips now carry interpolated coordinates in
+the Zillertal, pass the filter, and appear in `trip.json`. Items with no coordinates went from 13 to
+2. **When something is being excluded, find out why before deciding whether the exclusion is
+wrong** — here the rule was right and the input was wrong.
+
+The gap itself is worth naming: with no GPS the offset tag is the *only* evidence about which
+instant a wall reading names, and the code was assuming instead that the clock was already on the
+display zone. The new rule is deliberately one-directional — the tag only wins when the wall
+reading has no neighbour within six hours and the tagged reading does — so a photograph genuinely
+taken at 02:37 is never dragged into the middle of the day because daytime is busier.
 
 ## A near miss worth recording
 

@@ -324,6 +324,7 @@ def _resolve_without_gps(
     config: Config,
     clock_offset: int,
     device_anchors: list[_Anchor],
+    trip_anchors: list[_Anchor] | None = None,
 ) -> tuple[datetime, datetime, str | None, int, TzSource]:
     """Levels 3/4. `media` has no GPS fix of its own."""
     corrected_local = _parse_local(media.exif_local or media.taken_local) + timedelta(
@@ -341,8 +342,62 @@ def _resolve_without_gps(
         offset = _offset_minutes_for(tz_name, corrected_local)
         tz_source = TzSource.CONFIG
 
+    tagged = _offset_tag_reading(media, corrected_local, tz_name, offset)
+    if tagged is not None:
+        anchors = device_anchors or (trip_anchors or [])
+        chosen = _prefer_anchored(tagged, corrected_local, offset, anchors)
+        if chosen is not None:
+            logger.warning(
+                "timezones: %s has no GPS -- reading its %+d min offset tag as the instant: "
+                "%s -> %s local, which lands beside the rest of the trip (the wall reading does "
+                "not).",
+                media.hash,
+                media.exif_offset_minutes,
+                corrected_local.isoformat(timespec="minutes"),
+                chosen.local.isoformat(timespec="minutes"),
+            )
+            return chosen.local, chosen.utc, tz_name, chosen.offset, tz_source
+
     taken_utc = corrected_local - timedelta(minutes=offset)
     return corrected_local, taken_utc, tz_name, offset, tz_source
+
+
+def _offset_tag_reading(
+    media: Media, wall_reading: datetime, tz_name: str, zone_offset: int
+) -> _Candidate | None:
+    """The instant the offset tag implies, rendered in `tz_name`. `None` if there is no tag.
+
+    With no GPS the tag is the *only* evidence about which instant the wall reading names, and
+    discarding it means assuming the clock was already on the display zone. On a real trip 11
+    paragliding clips carried `-07:00` with no GPS and no device id: read as local they sat at
+    02:37, six hours from anything else that day; read through the tag they sit at 11:37, among the
+    photographs from the same activity.
+    """
+    tag = media.exif_offset_minutes
+    if tag is None or tag == zone_offset:
+        return None
+    utc = wall_reading - timedelta(minutes=tag)
+    display_offset = _offset_minutes_for(tz_name, utc + timedelta(minutes=zone_offset))
+    return _Candidate("tag_instant", utc + timedelta(minutes=display_offset), utc, display_offset)
+
+
+def _prefer_anchored(
+    tagged: _Candidate, wall_reading: datetime, zone_offset: int, anchors: list[_Anchor]
+) -> _Candidate | None:
+    """`tagged` if it sits near the rest of the trip and the wall reading does not, else `None`.
+
+    Deliberately one-directional and conservative. A photograph really taken at 02:37 with a stale
+    tag must not be dragged into the middle of the day just because daytime is busier, so the tag
+    only wins when the wall reading has *no* neighbour inside `NEIGHBOUR_WINDOW` and the tagged
+    reading does.
+    """
+    if not anchors:
+        return None
+    window = NEIGHBOUR_WINDOW.total_seconds()
+    wall_utc = wall_reading - timedelta(minutes=zone_offset)
+    gap_wall = min(abs((a.utc - wall_utc).total_seconds()) for a in anchors)
+    gap_tagged = min(abs((a.utc - tagged.utc).total_seconds()) for a in anchors)
+    return tagged if gap_tagged <= window < gap_wall else None
 
 
 def resolve_timezones(
@@ -357,6 +412,10 @@ def resolve_timezones(
     dated = [m for m in media_list if m.taken_local]
 
     device_anchors: dict[str, list[_Anchor]] = defaultdict(list)
+    trip_anchors: list[_Anchor] = []
+    """Every resolved instant, whatever camera it came from. `device_anchors` answers "what was
+    *this* camera's clock doing"; this answers "when did the trip happen", which is the only
+    question available for an item with no device id at all."""
     resolved: list[Media] = []
 
     def _apply(media: Media, local, utc, tz_name, offset, source, *, anchor: bool) -> None:
@@ -366,12 +425,14 @@ def resolve_timezones(
         media.tz_offset_minutes = offset
         media.tz_source = source
         resolved.append(media)
-        if anchor and media.device_id:
-            device_anchors[media.device_id].append(
-                _Anchor(
-                    local, utc, tz_name, offset, media.device_id, has_gps=_has_measured_gps(media)
-                )
-            )
+        if not anchor:
+            return
+        entry = _Anchor(
+            local, utc, tz_name, offset, media.device_id, has_gps=_has_measured_gps(media)
+        )
+        trip_anchors.append(entry)
+        if media.device_id:
+            device_anchors[media.device_id].append(entry)
 
     # Pass 1: GPS items whose offset tag and zone agree (or that have no tag). Only these become
     # anchors, because pass 2 needs evidence that is not itself in question.
@@ -399,17 +460,18 @@ def resolve_timezones(
             anchor=False,
         )
     for media, _ in deferred:
-        if media.device_id and media.taken_local and media.taken_utc:
-            device_anchors[media.device_id].append(
-                _Anchor(
-                    _parse_local(media.taken_local),
-                    datetime.fromisoformat(media.taken_utc).replace(tzinfo=None),
-                    media.tz_name,
-                    media.tz_offset_minutes or 0,
-                    media.device_id,
-                    has_gps=True,
-                )
+        if media.taken_local and media.taken_utc:
+            entry = _Anchor(
+                _parse_local(media.taken_local),
+                datetime.fromisoformat(media.taken_utc).replace(tzinfo=None),
+                media.tz_name,
+                media.tz_offset_minutes or 0,
+                media.device_id,
+                has_gps=True,
             )
+            trip_anchors.append(entry)
+            if media.device_id:
+                device_anchors[media.device_id].append(entry)
 
     # Pass 3: everything else falls back to a same-device neighbor, then config.
     for media in dated:
@@ -417,8 +479,10 @@ def resolve_timezones(
             continue
         clock_offset = _device_config(config, media.device_id).clock_offset_minutes
         anchors = device_anchors.get(media.device_id, []) if media.device_id else []
+        # An item with no device of its own gets the whole trip as context: the question is when
+        # this happened relative to everything else, not what one camera's clock was doing.
         local, utc, tz_name, offset, source = _resolve_without_gps(
-            media, config, clock_offset, anchors
+            media, config, clock_offset, anchors, trip_anchors=trip_anchors
         )
         _apply(media, local, utc, tz_name, offset, source, anchor=True)
 
