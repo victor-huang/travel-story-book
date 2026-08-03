@@ -148,6 +148,248 @@ class TestGpsLevel:
         assert resolved.tz_offset_minutes == 0
 
 
+class TestConflictDisambiguation:
+    """One symptom, two causes.
+
+    An offset tag disagreeing with GPS means either the camera clock was on another zone (so the
+    tag holds the true instant) or the clock was already local and only the tag is stale (so the
+    wall reading is right). On one real trip 8 frames were the first and 6 the second; applying
+    either rule unconditionally corrupts the other group. The tiebreak is the nearest photo from
+    the same camera whose tag and GPS already agreed.
+    """
+
+    def _neighbours(self, make_media, *times: str) -> list:
+        return [
+            make_media(
+                f"ok{index}",
+                taken_local=stamp,
+                lat=VIENNA[0],
+                lon=VIENNA[1],
+                exif_offset_minutes=120,
+                device_id="phone",
+            )
+            for index, stamp in enumerate(times)
+        ]
+
+    def _conflicted(self, make_media, stamp: str):
+        return make_media(
+            "conflicted",
+            taken_local=stamp,
+            lat=VIENNA[0],
+            lon=VIENNA[1],
+            exif_offset_minutes=-420,
+            device_id="phone",
+        )
+
+    def test_the_tag_wins_when_shifting_lands_next_to_its_neighbours(
+        self, make_media, finder: _FakeFinder
+    ) -> None:
+        """The phone was really on home time: 08:26 -07:00 is 17:26 in Vienna, and the frames
+        either side were shot at 17:26."""
+        subject = self._conflicted(make_media, "2026-07-18T08:26:48")
+        crowd = self._neighbours(make_media, "2026-07-18T17:26:03", "2026-07-18T17:26:50")
+
+        resolve_timezones([subject, *crowd], Config(), finder)
+
+        assert subject.taken_local == "2026-07-18T17:26:48"
+
+    def test_the_wall_reading_wins_when_it_already_fits(
+        self, make_media, finder: _FakeFinder
+    ) -> None:
+        """Only the tag was stale. Applying it would throw the frame nine hours past midnight,
+        away from the photos taken minutes either side."""
+        subject = self._conflicted(make_media, "2026-07-19T15:59:13")
+        crowd = self._neighbours(make_media, "2026-07-19T15:44:27", "2026-07-19T16:13:46")
+
+        resolve_timezones([subject, *crowd], Config(), finder)
+
+        assert subject.taken_local == "2026-07-19T15:59:13"
+
+    def test_the_wall_reading_keeps_the_frame_on_its_own_day(
+        self, make_media, finder: _FakeFinder
+    ) -> None:
+        subject = self._conflicted(make_media, "2026-07-19T15:59:13")
+        crowd = self._neighbours(make_media, "2026-07-19T15:44:27", "2026-07-19T16:13:46")
+
+        resolve_timezones([subject, *crowd], Config(), finder)
+
+        assert subject.taken_local.startswith("2026-07-19")
+
+    def test_the_documented_default_stands_with_no_nearby_photo(
+        self, make_media, finder: _FakeFinder, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """No evidence either way, so the tag-instant rule holds -- and says it is unverified."""
+        subject = self._conflicted(make_media, "2026-07-18T08:26:48")
+        distant = self._neighbours(make_media, "2026-07-25T12:00:00")
+
+        with caplog.at_level(logging.WARNING):
+            resolve_timezones([subject, *distant], Config(), finder)
+
+        assert subject.taken_local == "2026-07-18T17:26:48"
+        assert any("no nearby photo" in record.message for record in caplog.records)
+
+    def test_a_lone_conflicted_frame_falls_back_rather_than_crashing(
+        self, make_media, finder: _FakeFinder
+    ) -> None:
+        subject = self._conflicted(make_media, "2026-07-18T08:26:48")
+
+        [resolved] = resolve_timezones([subject], Config(), finder)
+
+        assert resolved.taken_local == "2026-07-18T17:26:48"
+
+    def test_one_uncertain_frame_is_never_the_evidence_for_another(
+        self, make_media, finder: _FakeFinder
+    ) -> None:
+        """Both conflicted frames must be judged against the confident photo, not each other --
+        otherwise a wrong answer propagates through the whole run."""
+        first = self._conflicted(make_media, "2026-07-19T15:59:13")
+        second = make_media(
+            "second",
+            taken_local="2026-07-19T16:00:52",
+            lat=VIENNA[0],
+            lon=VIENNA[1],
+            exif_offset_minutes=-420,
+            device_id="phone",
+        )
+        crowd = self._neighbours(make_media, "2026-07-19T15:44:27", "2026-07-19T16:13:46")
+
+        resolve_timezones([first, second, *crowd], Config(), finder)
+
+        assert first.taken_local == "2026-07-19T15:59:13"
+        assert second.taken_local == "2026-07-19T16:00:52"
+
+    def test_neighbours_on_another_device_are_not_used(
+        self, make_media, finder: _FakeFinder
+    ) -> None:
+        """A second camera's clock is independent evidence about the world, not about this
+        camera's clock."""
+        subject = self._conflicted(make_media, "2026-07-19T15:59:13")
+        other = make_media(
+            "other",
+            taken_local="2026-07-19T15:44:27",
+            lat=VIENNA[0],
+            lon=VIENNA[1],
+            exif_offset_minutes=120,
+            device_id="camera",
+        )
+
+        resolve_timezones([subject, other], Config(), finder)
+
+        # No same-device anchor exists, so the documented default applies and the frame is pushed
+        # past midnight -- the very outcome the tiebreak avoids when a same-device photo is there.
+        assert subject.taken_local == "2026-07-20T00:59:13"
+
+    def test_the_chosen_reading_and_its_utc_instant_agree(
+        self, make_media, finder: _FakeFinder
+    ) -> None:
+        subject = self._conflicted(make_media, "2026-07-19T15:59:13")
+        crowd = self._neighbours(make_media, "2026-07-19T15:44:27", "2026-07-19T16:13:46")
+
+        resolve_timezones([subject, *crowd], Config(), finder)
+
+        assert subject.taken_utc == "2026-07-19T13:59:13+00:00"
+        assert subject.tz_offset_minutes == 120
+
+    def test_the_log_explains_which_reading_won_and_why(
+        self, make_media, finder: _FakeFinder, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        subject = self._conflicted(make_media, "2026-07-19T15:59:13")
+        crowd = self._neighbours(make_media, "2026-07-19T15:44:27", "2026-07-19T16:13:46")
+
+        with caplog.at_level(logging.WARNING):
+            resolve_timezones([subject, *crowd], Config(), finder)
+
+        message = " ".join(record.message for record in caplog.records)
+        assert "disagrees" in message
+        assert "nearest same-camera photo" in message
+
+
+class TestInterpolatedCoordinatesAreNotEvidence:
+    """`gps_backfill` runs *after* this stage, so a second build sees coordinates the first did
+    not. Trusting them makes the same source tree resolve to different times on re-run -- and the
+    interpolation was derived from these very timestamps, so it is circular as well."""
+
+    def test_an_interpolated_position_does_not_make_an_item_gps_backed(
+        self, make_media, finder: _FakeFinder
+    ) -> None:
+        anchor = make_media(
+            "anchor",
+            taken_local="2026-07-05T10:30:00",
+            lat=VIENNA[0],
+            lon=VIENNA[1],
+            exif_offset_minutes=120,
+            device_id="gopro",
+        )
+        backfilled = make_media(
+            "backfilled",
+            taken_local="2026-07-05T10:39:00",
+            lat=VIENNA[0],
+            lon=VIENNA[1],
+            gps_source=GpsSource.INTERPOLATED,
+            exif_offset_minutes=60,
+            device_id="gopro",
+        )
+
+        resolve_timezones([anchor, backfilled], Config(), finder)
+
+        assert backfilled.tz_source == TzSource.DEVICE_NEIGHBOR
+        assert backfilled.taken_local == "2026-07-05T10:39:00"
+
+    def test_resolution_is_unchanged_by_a_later_backfill(
+        self, make_media, finder: _FakeFinder
+    ) -> None:
+        """The regression this exists for: build 1 and build 2 must agree."""
+
+        def build(gps_source: GpsSource):
+            anchor = make_media(
+                "anchor",
+                taken_local="2026-07-05T10:30:00",
+                lat=VIENNA[0],
+                lon=VIENNA[1],
+                exif_offset_minutes=120,
+                device_id="gopro",
+            )
+            subject = make_media(
+                "subject",
+                taken_local="2026-07-05T10:39:00",
+                lat=None if gps_source is GpsSource.NONE else VIENNA[0],
+                lon=None if gps_source is GpsSource.NONE else VIENNA[1],
+                gps_source=gps_source,
+                exif_offset_minutes=60,
+                device_id="gopro",
+            )
+            resolve_timezones([anchor, subject], Config(), finder)
+            return subject.taken_local, subject.taken_utc
+
+        assert build(GpsSource.NONE) == build(GpsSource.INTERPOLATED)
+
+    def test_a_measured_position_is_still_used(self, make_media, finder: _FakeFinder) -> None:
+        media = make_media(
+            taken_local="2026-07-18T11:45:00",
+            lat=VIENNA[0],
+            lon=VIENNA[1],
+            gps_source=GpsSource.EXIF,
+        )
+
+        [resolved] = resolve_timezones([media], Config(), finder)
+
+        assert resolved.tz_source == TzSource.GPS
+
+    def test_a_manually_placed_position_is_still_used(
+        self, make_media, finder: _FakeFinder
+    ) -> None:
+        media = make_media(
+            taken_local="2026-07-18T11:45:00",
+            lat=VIENNA[0],
+            lon=VIENNA[1],
+            gps_source=GpsSource.MANUAL,
+        )
+
+        [resolved] = resolve_timezones([media], Config(), finder)
+
+        assert resolved.tz_source == TzSource.GPS
+
+
 class TestDeviceNeighborLevel:
     """Level 3: nearest-in-time GPS-bearing item on the same device."""
 

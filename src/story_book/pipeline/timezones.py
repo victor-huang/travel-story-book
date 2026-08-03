@@ -5,15 +5,22 @@ corrupts the primary organizing axis: day boundaries land in the wrong place and
 two devices interleave incorrectly. This stage resolves, for every dated `media` row, a naive
 local time, a resolved UTC instant, an IANA zone name, its offset in minutes, and which of four
 levels supplied it -- **revised after real-data profiling** (`dev_plan/p01_profile_findings.md`):
-a real 286-item export had 7 items whose `OffsetTimeOriginal` sat 9 hours from the offset their
-own GPS implies (an edited/re-exported photo carrying the *editing machine's* offset). So the
-tag is a hint, never ground truth, and GPS -- a measurement -- outranks it on disagreement:
+a real export had items whose `OffsetTimeOriginal` sat 9 hours from the offset their own GPS
+implies -- a phone still set to its home zone, or a re-export carrying the editing machine's
+offset. So the tag is a hint, never ground truth:
 
 1. `OffsetTimeOriginal`, but only if it agrees with the offset implied by the item's own GPS.
-2. Timezone from GPS via `timezonefinder` (offline) + `zoneinfo`. Wins any disagreement with
-   the EXIF offset tag; the conflict is logged loudly.
+2. Timezone from GPS via `timezonefinder` (offline) + `zoneinfo`. On disagreement with the offset
+   tag the zone always comes from GPS, but *which instant the photo records* is decided against
+   its neighbours -- see `_gps_conflict`. One symptom has two causes, and getting this wrong moves
+   photographs by hours.
 3. Timezone inferred from the nearest-in-time GPS-bearing item on the *same* device.
 4. `config.time.default_timezone` (or a per-device `DeviceConfig.default_timezone` override).
+
+**Only a *measured* position counts as this item's own GPS** (`_has_measured_gps`). `gps_backfill`
+runs after this stage, so on a second build it has already interpolated coordinates for items that
+had none -- and treating those as evidence made the same source tree resolve to different times on
+re-run. Interpolated coordinates take level 3.
 
 Contract note for the integrator -- **this is a real gap, not a guess**: the frozen `Media`
 dataclass has no field for the raw `OffsetTimeOriginal` tag, and as currently written
@@ -43,7 +50,7 @@ from typing import Protocol
 
 from story_book.config import Config, DeviceConfig
 from story_book.db.connection import iter_media, upsert_media
-from story_book.db.models import Media, TzSource
+from story_book.db.models import GpsSource, Media, TzSource
 from story_book.pipeline.base import StageContext, WholeTripStage
 
 logger = logging.getLogger(__name__)
@@ -85,6 +92,34 @@ class _Anchor:
     has_gps: bool
 
 
+@dataclass(frozen=True, slots=True)
+class _Candidate:
+    """One reading of a photo whose offset tag and GPS zone disagree."""
+
+    kind: str  # "tag_instant" | "wall_local"
+    local: datetime
+    utc: datetime
+    offset: int
+
+
+@dataclass(frozen=True, slots=True)
+class _Conflict:
+    zone_name: str
+    tag_offset: int
+    gps_offset: int
+    wall_reading: datetime
+    tag_instant: _Candidate
+    wall_local: _Candidate
+
+
+NEIGHBOUR_WINDOW = timedelta(hours=6)
+"""How close a same-device anchor must be to count as evidence for a conflicted frame.
+
+Beyond this, the nearest confident photo says nothing useful about which reading is right, and
+guessing from it would be worse than falling back to the documented default.
+"""
+
+
 def _parse_local(value: str) -> datetime:
     return datetime.fromisoformat(value)
 
@@ -114,6 +149,26 @@ def _offset_minutes_for(zone_name: str, local_naive: datetime) -> int:
         return 0
     assert delta is not None
     return int(delta.total_seconds() // 60)
+
+
+def _has_measured_gps(media: Media) -> bool:
+    """Whether this item's coordinates are its *own* evidence.
+
+    `media.has_gps` is only "lat and lon are set", which after `gps_backfill` is also true of items
+    whose position was **interpolated from neighbours**. Using those here would be circular -- the
+    interpolation is derived from the very timestamps this stage produces -- and worse, it makes the
+    stage's answer depend on whether a later stage has already run:
+
+      * build 1: a GoPro clip has no coordinates -> resolved from a same-device neighbour.
+      * build 2: `gps_backfill` has filled them in -> resolved as GPS-backed, an hour adrift.
+
+    Same source tree, two different timestamps. So an interpolated position is treated as no
+    position here, sending the item down the neighbour path where it belongs -- and the answer is
+    then the same on every run. `EXIF` is a measurement and `MANUAL` is a human statement; both
+    stand. Only `INTERPOLATED` is excluded, rather than requiring a positive marker, so an item of
+    unknown provenance keeps whatever behaviour it had.
+    """
+    return media.has_gps and media.gps_source is not GpsSource.INTERPOLATED
 
 
 def _gps_zone(finder: TimezoneFinderLike, media: Media) -> str | None:
@@ -161,34 +216,101 @@ def _resolve_gps_backed(
             TzSource.GPS,
         )
 
-    # Tag and GPS disagree. The two signals answer *different questions*, and the earlier version
-    # of this code threw one of them away:
-    #
-    #   * The offset tag says which zone the camera's clock was reading -- so it is the best
-    #     evidence for the true UTC instant, even when it is "wrong" about where you were.
-    #   * GPS says where the photo was taken -- so it decides which zone to *display* in.
-    #
-    # Discarding the tag and reading the wall time as GPS-local silently shifts the photo by the
-    # size of the disagreement. Found by hand-labelling (P03): a phone still set to its home zone
-    # recorded 08:26 -07:00 in Vienna. Reading that as 08:26 Vienna put it nine hours from its own
-    # filename neighbours -- IMG_1880 at 17:26, IMG_1881 at 08:26, IMG_1883 at 17:26 -- for frames
-    # shot seconds apart. The correct instant is 08:26 -07:00 = 15:26 UTC = 17:26 Vienna.
-    #
-    # So: take the instant from the tag, take the zone from GPS, and re-render the local time.
-    taken_utc = corrected_local - timedelta(minutes=candidate_offset)
-    display_offset = _offset_minutes_for(zone_name, taken_utc + timedelta(minutes=gps_offset))
-    display_local = taken_utc + timedelta(minutes=display_offset)
-    logger.warning(
-        "timezones: %s -- EXIF offset %+d min disagrees with its GPS zone %s (%+d min). Using the "
-        "tag for the instant and GPS for the zone: %s -> %s local.",
-        media.hash,
-        candidate_offset,
-        zone_name,
-        gps_offset,
-        corrected_local.isoformat(timespec="minutes"),
-        display_local.isoformat(timespec="minutes"),
+    raise AssertionError("conflicts are resolved by _resolve_conflict, not here")
+
+
+def _gps_conflict(
+    media: Media, config: Config, finder: TimezoneFinderLike, clock_offset: int
+) -> _Conflict | None:
+    """The two readings of a GPS-bearing photo whose offset tag disagrees with its zone.
+
+    `None` when there is nothing to disagree about. Otherwise both interpretations, because
+    **one symptom has two causes** and the tag alone cannot say which:
+
+      * *The camera clock really was on another zone.* A phone still set to its home time wrote
+        `08:26 -07:00` in Vienna. The wall reading is meaningless locally; the tag gives the true
+        instant, 15:26 UTC = 17:26 Vienna. -> `tag_instant`.
+      * *The clock was already local and only the tag is stale.* The same phone wrote
+        `15:59 -07:00` while reading Vienna time. Here the wall reading is correct and applying
+        the tag throws the photo nine hours forward, past midnight. -> `wall_local`.
+
+    Both were present in one real trip: of 15 conflicted frames, 8 were the first kind and 6 the
+    second. Picking either rule unconditionally corrupts the other group, so the choice is made
+    against same-device neighbours in `_resolve_conflict`.
+    """
+    wall_reading = _parse_local(media.exif_local or media.taken_local) + timedelta(
+        minutes=clock_offset
     )
-    return display_local, taken_utc, zone_name, display_offset, TzSource.GPS
+    tag_offset = media.exif_offset_minutes
+    if tag_offset is None:
+        return None
+
+    zone_name = _gps_zone(finder, media) or config.time.default_timezone
+    gps_offset = _offset_minutes_for(zone_name, wall_reading)
+    if tag_offset == gps_offset:
+        return None
+
+    tag_utc = wall_reading - timedelta(minutes=tag_offset)
+    tag_display_offset = _offset_minutes_for(zone_name, tag_utc + timedelta(minutes=gps_offset))
+    tag_instant = _Candidate(
+        "tag_instant",
+        tag_utc + timedelta(minutes=tag_display_offset),
+        tag_utc,
+        tag_display_offset,
+    )
+    wall_local = _Candidate(
+        "wall_local",
+        wall_reading,
+        wall_reading - timedelta(minutes=gps_offset),
+        gps_offset,
+    )
+    return _Conflict(zone_name, tag_offset, gps_offset, wall_reading, tag_instant, wall_local)
+
+
+def _resolve_conflict(
+    media: Media, conflict: _Conflict, anchors: list[_Anchor]
+) -> tuple[datetime, datetime, str | None, int, TzSource]:
+    """Pick the reading that sits nearest a confident photo from the same camera.
+
+    The camera's own wall clock is no help -- it is the thing in doubt, and it is not even
+    monotonic when a device flips between two zone settings mid-trip. What *is* reliable is that a
+    photo belongs near the ones taken around it. So: compute both instants, and keep whichever
+    lands closer to a same-device photo whose tag and GPS already agreed.
+
+    With no anchor inside `NEIGHBOUR_WINDOW` there is no evidence either way, and the documented
+    default (trust the tag for the instant) stands -- announced as unverified rather than settled.
+    """
+    candidates = (conflict.tag_instant, conflict.wall_local)
+    gaps: dict[str, float] = {}
+    for candidate in candidates:
+        nearest = min(
+            (abs((a.utc - candidate.utc).total_seconds()) for a in anchors), default=float("inf")
+        )
+        gaps[candidate.kind] = nearest
+
+    best = min(candidates, key=lambda c: gaps[c.kind])
+    if gaps[best.kind] > NEIGHBOUR_WINDOW.total_seconds():
+        chosen, verdict = conflict.tag_instant, "no nearby photo from this camera to check against"
+    else:
+        chosen = best
+        other = next(c for c in candidates if c.kind != chosen.kind)
+        verdict = (
+            f"nearest same-camera photo is {gaps[chosen.kind] / 60:.0f} min away, "
+            f"against {gaps[other.kind] / 60:.0f} min for the alternative"
+        )
+
+    logger.warning(
+        "timezones: %s -- EXIF offset %+d min disagrees with its GPS zone %s (%+d min). "
+        "Reading %s as %s local (%s).",
+        media.hash,
+        conflict.tag_offset,
+        conflict.zone_name,
+        conflict.gps_offset,
+        conflict.wall_reading.isoformat(timespec="minutes"),
+        chosen.local.isoformat(timespec="minutes"),
+        verdict,
+    )
+    return chosen.local, chosen.utc, conflict.zone_name, chosen.offset, TzSource.GPS
 
 
 def _nearest_anchor(anchors: list[_Anchor], local_time: datetime) -> _Anchor | None:
@@ -237,45 +359,68 @@ def resolve_timezones(
     device_anchors: dict[str, list[_Anchor]] = defaultdict(list)
     resolved: list[Media] = []
 
-    # Pass 1: items with their own GPS fix are resolved from evidence (levels 1/2) and become
-    # anchors other items on the same device can borrow from.
-    for media in dated:
-        if not media.has_gps:
-            continue
-        clock_offset = _device_config(config, media.device_id).clock_offset_minutes
-        local, utc, tz_name, offset, source = _resolve_gps_backed(
-            media, config, finder, clock_offset
-        )
+    def _apply(media: Media, local, utc, tz_name, offset, source, *, anchor: bool) -> None:
         media.taken_local = _format_local(local)
         media.taken_utc = _format_utc(utc)
         media.tz_name = tz_name
         media.tz_offset_minutes = offset
         media.tz_source = source
         resolved.append(media)
-        if media.device_id:
+        if anchor and media.device_id:
             device_anchors[media.device_id].append(
-                _Anchor(local, utc, tz_name, offset, media.device_id, has_gps=True)
+                _Anchor(
+                    local, utc, tz_name, offset, media.device_id, has_gps=_has_measured_gps(media)
+                )
             )
 
-    # Pass 2: everything else falls back to a same-device neighbor, then config.
+    # Pass 1: GPS items whose offset tag and zone agree (or that have no tag). Only these become
+    # anchors, because pass 2 needs evidence that is not itself in question.
+    deferred: list[tuple[Media, _Conflict]] = []
     for media in dated:
-        if media.has_gps:
+        if not _has_measured_gps(media):
+            continue
+        clock_offset = _device_config(config, media.device_id).clock_offset_minutes
+        conflict = _gps_conflict(media, config, finder, clock_offset)
+        if conflict is not None:
+            deferred.append((media, conflict))
+            continue
+        _apply(
+            media,
+            *_resolve_gps_backed(media, config, finder, clock_offset),
+            anchor=True,
+        )
+
+    # Pass 2: the conflicted ones, decided against those anchors. They are added as anchors only
+    # afterwards, so one uncertain frame can never be the evidence for another.
+    for media, conflict in deferred:
+        _apply(
+            media,
+            *_resolve_conflict(media, conflict, device_anchors.get(media.device_id, [])),
+            anchor=False,
+        )
+    for media, _ in deferred:
+        if media.device_id and media.taken_local and media.taken_utc:
+            device_anchors[media.device_id].append(
+                _Anchor(
+                    _parse_local(media.taken_local),
+                    datetime.fromisoformat(media.taken_utc).replace(tzinfo=None),
+                    media.tz_name,
+                    media.tz_offset_minutes or 0,
+                    media.device_id,
+                    has_gps=True,
+                )
+            )
+
+    # Pass 3: everything else falls back to a same-device neighbor, then config.
+    for media in dated:
+        if _has_measured_gps(media):
             continue
         clock_offset = _device_config(config, media.device_id).clock_offset_minutes
         anchors = device_anchors.get(media.device_id, []) if media.device_id else []
         local, utc, tz_name, offset, source = _resolve_without_gps(
             media, config, clock_offset, anchors
         )
-        media.taken_local = _format_local(local)
-        media.taken_utc = _format_utc(utc)
-        media.tz_name = tz_name
-        media.tz_offset_minutes = offset
-        media.tz_source = source
-        resolved.append(media)
-        if media.device_id:
-            device_anchors[media.device_id].append(
-                _Anchor(local, utc, tz_name, offset, media.device_id, has_gps=False)
-            )
+        _apply(media, local, utc, tz_name, offset, source, anchor=True)
 
     warn_suspected_clock_offsets(resolved, config)
     return resolved
@@ -348,7 +493,7 @@ class TimezoneStage(WholeTripStage):
     `media` row. See module docstring for the four-level resolution order."""
 
     name = "timezones"
-    version = 1
+    version = 2
     # Aggregate stages derive from the whole media set, so a cached result goes stale the moment
     # scan adds a file: the new item would keep a NULL taken_utc and drop out of ordering, day
     # grouping, and the timeline -- invisibly. Re-resolving is pure in-memory work over rows

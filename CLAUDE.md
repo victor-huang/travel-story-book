@@ -219,6 +219,17 @@ lived in places a per-stage test cannot reach.
   which picks a font by **what has to be drawn** — the first fix transliterated instead, which
   degraded gracefully for accents and *silently deleted* every CJK character. A fallback that is
   graceful for one script can be silent for another; test the scripts it cannot handle.
+- **A stage that reads a field a *later* stage writes is not deterministic.** `timezones` runs
+  before `gps_backfill`, so on build 1 a GoPro clip had no coordinates and took the
+  same-device-neighbour path; on build 2 the backfill had filled them in, so it took the GPS path
+  and moved an hour. Same source tree, two answers. Ask not just "is this field set?" but "who set
+  it, and had they run the first time?" — `gps_source` distinguishes a measurement from a
+  derivation, and only the measurement is this item's own evidence.
+- **When one symptom has two causes, a fixed rule corrupts half the data.** An `OffsetTimeOriginal`
+  that disagrees with GPS means either the clock was on another zone (tag holds the instant) or the
+  tag is stale (wall reading holds it). Applying either unconditionally was right for 8 frames and
+  wrong for 6. The tiebreak was already in the data: which reading lands next to the neighbouring
+  frames from the same camera.
 - **A geometry or measurement helper is as likely to be the bug as the code.** Three times in one
   cycle: `zip(xs, xs[1:], strict=True)` off by one, `ffmpeg -v error` silencing the
   `volumedetect` output being parsed, and `crop=w:h:x` silently centring `y` so two "different"
