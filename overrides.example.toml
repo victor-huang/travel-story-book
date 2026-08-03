@@ -5,11 +5,20 @@
 # re-running after an edit takes seconds: nothing is recomputed, only the aggregate stages
 # (events, dedup, selection) re-derive, and those are cheap.
 #
-# **Everything is addressed by filename.** Cluster and event ids are assigned fresh on every run,
-# so an override naming one would come to mean a different group of photos as soon as the library
-# changed. Filenames are stable, and the extension is optional -- "IMG_1880" and "IMG_1880.jpeg"
-# both work. A name that matches nothing, or matches two files, is an error rather than a silent
-# no-op: a correction that quietly does nothing is indistinguishable from one that failed.
+# **Address media by filename or by asset id.** The extension is optional -- "IMG_1880" and
+# "IMG_1880.jpeg" both work. The asset id is the short hex code the HTML report prints beside each
+# photo (and the key in `trip.json`), so you can copy it straight off the page you are reviewing:
+#
+#     pin = ["IMG_1880", "27c81d1065f06fd0", "66a55d16"]
+#
+# Eight characters of an id are enough as long as they are unique; if not, you are told to use more.
+# Both forms are stable because both are functions of the file itself. **Cluster and event ids are
+# not accepted** -- those are assigned fresh on every run, so an override naming one would come to
+# mean a different group of photos as soon as the library changed. Events are addressed by naming a
+# photo inside them.
+#
+# A reference that matches nothing, or matches two files, is an error rather than a silent no-op: a
+# correction that quietly does nothing is indistinguishable from one that failed.
 
 override_version = 1
 

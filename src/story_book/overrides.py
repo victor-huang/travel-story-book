@@ -4,11 +4,12 @@ The report is read-only and regenerated, so every correction a human wants to ma
 hand-edited `overrides.toml` next to the config. `build` reads it, and because the expensive
 stages are cached by content hash, re-running after an edit costs seconds.
 
-**Everything is addressed by filename, never by cluster or event id.** Those ids are assigned
-fresh on every run -- clusters and events are rebuilt from scratch each time -- so an override
-saying `cluster = 12` would quietly come to mean a different group of photos the next time the
-library changed. A filename is stable for as long as the file is, which is the same lifetime as
-the override itself. Events are therefore addressed by naming a photo inside them.
+**Everything is addressed by filename or `asset_id`, never by cluster or event id.** Cluster and
+event ids are assigned fresh on every run -- both are rebuilt from scratch each time -- so an
+override saying `cluster = 12` would quietly come to mean a different group of photos the next time
+the library changed. A filename is stable for as long as the file is, and an `asset_id` is a prefix
+of the content hash, so both are stable for the same reason: they are functions of the file, not of
+insertion order. Events are therefore addressed by naming a photo inside them.
 
 Why this exists at all: selection ranks on *technical* quality, and a human ranks on what the
 photo is of. Measured against 19 hand-labelled decisions on a real trip, no setting of the
@@ -20,6 +21,7 @@ mechanism instead of a threshold.
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 import tomllib
 from dataclasses import dataclass, field
@@ -160,7 +162,7 @@ def _names(value: Any, where: str) -> tuple[str, ...]:
     if value is None:
         return ()
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-        raise OverrideError(f"{where} must be a list of filenames")
+        raise OverrideError(f"{where} must be a list of filenames or asset ids")
     return tuple(value)
 
 
@@ -200,21 +202,46 @@ class ResolvedOverrides:
         )
 
 
-def resolve(overrides: Overrides, conn: sqlite3.Connection) -> ResolvedOverrides:
-    """Match every filename in the overrides to exactly one media hash.
+ASSET_ID_PATTERN = re.compile(r"^[0-9a-f]{8,}$")
+"""An `asset_id` from `trip.json` or the HTML report: a lowercase hex prefix of the content hash.
 
-    A name that matches nothing, or more than one file, raises rather than being dropped.
+Accepted alongside filenames because it is **stable for the same reason a filename is** -- it is a
+function of the file's bytes, not of insertion order. Cluster and event ids are still refused; those
+are reassigned on every run, so an override naming one would come to mean a different group of
+photographs as soon as the library changed.
+"""
+
+
+def resolve(overrides: Overrides, conn: sqlite3.Connection) -> ResolvedOverrides:
+    """Match every filename or asset id in the overrides to exactly one media hash.
+
+    A reference that matches nothing, or more than one file, raises rather than being dropped.
     """
     by_name: dict[str, list[str]] = {}
+    hashes: list[str] = []
     for row in conn.execute("SELECT hash, path FROM media"):
         name = Path(row["path"]).name
         by_name.setdefault(name, []).append(row["hash"])
         by_name.setdefault(Path(name).stem, []).append(row["hash"])
+        hashes.append(row["hash"])
 
     def one(name: str, where: str) -> str:
         matches = by_name.get(name) or by_name.get(Path(name).stem)
+        if not matches and ASSET_ID_PATTERN.match(name.lower()):
+            # The report prints the asset id next to the filename, so it is the thing under a
+            # reader's cursor while they are deciding what to pin.
+            prefix = name.lower()
+            matches = [h for h in hashes if h.startswith(prefix)]
+            if len(set(matches)) > 1:
+                raise OverrideError(
+                    f"{where}: asset id {name!r} matches {len(set(matches))} files -- "
+                    "use more characters of the id"
+                )
         if not matches:
-            raise OverrideError(f"{where}: no media in this library is named {name!r}")
+            raise OverrideError(
+                f"{where}: no media in this library is named {name!r}, and it is not an asset id "
+                "from the report or trip.json"
+            )
         if len(set(matches)) > 1:
             raise OverrideError(
                 f"{where}: {name!r} matches {len(set(matches))} different files; "

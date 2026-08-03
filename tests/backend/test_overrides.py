@@ -99,6 +99,80 @@ class TestResolveNames:
             resolve(Overrides.from_dict({"pin": ["IMG_1000"]}), ctx.conn)
 
 
+class TestResolveAssetIds:
+    """The report prints the `asset_id` beside the filename, so it is what is under a reader's
+    cursor while they decide what to pin. It is stable for the same reason a filename is: a prefix
+    of the content hash, a function of the bytes rather than of insertion order."""
+
+    def test_a_full_asset_id_matches_the_file(self, ctx: StageContext, make_media) -> None:
+        _seed(ctx, make_media, 3)
+        db.upsert_media(ctx.conn, make_media("a1b2c3d4e5f60718", path="/src/IMG_2000.jpeg"))
+        resolved = resolve(Overrides.from_dict({"pin": ["a1b2c3d4e5f60718"]}), ctx.conn)
+        assert resolved.pin == frozenset({"a1b2c3d4e5f60718"})
+
+    def test_a_shorter_prefix_still_matches(self, ctx: StageContext, make_media) -> None:
+        _seed(ctx, make_media, 3)
+        db.upsert_media(ctx.conn, make_media("a1b2c3d4e5f60718", path="/src/IMG_2000.jpeg"))
+        resolved = resolve(Overrides.from_dict({"pin": ["a1b2c3d4"]}), ctx.conn)
+        assert resolved.pin == frozenset({"a1b2c3d4e5f60718"})
+
+    def test_an_uppercase_id_is_accepted(self, ctx: StageContext, make_media) -> None:
+        _seed(ctx, make_media, 3)
+        db.upsert_media(ctx.conn, make_media("a1b2c3d4e5f60718", path="/src/IMG_2000.jpeg"))
+        resolved = resolve(Overrides.from_dict({"pin": ["A1B2C3D4E5F60718"]}), ctx.conn)
+        assert resolved.pin == frozenset({"a1b2c3d4e5f60718"})
+
+    def test_an_ambiguous_prefix_asks_for_more_characters(
+        self, ctx: StageContext, make_media
+    ) -> None:
+        _seed(ctx, make_media, 1)
+        db.upsert_media(ctx.conn, make_media("abcd1111aaaa", path="/src/IMG_2000.jpeg"))
+        db.upsert_media(ctx.conn, make_media("abcd1111bbbb", path="/src/IMG_2001.jpeg"))
+        with pytest.raises(OverrideError, match="use more characters"):
+            resolve(Overrides.from_dict({"pin": ["abcd1111"]}), ctx.conn)
+
+    def test_a_short_hex_looking_name_is_not_treated_as_an_id(
+        self, ctx: StageContext, make_media
+    ) -> None:
+        """Eight characters minimum, so a file called `abc.jpeg` cannot be read as a hash prefix."""
+        _seed(ctx, make_media, 1)
+        db.upsert_media(ctx.conn, make_media("abcdef00112233", path="/src/IMG_2000.jpeg"))
+        with pytest.raises(OverrideError, match="no media in this library"):
+            resolve(Overrides.from_dict({"pin": ["abcd"]}), ctx.conn)
+
+    def test_an_unknown_id_is_fatal_and_says_what_it_looked_for(
+        self, ctx: StageContext, make_media
+    ) -> None:
+        _seed(ctx, make_media, 2)
+        with pytest.raises(OverrideError, match="not an asset id"):
+            resolve(Overrides.from_dict({"pin": ["deadbeefdeadbeef"]}), ctx.conn)
+
+    def test_a_filename_still_wins_over_an_id_lookup(self, ctx: StageContext, make_media) -> None:
+        """A file genuinely named like a hex string must resolve as a filename, not a prefix."""
+        _seed(ctx, make_media, 1)
+        db.upsert_media(ctx.conn, make_media("zzz1", path="/src/abcdef12.jpeg"))
+        resolved = resolve(Overrides.from_dict({"pin": ["abcdef12"]}), ctx.conn)
+        assert resolved.pin == frozenset({"zzz1"})
+
+    def test_ids_work_for_rejects_and_keepers_too(self, ctx: StageContext, make_media) -> None:
+        _seed(ctx, make_media, 1)
+        db.upsert_media(ctx.conn, make_media("a1b2c3d4e5f60718", path="/src/IMG_2000.jpeg"))
+        resolved = resolve(
+            Overrides.from_dict(
+                {"reject": ["a1b2c3d4e5f60718"], "keeper": ["a1b2c3d4"]},
+            ),
+            ctx.conn,
+        )
+        assert resolved.reject == frozenset({"a1b2c3d4e5f60718"})
+        assert resolved.keeper == frozenset({"a1b2c3d4e5f60718"})
+
+    def test_an_id_names_an_event_for_splitting(self, ctx: StageContext, make_media) -> None:
+        _seed(ctx, make_media, 1)
+        db.upsert_media(ctx.conn, make_media("a1b2c3d4e5f60718", path="/src/IMG_2000.jpeg"))
+        resolved = resolve(Overrides.from_dict({"split_event": [{"before": "a1b2c3d4"}]}), ctx.conn)
+        assert resolved.split_before == frozenset({"a1b2c3d4e5f60718"})
+
+
 class TestPinAndReject:
     def test_the_worst_photo_is_not_chosen_without_a_pin(
         self, ctx: StageContext, make_media
