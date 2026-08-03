@@ -21,6 +21,7 @@ uv run story-book build <src> --out <dir>        # the pipeline
 uv run story-book report --out <dir> [--story story.json] [--context ctx.yaml]  # re-render
 uv run story-book profile <src>                  # folder stats + suggested config
 uv run story-book package --out <dir> [--zip] [--video-proxies]   # ChatGPT package
+uv run story-book reel --out <dir> [--music f] [--aspect 9:16] [--day D]  # video montage
 uv run story-book check-story <story.json> --out <dir>   # validate the model's answer
 uv run story-book eval <truth.toml> --out <dir>   # score against a labelled truth set
 uv run python tests/fixtures/generate.py         # regenerate fixtures (deterministic)
@@ -207,6 +208,14 @@ lived in places a per-stage test cannot reach.
 - **When a value gains a dimension, grep every comparison on it.** Adding UTC offsets to
   `taken_local` broke event durations one day and trip bounds the next — same rule (order by UTC,
   split days by local), two sites, found separately.
+- **A "no reading" sentinel must not compare cleanly against itself.** `volumedetect` logs at
+  info level, so `ffmpeg -v error` silenced it and every measurement returned `-999.0`. The
+  assertion happened to be `<`, so it failed; `>=` or an equality would have passed on no
+  evidence. Where a measurement can come back empty, assert that it did not.
+- **A bundled default is still a design choice.** Pillow's `load_default` font was picked because
+  it is always present — and it has no `é ü ö à ñ – —`, so a title card read `July 17□20` and
+  every contact sheet would have drawn boxes for a German place name. "Always available" and
+  "renders your text" are different properties. Text in images goes through `export/fonts.py`.
 - **Look at real output.** A rendered contact sheet exposed the flat-score bug in seconds; no
   assertion had. Loading the report found that every image 404'd while the HTML validated
   perfectly — **when output references external files, resolve the references**, since the markup

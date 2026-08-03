@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import json
 import time
+from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 from typing import Annotated
 
 import typer
 from rich.console import Console
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 
 from story_book import __version__, profile_render
 from story_book import profile as story_profile
@@ -30,7 +32,14 @@ from story_book.export.package import (
     build_package,
     write_archive,
 )
-from story_book.export.report import load_story, render_report
+from story_book.export.reel import (
+    ReelError,
+    build_plan,
+    ffmpeg_available,
+    render_reel,
+    resolve_clip_sources,
+)
+from story_book.export.report import load_story, load_trip_json, render_report
 from story_book.overrides import OverrideError, Overrides
 from story_book.pipeline.base import Stage, StageContext
 from story_book.pipeline.days import DaysStage
@@ -480,6 +489,134 @@ def package(
         size_mb = target.stat().st_size / 1_048_576
         console.print(f"archive: [bold]{target}[/] ({size_mb:.0f} MB, no .DS_Store)")
     console.print("Open a fresh chat per day; attach the sheets and brief.md, paste prompt.md.")
+
+
+@app.command()
+def reel(
+    out: Annotated[Path, typer.Option("--out", "-o", help="Output directory holding trip.json.")],
+    config_path: Annotated[Path | None, typer.Option("--config", "-c")] = None,
+    music: Annotated[
+        Path | None,
+        typer.Option(
+            "--music",
+            exists=True,
+            dir_okay=False,
+            help="Audio track to mix under the reel. Nothing ships with the tool; supply your own.",
+        ),
+    ] = None,
+    source: Annotated[
+        Path | None,
+        typer.Option(
+            "--source",
+            exists=True,
+            file_okay=False,
+            help="Source tree, opened read-only, for clip footage when no proxies exist.",
+        ),
+    ] = None,
+    aspect: Annotated[
+        str | None, typer.Option("--aspect", help="Frame ratio, e.g. 16:9 or 9:16. Default 16:9.")
+    ] = None,
+    clip_audio: Annotated[
+        bool | None,
+        typer.Option(
+            "--clip-audio/--no-clip-audio",
+            help="Play each clip's own sound and duck the music under it. On by default.",
+        ),
+    ] = None,
+    day: Annotated[
+        str | None, typer.Option("--day", help="Render one day (YYYY-MM-DD) instead of the trip.")
+    ] = None,
+    story_path: Annotated[
+        Path | None,
+        typer.Option("--story", exists=True, dir_okay=False, help="A model's story.json."),
+    ] = None,
+) -> None:
+    """Render a video montage from `trip.json`.
+
+    A pure function of `trip.json` plus derived images -- it reads no database and recomputes no
+    pipeline stage. Segments are cached by content, so an interrupted render resumes where it
+    stopped. See `dev_plan/reel_video_montage.md`.
+    """
+    config = _load_config(config_path)
+    out = out.resolve()
+    reel_changes: dict[str, object] = {}
+    if aspect:
+        reel_changes["aspect"] = aspect
+    if clip_audio is not None:
+        reel_changes["clip_audio"] = clip_audio
+    if reel_changes:
+        config = _with(config, reel=replace(config.reel, **reel_changes))
+
+    trip_json = out / TRIP_JSON_FILENAME
+    if not trip_json.exists():
+        console.print(f"[red]no trip.json at {trip_json}[/] -- run `story-book build` first.")
+        raise typer.Exit(2)
+    if not ffmpeg_available():
+        console.print("[red]ffmpeg and ffprobe are required to render a reel.[/]")
+        raise typer.Exit(2)
+
+    document = load_trip_json(trip_json)
+    story = load_story(story_path or _story_dir_file(out, "story.json"))
+
+    try:
+        sources = resolve_clip_sources(document, out, source)
+        plan = build_plan(document, config, story=story, clip_sources=sources, only_day=day)
+    except ReelError as exc:
+        console.print(f"[red]reel error:[/] {exc}")
+        raise typer.Exit(2) from exc
+
+    kinds = Counter(s.kind for s in plan.segments)
+    console.print(
+        f"{len(plan.segments)} segment(s) [{kinds['title']} title, {kinds['still']} still, "
+        f"{kinds['clip']} clip] -> ~{plan.duration:.0f}s at {plan.width}x{plan.height}"
+    )
+
+    started = time.monotonic()
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("{task.completed}/{task.total}"),
+            console=console,
+        ) as bar:
+            task = bar.add_task("rendering", total=len(plan.segments))
+            rendered = render_reel(
+                plan,
+                config,
+                out,
+                music=music,
+                progress=lambda segment, was_cached: bar.advance(task),
+            )
+    except ReelError as exc:
+        console.print(f"[red]reel error:[/] {exc}")
+        raise typer.Exit(1) from exc
+    elapsed = time.monotonic() - started
+
+    for note in plan.notes:
+        console.print(f"[yellow]{note}[/]")
+    if plan.clips_with_sound:
+        ducked = " (music ducked under them)" if music else ""
+        console.print(f"{len(plan.clips_with_sound)} clip(s) play their own audio{ducked}")
+    if plan.clips_without_sound:
+        console.print(
+            f"[dim]{len(plan.clips_without_sound)} clip(s) have no audio track: "
+            f"{', '.join(plan.clips_without_sound)}[/]"
+        )
+    if music is None:
+        rest = (
+            "the reel is silent between the clips"
+            if plan.clips_with_sound
+            else "the reel is silent"
+        )
+        console.print(
+            f"[dim]no music: {rest}. Pass --music with your own track -- none ships with the "
+            "tool, because none can be redistributed.[/]"
+        )
+    console.print(
+        f"{rendered.segments_rendered} rendered, {rendered.segments_cached} cached "
+        f"in {elapsed:.0f}s -> [bold]{rendered.path}[/] ({rendered.duration:.0f}s)"
+    )
 
 
 @app.command(name="eval")

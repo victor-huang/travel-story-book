@@ -35,6 +35,12 @@ Cloud sync · desktop/mobile app · photo or video editing · face clustering an
 printing/photo-book vendor integration · social sharing · automated story generation ·
 narrated or cinematic video rendering.
 
+**Amended 2026-08-02.** *Narrated or cinematic* video rendering stays out. A **non-narrated
+montage** is pulled forward as a Phase 1.5 export — see
+[`reel_video_montage.md`](./reel_video_montage.md) — on the grounds that it introduces no
+narration, no cinematic editing, and **no new analysis of the media**: it is a pure function of
+`trip.json`, in the same class as the HTML report and the ChatGPT package.
+
 ---
 
 # Non-negotiable constraints
@@ -959,6 +965,19 @@ package. Suggested order, each step ending in something runnable on the real tri
 8. Landmark recognition. (11)
 9. `trip.json`, full HTML report, ChatGPT package, `overrides.toml`. (12–14)
 
+## Phase 1.5 — The reel (added 2026-08-02)
+
+A Memories-style video montage rendered from `trip.json`: stills in time order, title cards
+from `story.json`, the trip's clips cut in, optional user-supplied music. Full plan in
+[`reel_video_montage.md`](./reel_video_montage.md); tasks T50–T53 in Wave 5 of the tracker.
+
+Placed here rather than in Phase 3 because it needs nothing that does not already exist —
+selection, ordering, chapter structure, previews and `ffmpeg` are all in hand. Its three real
+constraints are constraints rather than work items: music cannot be shipped (licensing), the
+good five seconds of a 112-second clip cannot yet be identified (P05's `highlight_ranges` is
+Phase 2), and a 54/46 landscape/portrait split has no free answer without face bounding boxes
+the schema does not store.
+
 ## Phase 2 — AI generation in-tool
 
 Direct API-based journal, caption, and album-layout generation (replacing the manual
@@ -970,7 +989,9 @@ usage rather than up front.
 ## Phase 3 — Documentary
 
 Narrated video assembly, cinematic edits, photo-book vendor export, family collaboration,
-receipt/itinerary extraction.
+receipt/itinerary extraction. The non-narrated montage moved out of this phase to Phase 1.5
+above; what remains here is narration, per-window video highlight detection, and saliency-aware
+cropping — all of which need analysis that does not exist yet.
 
 ---
 

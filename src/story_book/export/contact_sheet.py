@@ -38,6 +38,8 @@ from typing import Literal
 
 from PIL import Image, ImageDraw, ImageFont
 
+from story_book.export.fonts import load_font, renderable
+
 logger = logging.getLogger(__name__)
 
 FitMode = Literal["letterbox", "crop"]
@@ -115,8 +117,12 @@ class ContactSheetResult:
 
 
 def _load_font(size: int, *, bold: bool = False) -> ImageFont.FreeTypeFont:
-    """Pillow's bundled scalable font. No TTF needs to exist on the machine for this to work."""
-    return ImageFont.load_default(size=size)
+    """A system font where one exists, else Pillow's bundled one -- see `fonts.py`.
+
+    The bundled font is always present but has no `é ü ö à ñ – —`, so a place name like
+    "München" drew as boxes. Cell labels now go through `renderable()` for the same reason.
+    """
+    return load_font(size)
 
 
 def _open_image(path: Path) -> Image.Image | None:
@@ -156,7 +162,12 @@ def _fit_crop(image: Image.Image, box_w: int, box_h: int) -> Image.Image:
 def _truncate_to_width(
     draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, max_width: int
 ) -> str:
-    """Shorten `text` with a trailing ellipsis until it fits `max_width`, if it doesn't already."""
+    """Shorten `text` with a trailing ellipsis until it fits `max_width`, if it doesn't already.
+
+    Every label passes through here, which makes it the one place to guarantee the font can
+    actually draw what it is handed.
+    """
+    text = renderable(text, font)
     if draw.textlength(text, font=font) <= max_width:
         return text
     ellipsis = "…"

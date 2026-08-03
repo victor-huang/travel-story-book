@@ -490,6 +490,60 @@ pass, or each failure is logged with a follow-up task.
 
 ---
 
+# Wave 5 — The reel (added 2026-08-02)
+
+Full design in [`reel_video_montage.md`](./reel_video_montage.md). Read it before claiming any
+task here; the three constraints it documents (music licensing, no per-window video scores, the
+54/46 orientation split) are the reason each task is scoped the way it is.
+
+**Depends on nothing in flight.** The reel is an *export* — a pure function of `trip.json` plus
+derived images, in the same class as `report.py` and `package.py`. It adds no pipeline stage,
+reads no new signal from the media, and touches no frozen contract.
+
+| ID | Task | Status | Owner | Depends on |
+| --- | --- | --- | --- | --- |
+| T50 | Reel v1 — montage renderer + `story-book reel` | done | claude (main) | T31 |
+| T51 | Beat-synced cutting | todo | — | T50 |
+| T52 | Ken Burns motion | todo | — | T50 |
+| T53 | Animated per-day map segment | todo | — | T50, T40 |
+
+### T50 — Reel v1
+**Owns:** `src/story_book/export/reel.py`, its templates, `tests/unit/test_reel.py`,
+`tests/backend/test_reel.py`. **Needs from another owner:** a `ReelConfig` block in `config.py`
+and a `reel` command in `cli.py` — raise these as cross-task requests rather than editing.
+
+1080p/30fps H.264+AAC montage from `trip.json`: day highlights in `taken_utc` order, ~3 s each,
+`xfade` crossfades, blurred-fill pillarbox for off-aspect stills, Pillow-rendered title cards
+(**not** `drawtext` — libfreetype and a font path cannot be assumed), clips via the
+proxy → `--source` → stills fallback, optional `--music`. Per-segment cache under
+`<out>/reel/.cache/segments/` keyed by the **spec hash, never list position**.
+
+`reel.json` records music, beat-alignment, video source and excerpt provenance. No new Python
+dependency.
+
+**Acceptance:** a playable `trip.mp4` with no flags on the real trip; a human watches the whole
+thing; `file -b` confirms the container and one clip is confirmed to contain motion rather than
+a repeated still; a real `SIGINT` mid-render recomputes only unfinished segments, proven by
+segment count and not by exit code alone.
+
+### T51 — Beat-synced cutting
+**Depends on:** T50. Onset detection via `librosa` or `aubio` behind a new optional extra; cut
+boundaries snap to beats. **Acceptance:** on a real track, cuts land within one frame of a
+detected onset — and `reel.json` claims beat-alignment *only* when it actually happened.
+
+### T52 — Ken Burns motion
+**Depends on:** T50. `zoompan` pan/zoom per still. **`zoompan` quantises zoom per output frame
+at input resolution and visibly jitters**; the usual mitigation is upscale-then-zoompan-then-
+downscale. **Acceptance:** verified by watching real frames at full size, not by an assertion —
+this is precisely the class of defect that passes every test and looks bad on a screen.
+
+### T53 — Animated per-day map segment
+**Depends on:** T50, T40. Animate the day `path` (already simplified) as frames, reusing the
+report's SVG map renderer. **Acceptance:** the drawn route matches the day's path, and
+interpolated fixes stay visually distinct as they do in the report.
+
+---
+
 # Pre-flight for Wave 1+ (do these first, they can invalidate the plan)
 
 From Phase 0 in the plan doc. Neither is a coding task; both are cheap and can save weeks.
@@ -593,6 +647,7 @@ let code silently diverge.
 | 2026-07-26 | T03 | Added `phash` and `meta` tables not in the plan's schema list: pHash needs its own store separate from CLIP `embedding`, and `meta` holds `schema_version`. | no |
 | 2026-07-26 | P01 | **Timezone fallback order reversed.** `OffsetTimeOriginal` no longer wins unconditionally: when it disagrees with the offset implied by the item's own GPS, **GPS wins** and the conflict is reported. Real data had 7 items whose EXIF offset sat 9 hours from the offset their own GPS implies, enough to move them to the adjacent day. **Binding on T12.** | yes — Module 2 |
 | 2026-07-26 | P01 | **Video capture time comes from `QuickTime:Keys:CreationDate`,** not `CreateDate`/`MediaCreateDate`, which hold the *export* time on Photos-exported `.mov`. Field priority now differs by media kind, and the source field is recorded so export artifacts can be warned about. **Binding on T11 and T15.** | yes — Module 2 |
+| 2026-08-02 | T50 | **A non-narrated video montage moves from Phase 3 to a new Phase 1.5.** Phase 1 excluded "narrated or cinematic video rendering" and that still holds — the reel has neither, and adds **no new analysis**: it is a pure function of `trip.json`, like the report and the package. Design in [`reel_video_montage.md`](./reel_video_montage.md). | yes — "Out of scope", Phase 1.5, Phase 3 |
 | 2026-07-26 | T17 | Offset-crossing counting requires a **sustained run** (3+ consecutive items) rather than any A→B change. On real data 13 interleaved mis-tagged items read as "14 crossings"; the true count is 2. | no — refinement of a metric the plan doesn't specify |
 
 # Log
@@ -602,6 +657,10 @@ decision made.
 
 | Date | Who | Entry |
 | --- | --- | --- |
+| 2026-08-02 | claude | **Clip audio + music ducking added to T50**, at the traveller's request and now on by default: a clip's own sound is usually why it is in the reel. Sound lands where the picture does — audible stretches at **17.7/42.1/65.7/98.9 s** vs motion at **17.5/42.0/65.5/98.8 s**, no drift across 8 clips. Duck depth tuned by measurement (5.0 → 7.1 → **8.4** → 8.8 dB across four settings; 0.005/20 chosen where the curve flattens), isolating the music in its own frequency band so clip audio could not be counted as music. **1449 tests pass.** Two of my own tests were wrong first: `volumedetect` logs at info level so `-v error` made every reading the "no data" sentinel, which compares equal to itself; and the clip sat last in time order, so the music's tail fade read as 7.7 dB of "ducking" with ducking switched off. |
+| 2026-08-02 | claude | **T50 done. The reel renders.** Real trip: 61 segments → **2m41s at 1920×1080**, 78 s cold, 28 s from cache; 5 title cards, 48 stills, 8 clips all with real proxy footage. 95 new tests, **1422 pass, 0 skips**. Aspect is a free-form `W:H` (16:9 default, 9:16 tested); music is `--music`, user-supplied, looped with a tail fade. Cache invalidation demonstrated live: adding the font to the title-card key re-rendered exactly 5 of 61 segments. Motion verified rather than assumed — max inter-frame change **99.15 with footage vs 0.12 poster-only**, run both ways to show the assertion can fail. |
+| 2026-08-02 | claude | **Found and fixed a live defect in an existing artifact: Pillow's bundled font has no `é ü ö à ñ – —`.** A story subtitle rendered as `July 17□20`. `contact_sheet.py` used the same font, so every sheet shared the bug latently — a German or French place name would have drawn boxes. New `export/fonts.py` prefers a real system font and otherwise transliterates (`München` → `Munchen`), and the resolved font is now part of the title-card cache key, because installing a font changes the pixels. |
+| 2026-08-02 | claude | **Wave 5 opened: the reel.** Plan doc at [`reel_video_montage.md`](./reel_video_montage.md), T50–T53 unclaimed. Feasibility checked against the real `trip.json` first: 47 day highlights + 9 trip highlights already selected and human-corrected, 4 days → 20 events, 13 chapter titles in `story.json`, previews at 1600 px, 9 clips totalling 478 s, `ffmpeg` already required. v1 needs **no new Python dependency**. Three constraints are real and documented rather than scheduled away — music cannot be shipped (licensing), `motion_score` is whole-clip so the good 5 s of a 112 s clip is not knowable until P05's `highlight_ranges` lands, and the 149/125 landscape/portrait split has no free framing without face bounding boxes the schema does not store (`face_count` and `face_max_frac` only). |
 | 2026-07-26 | claude | **P01 done** on a 286-item / 1.9 GB real export. Two bugs and one bad heuristic found, both plan amendments above. Corrected numbers: 4-day span (not 10), largest gap 0.49 days (not 5.88), 2 offset changes (not 14). `config.toml` written locally (gitignored) with `events.gap_minutes = 45` — **half the guessed default of 90**, because this library is shot in dense bursts (p50 gap = 1 min). |
 | 2026-07-26 | claude | Fixture set extended for the above: timezone crossing is now 3 items per side (a real crossing is sustained), plus a new `offset_gps_conflict.jpg`. 26 fixtures, 338 tests. |
 | 2026-07-26 | claude | **T17 done.** `story-book profile` ships with warnings + a suggested-config table computed from observed data, and `--json`. 308 tests pass. Shared extension allowlist added at `story_book/media_types.py` — **T10 must import it, not fork it**. |

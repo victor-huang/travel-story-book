@@ -145,6 +145,53 @@ class ReportConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ReelConfig:
+    """The video montage. See `dev_plan/reel_video_montage.md`."""
+
+    # "W:H". 16:9 fills a phone held sideways or a laptop; "9:16" is the upright-phone framing.
+    # Neither is free on a library that is 54% landscape and 46% portrait, so this is a setting
+    # rather than a constant.
+    aspect: str = "16:9"
+    height: int = 1080
+    fps: int = 30
+
+    seconds_per_still: float = 3.0
+    seconds_per_title: float = 2.5
+    crossfade_seconds: float = 0.6
+
+    # How much of a clip to use when nothing tells us which part is worth watching. `motion_score`
+    # is computed per clip, not per window, so any excerpt of a long clip is arbitrary and is
+    # recorded as such in `reel.json`. Automatic ranges are P05/Phase 2.
+    clip_seconds: float = 5.0
+    clip_min_seconds: float = 1.0
+
+    # Mix a user-supplied track under the reel. Nothing ships with the tool: no audio can be
+    # redistributed without a licence, so this is always a path the user provides.
+    music_volume: float = 0.6
+    music_fade_seconds: float = 2.5
+
+    # Play each clip's own audio, and duck the music underneath it while it plays. A street
+    # performer or an orchestra is the reason the clip is in the reel at all; a bed of unrelated
+    # music over the top is the one thing that reliably ruins it.
+    clip_audio: bool = True
+    clip_volume: float = 1.0
+
+    # Sidechain ducking: the clip bus drives the music's gain, so the duck starts and ends with
+    # the clip rather than at a boundary computed from nominal segment lengths.
+    #
+    # Measured on the real trip, isolating the music with a bandpass so clip audio could not be
+    # mistaken for it: 0.02/8 gives 5.0 dB, 0.01/12 gives 7.1, 0.005/20 gives 8.4, and 0.003/20
+    # only 8.8. 8.4 dB is a clearly audible duck, and the curve is flat past here.
+    music_duck_ratio: float = 20.0
+    music_duck_threshold: float = 0.005
+    music_duck_attack_ms: float = 20.0
+    music_duck_release_ms: float = 400.0
+
+    x264_preset: str = "veryfast"
+    x264_crf: int = 20
+
+
+@dataclass(frozen=True, slots=True)
 class VideoConfig:
     transcribe: str = "auto"
     transcribe_min_seconds: float = 10.0
@@ -221,6 +268,7 @@ class Config:
     selection: SelectionConfig = field(default_factory=SelectionConfig)
     timeline: TimelineConfig = field(default_factory=TimelineConfig)
     report: ReportConfig = field(default_factory=ReportConfig)
+    reel: ReelConfig = field(default_factory=ReelConfig)
     video: VideoConfig = field(default_factory=VideoConfig)
     models: ModelConfig = field(default_factory=ModelConfig)
     geocode: GeocodeConfig = field(default_factory=GeocodeConfig)
@@ -298,6 +346,7 @@ _NESTED_TYPES: dict[str, type] = {
     "SelectionConfig": SelectionConfig,
     "TimelineConfig": TimelineConfig,
     "ReportConfig": ReportConfig,
+    "ReelConfig": ReelConfig,
     "VideoConfig": VideoConfig,
     "ModelConfig": ModelConfig,
     "GeocodeConfig": GeocodeConfig,
