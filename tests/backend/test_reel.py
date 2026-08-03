@@ -22,7 +22,6 @@ import pytest
 
 from story_book.config import Config, ReelConfig
 from story_book.export.reel import (
-    REEL_FILENAME,
     REEL_JSON_FILENAME,
     SEGMENT_CACHE_DIRNAME,
     ClipSource,
@@ -1075,6 +1074,39 @@ class TestSingleDay:
     def test_renders_one_day_without_the_trip_card(self, trip, tmp_path):
         config = _fast_config()
         plan = build_plan(trip, config, only_day="2026-07-18")
-        rendered = render_reel(plan, config, tmp_path)
-        assert rendered.path.name == REEL_FILENAME
+        render_reel(plan, config, tmp_path)
         assert [s.kind for s in plan.segments].count("title") == 1
+
+    def test_a_day_render_gets_its_own_filename(self, trip, tmp_path):
+        """Otherwise rendering five days in a row leaves only the fifth."""
+        config = _fast_config()
+        rendered = render_reel(build_plan(trip, config, only_day="2026-07-18"), config, tmp_path)
+        assert rendered.path.name == "trip.2026-07-18.mp4"
+
+    def test_a_day_render_does_not_overwrite_the_whole_trip_reel(self, trip, tmp_path):
+        config = _fast_config()
+        whole = render_reel(build_plan(trip, config), config, tmp_path)
+        before = whole.path.read_bytes()
+        render_reel(build_plan(trip, config, only_day="2026-07-18"), config, tmp_path)
+        assert whole.path.read_bytes() == before
+        assert (tmp_path / "reel" / "trip.2026-07-18.mp4").exists()
+
+    def test_the_day_manifest_is_separate_too(self, trip, tmp_path):
+        config = _fast_config()
+        render_reel(build_plan(trip, config), config, tmp_path)
+        render_reel(build_plan(trip, config, only_day="2026-07-18"), config, tmp_path)
+        assert (tmp_path / "reel" / REEL_JSON_FILENAME).exists()
+        assert (tmp_path / "reel" / "reel.2026-07-18.json").exists()
+
+    def test_the_manifest_names_the_file_it_describes(self, trip, tmp_path):
+        config = _fast_config()
+        render_reel(build_plan(trip, config, only_day="2026-07-18"), config, tmp_path)
+        document = json.loads((tmp_path / "reel" / "reel.2026-07-18.json").read_text())
+        assert document["video"]["file"] == "trip.2026-07-18.mp4"
+
+    def test_day_segments_reuse_the_whole_trip_cache(self, trip, tmp_path):
+        """The cache key is the segment spec, so a day render costs only its own title card."""
+        config = _fast_config()
+        render_reel(build_plan(trip, config), config, tmp_path)
+        again = render_reel(build_plan(trip, config, only_day="2026-07-18"), config, tmp_path)
+        assert again.segments_rendered == 0

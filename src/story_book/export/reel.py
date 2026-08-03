@@ -55,6 +55,19 @@ REEL_VERSION = 1
 REEL_DIRNAME = "reel"
 REEL_FILENAME = "trip.mp4"
 REEL_JSON_FILENAME = "reel.json"
+
+
+def reel_filenames(day: str | None) -> tuple[str, str]:
+    """`(video, manifest)` names. A single-day render gets its own pair.
+
+    Without this, `--day` writes `trip.mp4` every time and rendering five days in a row leaves
+    only the fifth.
+    """
+    if not day:
+        return REEL_FILENAME, REEL_JSON_FILENAME
+    return f"trip.{day}.mp4", f"reel.{day}.json"
+
+
 SEGMENT_CACHE_DIRNAME = ".cache/segments"
 
 FFMPEG_TIMEOUT_SECONDS = 600
@@ -142,6 +155,8 @@ class ReelPlan:
     clips_without_sound: list[str] = field(default_factory=list)
     subtitle_tracks: list[SubtitleTrack] = field(default_factory=list)
     burned_in: str | None = None
+    day: str | None = None
+    """Set when only one day was rendered, so the output does not overwrite the whole-trip reel."""
     clip_timeline_starts: dict[str, float] = field(default_factory=dict)
     """Asset id -> when the clip begins *in the finished reel*, in seconds.
 
@@ -272,6 +287,7 @@ def build_plan(
     days = [d for d in doc.get("days", []) if only_day is None or d["date"] == only_day]
     if only_day is not None and not days:
         raise ReelError(f"no day {only_day} in this trip")
+    plan.day = only_day
 
     if only_day is None:
         plan.segments.append(
@@ -792,7 +808,8 @@ def render_reel(
         filters.extend(audio_parts)
         maps += ["-map", audio_label, "-c:a", "aac", "-b:a", "192k"]
 
-    target = reel_dir / REEL_FILENAME
+    video_name, _ = reel_filenames(plan.day)
+    target = reel_dir / video_name
     command += [
         "-filter_complex", ";".join(filters),
         *maps,
@@ -917,7 +934,7 @@ def write_reel_json(
         "reel_version": REEL_VERSION,
         "generator": f"story-book reel (reel_version {REEL_VERSION})",
         "video": {
-            "file": REEL_FILENAME,
+            "file": reel_filenames(plan.day)[0],
             "width": plan.width,
             "height": plan.height,
             "aspect": config.reel.aspect,
@@ -975,7 +992,7 @@ def write_reel_json(
             "tracks": [
                 {
                     "language": t.language,
-                    "file": f"{Path(REEL_FILENAME).stem}.{t.language}.vtt",
+                    "file": f"{Path(reel_filenames(plan.day)[0]).stem}.{t.language}.vtt",
                     "cues": len(t.cues),
                     "translated_cues": t.translated_count,
                     "fully_translated": t.fully_translated,
@@ -994,6 +1011,7 @@ def write_reel_json(
         },
         "notes": plan.notes,
     }
-    target = reel_dir / REEL_JSON_FILENAME
+    _, manifest_name = reel_filenames(plan.day)
+    target = reel_dir / manifest_name
     target.write_text(json.dumps(document, indent=2) + "\n")
     return target

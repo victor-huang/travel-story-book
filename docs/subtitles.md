@@ -63,6 +63,16 @@ the top. `reel.json` records what was used:
 drawing blanks and handing you a file that looks finished and says nothing. On Linux, install
 Noto Sans CJK. The soft track needs no font at all and keeps working either way.
 
+## One reel per day
+
+`--day 2026-07-21` renders a single day, and writes `trip.2026-07-21.mp4` with a matching
+`reel.2026-07-21.json` — so several day reels can sit beside the whole-trip one without
+overwriting it or each other. Subtitle sidecars follow the same stem
+(`trip.2026-07-21.zh.vtt`).
+
+Segments are cached by content, so a day reel costs only its own title card once the whole-trip
+reel exists.
+
 ## Why soft tracks by default
 
 - A viewer can **turn them off**, or pick between languages. Burned-in text offers neither.
