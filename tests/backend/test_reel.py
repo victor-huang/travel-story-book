@@ -500,6 +500,31 @@ class TestReelJsonOnDisk:
             int(v) for v in _probe(rendered.path, "stream=width,height").split()
         ]
 
+    def test_a_clips_timeline_position_matches_where_its_picture_starts(self, trip, tmp_path):
+        """The number `docs/choosing_music.md` tells a reader to go and listen at."""
+        clip = FIXTURES / "clip_speech.mov"
+        trip["assets"]["vid"] = {
+            "asset_id": "vid",
+            "filename": "clip_speech.mov",
+            "kind": "video",
+            "taken_utc": "2026-07-18T09:01:30+00:00",
+            "day": "2026-07-18",
+            "preview": "previews/asset0.jpg",
+            "thumbnail": "previews/asset0.jpg",
+            "video": {"duration_seconds": float(_probe(clip, "format=duration"))},
+            "location": {"place": {"city": "Vienna"}},
+        }
+        trip["days"][0]["events"][0]["assets"].append("vid")
+        config = _fast_config()
+        plan = build_plan(trip, config, clip_sources={"vid": ClipSource("original", clip)})
+        render_reel(plan, config, tmp_path)
+
+        index = next(i for i, s in enumerate(plan.segments) if s.kind == "clip")
+        expected = _segment_offsets([s.seconds for s in plan.segments], plan.crossfade)[index]
+        document = json.loads((tmp_path / "reel" / REEL_JSON_FILENAME).read_text())
+        reported = document["excerpts"]["by_asset"]["vid"]["timeline_start_seconds"]
+        assert reported == pytest.approx(expected, abs=0.3)
+
     def test_declares_music_absent_when_it_is(self, trip, tmp_path):
         config = _fast_config()
         render_reel(build_plan(trip, config), config, tmp_path)

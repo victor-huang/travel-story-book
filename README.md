@@ -28,6 +28,14 @@ Early development. See [`dev_plan/`](./dev_plan) for the design
 ([tracker](./dev_plan/implementation_tracker.md)). Development retros — errors hit and lessons
 learned per cycle — live in [`retro/agentic_coding/`](./retro/agentic_coding).
 
+## Guides
+
+- [Choosing music for the reel](./docs/choosing_music.md) — no audio ships with the tool, so
+  `story-book reel --music` always needs a track you supply. Where to find one that is licensed
+  for the use, and which of its properties actually matter once clip audio and ducking are in play.
+- [Truth-set format](./docs/truth_set.md) — hand-labelling a trip so the eval harness can score
+  events, duplicates and keeper choices.
+
 ## System dependencies
 
 Python deps come from `uv sync`. Two stages also need system binaries:

@@ -129,6 +129,12 @@ class ReelPlan:
     clips_as_stills: list[str] = field(default_factory=list)
     clips_with_sound: list[str] = field(default_factory=list)
     clips_without_sound: list[str] = field(default_factory=list)
+    clip_timeline_starts: dict[str, float] = field(default_factory=dict)
+    """Asset id -> when the clip begins *in the finished reel*, in seconds.
+
+    Distinct from `Segment.clip_start`, which is an offset into the source file. Both are needed
+    and neither substitutes: the source offset says which part of the footage was used, this says
+    when to go and listen to it."""
 
     @property
     def duration(self) -> float:
@@ -736,6 +742,13 @@ def render_reel(
     chain, label = _xfade_chain(durations, plan.crossfade)
     total = sum(durations) - plan.crossfade * max(0, len(durations) - 1)
 
+    offsets = _segment_offsets(durations, plan.crossfade)
+    plan.clip_timeline_starts = {
+        s.asset_id: round(offsets[i], 3)
+        for i, s in enumerate(plan.segments)
+        if s.kind == "clip" and s.asset_id
+    }
+
     command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y"]
     for path in paths:
         command += ["-i", str(path)]
@@ -828,9 +841,12 @@ def write_reel_json(
             "by_asset": {
                 s.asset_id: {
                     "filename": s.filename,
-                    "start_seconds": round(s.clip_start, 3),
+                    "source_start_seconds": round(s.clip_start, 3),
                     "seconds": round(s.seconds, 3),
                     "chosen_by": s.excerpt,
+                    # Where to go and listen. The source offset above says which part of the
+                    # footage was used; this says when it happens in the reel.
+                    "timeline_start_seconds": plan.clip_timeline_starts.get(s.asset_id),
                 }
                 for s in clips
                 if s.asset_id

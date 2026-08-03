@@ -225,6 +225,10 @@ exist yet.
 4. **Music: user-supplied, always.** `--music <file>`, any format ffmpeg reads, looped to length
    with a tail fade. Nothing ships with the tool. A track chosen to feel out the product is a
    local matter; publishing the render is not, and `reel.json` records what was mixed in.
+   How to choose one is documented for users in
+   [`docs/choosing_music.md`](../docs/choosing_music.md) — length against reel duration, steady
+   tempo (which T51 will need), flat dynamics because of the duck, and mood taken from
+   `story.json` rather than from the destination.
 
 All are fields on `ReelConfig`, per the standing rule that every threshold lives in `config.py`.
 

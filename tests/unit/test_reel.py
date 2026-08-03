@@ -415,6 +415,15 @@ class TestReelJson:
         document = self._write(tmp_path, self._plan([clip]))
         assert document["excerpts"]["by_asset"]["v"]["chosen_by"] == "fixed_head"
 
+    def test_distinguishes_the_source_offset_from_the_timeline_position(self, tmp_path):
+        """Two different questions: which footage was used, and when to go and listen to it."""
+        clip = Segment(kind="clip", seconds=5.0, asset_id="v", filename="v.mov", clip_start=1.0)
+        plan = self._plan([clip])
+        plan.clip_timeline_starts = {"v": 42.1}
+        record = self._write(tmp_path, plan)["excerpts"]["by_asset"]["v"]
+        assert record["source_start_seconds"] == 1.0
+        assert record["timeline_start_seconds"] == 42.1
+
     def test_names_the_clips_that_became_stills(self, tmp_path):
         plan = self._plan([Segment(kind="still", seconds=3.0)])
         plan.clips_as_stills = ["IMG_1792.mov"]
