@@ -7,9 +7,11 @@ from itertools import pairwise
 from story_book.export.reel import Segment
 from story_book.export.subtitles import (
     ISO_639_2,
+    MIN_CUE_FONT_PX,
     Cue,
     SubtitleTrack,
     build_cues,
+    cue_font_size,
     source_language,
     to_srt,
     to_webvtt,
@@ -180,6 +182,24 @@ class TestTrackStats:
         track = SubtitleTrack("zh", [Cue(0, 1, "a", True), Cue(1, 2, "b", False)])
         assert track.fully_translated is False
         assert track.translated_count == 1
+
+
+class TestCueFontSize:
+    def test_default_scale_is_a_fraction_of_frame_height(self):
+        assert cue_font_size(1080) == round(1080 / 26)
+
+    def test_scale_multiplies_the_size(self):
+        assert cue_font_size(1080, 2.0) == round(1080 / 26 * 2)
+
+    def test_a_half_scale_halves_it(self):
+        assert cue_font_size(1080, 0.5) == round(1080 / 26 * 0.5)
+
+    def test_never_smaller_than_the_legibility_floor(self):
+        """A tiny frame with a tiny scale must still produce drawable text."""
+        assert cue_font_size(120, 0.2) == MIN_CUE_FONT_PX
+
+    def test_the_size_grows_with_the_frame(self):
+        assert cue_font_size(2160) > cue_font_size(1080)
 
 
 class TestLanguageCodes:

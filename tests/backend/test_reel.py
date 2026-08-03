@@ -26,6 +26,7 @@ from story_book.export.reel import (
     REEL_JSON_FILENAME,
     SEGMENT_CACHE_DIRNAME,
     ClipSource,
+    ReelError,
     _segment_offsets,
     build_plan,
     frame_size,
@@ -34,6 +35,7 @@ from story_book.export.reel import (
     resolve_clip_sources,
     segment_key,
 )
+from story_book.export.subtitles import cue_font_size
 
 pytestmark = pytest.mark.needs_ffmpeg
 
@@ -137,6 +139,16 @@ def _loudness(path: Path, start: float, end: float, band: int | None = None) -> 
     )  # fmt: skip
     match = re.search(r"mean_volume:\s*(-?\d+(?:\.\d+)?) dB", result.stderr)
     return float(match.group(1)) if match else -999.0
+
+
+def _alpha_fraction(png: Path) -> float:
+    """Fraction of a transparent cue image that has any ink in it."""
+    from PIL import Image
+
+    with Image.open(png) as image:
+        histogram = image.split()[-1].histogram()
+    total = sum(histogram)
+    return sum(histogram[1:]) / total if total else 0.0
 
 
 def _drawn_pixel_fraction(png: Path) -> float:
@@ -791,6 +803,58 @@ class TestBurnIn:
         assert plan.burned_in is None
         assert any("no font on this machine" in n for n in plan.notes)
 
+    def test_a_scale_out_of_range_fails_before_any_encoding(self, trip, tmp_path):
+        """Validated up front: a typo should not cost a full render first."""
+        config = _fast_config(subtitle_scale=99.0)
+        plan = build_plan(trip, config, story=TestSubtitles.STORY)
+        with pytest.raises(ReelError, match="subtitle_scale"):
+            render_reel(
+                plan,
+                config,
+                tmp_path,
+                story=TestSubtitles.STORY,
+                subtitle_languages=["zh"],
+                burn_in_language="zh",
+            )
+        assert not (tmp_path / "reel" / "trip.mp4").exists()
+
+    def test_reel_json_records_the_font_size_actually_used(self, trip, tmp_path):
+        config = _fast_config(subtitle_scale=1.5)
+        plan = build_plan(trip, config, story=TestSubtitles.STORY)
+        render_reel(
+            plan,
+            config,
+            tmp_path,
+            story=TestSubtitles.STORY,
+            subtitle_languages=["zh"],
+            burn_in_language="zh",
+        )
+        document = json.loads((tmp_path / "reel" / REEL_JSON_FILENAME).read_text())
+        assert document["subtitles"]["burned_in_scale"] == 1.5
+        assert document["subtitles"]["burned_in_font_px"] == cue_font_size(plan.height, 1.5)
+
+    def test_a_bigger_scale_changes_more_of_the_frame(self, trip, tmp_path):
+        """End to end: the scale reaches the rendered video, not just the cue PNGs."""
+        differences = {}
+        for scale in (1.0, 2.0):
+            config = _fast_config(subtitle_scale=scale)
+            plan = build_plan(trip, config, story=TestSubtitles.STORY)
+            rendered = render_reel(
+                plan,
+                config,
+                tmp_path,
+                story=TestSubtitles.STORY,
+                subtitle_languages=["zh"],
+                burn_in_language="zh",
+            )
+            cue = plan.subtitle_tracks[0].cues[0]
+            at = (cue.start + cue.end) / 2
+            # The clean reel is cached and identical between runs; only the burned copy changes.
+            differences[scale] = _band_difference(
+                rendered.path, tmp_path / "reel" / "trip.zh.mp4", at, bottom=True
+            )
+        assert differences[2.0] > differences[1.0]
+
     def test_no_burn_in_request_writes_no_extra_file(self, trip, tmp_path):
         config = _fast_config()
         plan = build_plan(trip, config, story=TestSubtitles.STORY)
@@ -831,6 +895,52 @@ class TestCueImages:
             bottom = alpha.crop((0, 180, 640, 360)).getextrema()[1]
         assert bottom > 0
         assert top == 0
+
+    def test_a_bigger_scale_draws_more_text(self, tmp_path):
+        from story_book.export.subtitles import Cue, SubtitleTrack, render_cue_images
+
+        track = SubtitleTrack("zh", [Cue(0, 2, "维也纳的艺术与音乐", True)])
+        small = render_cue_images(track, 640, 360, tmp_path / "s1", scale=1.0)[0][1]
+        large = render_cue_images(track, 640, 360, tmp_path / "s2", scale=2.0)[0][1]
+        assert _alpha_fraction(large) > _alpha_fraction(small) * 2
+
+    def test_a_smaller_scale_draws_less(self, tmp_path):
+        from story_book.export.subtitles import Cue, SubtitleTrack, render_cue_images
+
+        track = SubtitleTrack("zh", [Cue(0, 2, "维也纳的艺术与音乐", True)])
+        normal = render_cue_images(track, 640, 360, tmp_path / "s1", scale=1.0)[0][1]
+        tiny = render_cue_images(track, 640, 360, tmp_path / "s3", scale=0.6)[0][1]
+        assert _alpha_fraction(tiny) < _alpha_fraction(normal)
+
+    def test_a_huge_scale_stays_inside_the_frame(self, tmp_path):
+        """Text that covers more picture is the user's choice; text off-frame is a bug."""
+        from PIL import Image
+
+        from story_book.export.subtitles import Cue, SubtitleTrack, render_cue_images
+
+        track = SubtitleTrack("zh", [Cue(0, 2, "维也纳的艺术与音乐，然后前往慕尼黑" * 3, True)])
+        path = render_cue_images(track, 640, 360, tmp_path / "big", scale=4.0)[0][1]
+        with Image.open(path) as image:
+            assert image.size == (640, 360)
+        assert _alpha_fraction(path) > 0
+
+    def test_the_bottom_margin_is_configurable(self, tmp_path):
+        from PIL import Image
+
+        from story_book.export.subtitles import Cue, SubtitleTrack, render_cue_images
+
+        track = SubtitleTrack("zh", [Cue(0, 2, "维也纳", True)])
+        low = render_cue_images(track, 640, 360, tmp_path / "low", bottom_margin=0.02)[0][1]
+        high = render_cue_images(track, 640, 360, tmp_path / "high", bottom_margin=0.30)[0][1]
+
+        def lowest_drawn_row(png):
+            with Image.open(png) as image:
+                alpha = image.split()[-1]
+            return max(
+                y for y in range(0, 360, 2) if alpha.crop((0, y, 640, y + 2)).getextrema()[1] > 0
+            )
+
+        assert lowest_drawn_row(low) > lowest_drawn_row(high)
 
     def test_long_text_without_spaces_still_wraps(self, tmp_path):
         """CJK has no word spaces, so space-only wrapping would overflow the frame."""

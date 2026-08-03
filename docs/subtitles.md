@@ -36,6 +36,29 @@ filter, which needs a build with libass — a stock Homebrew ffmpeg has none, so
 simply fail. The font is chosen per cue by *what has to be drawn*, so Chinese gets a CJK font and
 English keeps the Latin one.
 
+### Size
+
+```bash
+story-book reel --out <dir> --subtitles zh --burn-in zh --subtitle-scale 1.5
+```
+
+`--subtitle-scale` is a multiple of the default, which is **frame height / 26** — 42 px at 1080p,
+so `1.5` gives 62 px and `2.0` gives 83 px. It scales with the frame, so the same value looks the
+same at 720p and 4K. Persist it as `reel.subtitle_scale`, alongside `reel.subtitle_bottom_margin`
+(a fraction of frame height, default `0.07`) if the text sits too high or low.
+
+**This affects `--burn-in` only.** A soft track is drawn by the player, which owns its own sizing —
+in QuickTime that is under *View → Subtitles*, and in IINA or VLC it is a preference. Passing
+`--subtitle-scale` without `--burn-in` says so rather than silently doing nothing.
+
+Larger text wraps onto more lines automatically, and the block is clamped to stay inside the frame:
+a big scale on a long caption covers more of the picture, which is your call, but it never runs off
+the top. `reel.json` records what was used:
+
+```json
+"burned_in_file": "trip.zh.mp4", "burned_in_font_px": 62, "burned_in_scale": 1.5
+```
+
 **If no font on the machine can draw the text, burn-in is declined** with a reason, rather than
 drawing blanks and handing you a file that looks finished and says nothing. On Linux, install
 Noto Sans CJK. The soft track needs no font at all and keeps working either way.

@@ -241,8 +241,23 @@ CUE_OUTLINE = (0, 0, 0, 230)
 an outline stays legible on both without covering the picture."""
 
 
+MIN_CUE_FONT_PX = 12
+SUBTITLE_SCALE_RANGE = (0.2, 5.0)
+
+
+def cue_font_size(height: int, scale: float = 1.0) -> int:
+    """Burned-in subtitle size in pixels: a fraction of frame height, times the user's scale."""
+    return max(MIN_CUE_FONT_PX, int(round(height / CUE_FONT_HEIGHT_DIVISOR * scale)))
+
+
 def render_cue_images(
-    track: SubtitleTrack, width: int, height: int, directory: Path
+    track: SubtitleTrack,
+    width: int,
+    height: int,
+    directory: Path,
+    *,
+    scale: float = 1.0,
+    bottom_margin: float = CUE_BOTTOM_MARGIN_FRACTION,
 ) -> list[tuple[Cue, Path]]:
     """One transparent full-frame PNG per cue, text bottom-centred with an outline.
 
@@ -252,7 +267,7 @@ def render_cue_images(
     from PIL import Image, ImageDraw  # local: keeps the module importable without Pillow
 
     directory.mkdir(parents=True, exist_ok=True)
-    size = max(16, height // CUE_FONT_HEIGHT_DIVISOR)
+    size = cue_font_size(height, scale)
     made: list[tuple[Cue, Path]] = []
 
     for index, cue in enumerate(track.cues):
@@ -263,8 +278,10 @@ def render_cue_images(
 
         lines = _wrap_lines(draw, text, font, int(width * CUE_TEXT_WIDTH_FRACTION))
         line_height = int(size * 1.35)
-        bottom = height - int(height * CUE_BOTTOM_MARGIN_FRACTION)
-        top = bottom - line_height * len(lines)
+        bottom = height - int(height * bottom_margin)
+        # A large scale on a long caption can push the block off the top of the frame. Text that
+        # covers more of the picture is a choice the user made; text nobody can read is a bug.
+        top = max(0, bottom - line_height * len(lines))
 
         for line_index, line in enumerate(lines):
             span = draw.textlength(line, font=font)

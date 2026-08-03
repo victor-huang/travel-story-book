@@ -187,6 +187,12 @@ class ReelConfig:
     music_duck_attack_ms: float = 20.0
     music_duck_release_ms: float = 400.0
 
+    # Burned-in subtitle size, as a multiplier on the default (frame height / 26). Affects only
+    # `--burn-in`: a soft track is drawn by the player, which owns its own sizing.
+    subtitle_scale: float = 1.0
+    subtitle_bottom_margin: float = 0.07
+    """Gap below the text, as a fraction of frame height."""
+
     x264_preset: str = "veryfast"
     x264_crf: int = 20
 

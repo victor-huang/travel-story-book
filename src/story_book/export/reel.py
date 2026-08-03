@@ -37,9 +37,11 @@ from PIL import Image, ImageDraw, ImageFont
 from story_book.config import Config
 from story_book.export.fonts import can_render, font_for, font_identity, renderable
 from story_book.export.subtitles import (
+    SUBTITLE_SCALE_RANGE,
     SubtitleTrack,
     build_cues,
     burn_in,
+    cue_font_size,
     mux_subtitles,
     render_cue_images,
     write_track,
@@ -728,6 +730,14 @@ def render_reel(
     """Render every segment (cached), then join them with crossfades and mix any music."""
     if not ffmpeg_available():
         raise ReelError("ffmpeg and ffprobe are required to render a reel")
+    if burn_in_language:
+        # Checked before any encoding: a bad value should not cost a full render first.
+        low, high = SUBTITLE_SCALE_RANGE
+        if not low <= float(config.reel.subtitle_scale) <= high:
+            raise ReelError(
+                f"reel.subtitle_scale must be between {low} and {high}, "
+                f"got {config.reel.subtitle_scale}"
+            )
 
     reel_dir = out_dir / REEL_DIRNAME
     cache_dir = reel_dir / SEGMENT_CACHE_DIRNAME
@@ -830,8 +840,16 @@ def _burn_in_track(
         )
         return None
 
+    scale = float(config.reel.subtitle_scale)
     cues_dir = reel_dir / SEGMENT_CACHE_DIRNAME.replace("segments", f"cues-{language}")
-    images = render_cue_images(track, plan.width, plan.height, cues_dir)
+    images = render_cue_images(
+        track,
+        plan.width,
+        plan.height,
+        cues_dir,
+        scale=scale,
+        bottom_margin=float(config.reel.subtitle_bottom_margin),
+    )
     target = reel_dir / f"{video.stem}.{language}.mp4"
     if not burn_in(video, images, target, preset=config.reel.x264_preset, crf=config.reel.x264_crf):
         plan.notes.append(f"burn-in for '{language}' failed; the soft track is unaffected.")
@@ -965,6 +983,10 @@ def write_reel_json(
                 for t in plan.subtitle_tracks
             ],
             "burned_in_file": plan.burned_in,
+            "burned_in_font_px": (
+                cue_font_size(plan.height, config.reel.subtitle_scale) if plan.burned_in else None
+            ),
+            "burned_in_scale": config.reel.subtitle_scale if plan.burned_in else None,
             "note": (
                 "A language with no translations in story.json gets no track: a track labelled "
                 "one language while holding another's text would misrepresent itself."

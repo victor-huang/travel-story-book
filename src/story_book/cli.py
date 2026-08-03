@@ -40,6 +40,7 @@ from story_book.export.reel import (
     resolve_clip_sources,
 )
 from story_book.export.report import load_story, load_trip_json, render_report
+from story_book.export.subtitles import cue_font_size
 from story_book.overrides import OverrideError, Overrides
 from story_book.pipeline.base import Stage, StageContext
 from story_book.pipeline.days import DaysStage
@@ -538,6 +539,14 @@ def reel(
             "Needs `translations` in story.json for anything but its own language.",
         ),
     ] = None,
+    subtitle_scale: Annotated[
+        float | None,
+        typer.Option(
+            "--subtitle-scale",
+            help="Size of burned-in subtitles, as a multiple of the default (1.0). Affects "
+            "--burn-in only: a soft track is sized by the player, not by us.",
+        ),
+    ] = None,
     burn_in: Annotated[
         str | None,
         typer.Option(
@@ -560,6 +569,8 @@ def reel(
         reel_changes["aspect"] = aspect
     if clip_audio is not None:
         reel_changes["clip_audio"] = clip_audio
+    if subtitle_scale is not None:
+        reel_changes["subtitle_scale"] = subtitle_scale
     if reel_changes:
         config = _with(config, reel=replace(config.reel, **reel_changes))
 
@@ -627,7 +638,16 @@ def reel(
     for note in plan.notes:
         console.print(f"[yellow]{note}[/]")
     if plan.burned_in:
-        console.print(f"burned-in copy -> [bold]{out / 'reel' / plan.burned_in}[/]")
+        px = cue_font_size(plan.height, config.reel.subtitle_scale)
+        console.print(
+            f"burned-in copy ({px}px text, scale {config.reel.subtitle_scale:g}) -> "
+            f"[bold]{out / 'reel' / plan.burned_in}[/]"
+        )
+    elif subtitle_scale is not None:
+        console.print(
+            "[yellow]--subtitle-scale only affects --burn-in;[/] a soft track's size is set by "
+            "the player."
+        )
     for track in plan.subtitle_tracks:
         state = "" if track.fully_translated else f", {track.translated_count} translated"
         # No square brackets around the language: Rich reads `[zh]` as a style tag and swallows it.
