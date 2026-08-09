@@ -181,6 +181,8 @@ class ClipSource:
 
     role: str  # "proxy" | "original"
     path: Path
+    height: int | None = None
+    """Source height in pixels, so a clip rendered below the frame size can be reported."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,6 +201,8 @@ class Segment:
     excerpt: str | None = None  # "story_range" | "fixed_head" | "whole_clip"
     day: str | None = None
     with_audio: bool = False  # keep this clip's own sound; part of the cache key by design
+    source_height: int | None = None
+    """Height of the file this clip is cut from, for reporting an enlargement."""
     sources: tuple[str, ...] = ()
     """Images tiled behind an end card. Part of the cache key, so changing the highlights that
     appear in the mosaic rebuilds it."""
@@ -213,6 +217,7 @@ class ReelPlan:
     crossfade: float
     notes: list[str] = field(default_factory=list)
     clips_as_stills: list[str] = field(default_factory=list)
+    upscaled_clips: list[str] = field(default_factory=list)
     clips_with_sound: list[str] = field(default_factory=list)
     clips_without_sound: list[str] = field(default_factory=list)
     subtitle_tracks: list[SubtitleTrack] = field(default_factory=list)
@@ -248,22 +253,39 @@ def resolve_clip_sources(
     for asset_id, asset in doc.get("assets", {}).items():
         if asset.get("kind") != "video":
             continue
-        proxies = sorted(package_dir.glob(f"*/video_proxies/{asset_id}.mp4"))
-        if proxies:
-            sources[asset_id] = ClipSource("proxy", proxies[0])
-            continue
+
+        # The original first. A proxy is built to be *small enough to upload to a chat* -- 720p at
+        # CRF 28 -- so rendering from one and scaling up to 1080p threw away 59% of the detail on
+        # the real trip. It is the fallback, not the preference.
         if source_dir is not None:
             matches = sorted(source_dir.rglob(asset["filename"]))
             if len(matches) == 1:
-                sources[asset_id] = ClipSource("original", matches[0])
-            elif len(matches) > 1:
+                sources[asset_id] = ClipSource("original", matches[0], probe_height(matches[0]))
+                continue
+            if len(matches) > 1:
                 logger.warning(
                     "reel: %s matches %d files under %s; skipping rather than guessing",
                     asset["filename"],
                     len(matches),
                     source_dir,
                 )
+
+        proxies = sorted(package_dir.glob(f"*/video_proxies/{asset_id}.mp4"))
+        if proxies:
+            sources[asset_id] = ClipSource("proxy", proxies[0], probe_height(proxies[0]))
     return sources
+
+
+def probe_height(path: Path) -> int | None:
+    command = [
+        "ffprobe", "-v", "error", "-select_streams", "v:0",
+        "-show_entries", "stream=height", "-of", "default=nw=1:nk=1", str(path),
+    ]  # fmt: skip
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=60)
+        return int(result.stdout.strip().splitlines()[0])
+    except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
+        return None
 
 
 def _story_days(story: dict | None) -> dict[str, dict]:
@@ -441,6 +463,21 @@ def build_plan(
             + (f" (places: {', '.join(selection.places)})" if selection.places else "")
         )
 
+    upscaled = sorted(
+        {
+            s.filename or s.asset_id or "?"
+            for s in plan.segments
+            if s.kind == "clip" and s.source_height and s.source_height < plan.height
+        }
+    )
+    if upscaled:
+        plan.upscaled_clips = upscaled
+        plan.notes.append(
+            f"{len(upscaled)} clip(s) were enlarged to fit the frame -- their source is shorter "
+            f"than {plan.height}px. Pass --source <folder> to render from the originals; a "
+            "package proxy is built small enough to upload, not to render from."
+        )
+
     if plan.clips_as_stills:
         plan.notes.append(
             f"{len(plan.clips_as_stills)} clip(s) had no proxy or reachable original and were "
@@ -545,6 +582,7 @@ def _clip_segment(
         excerpt=why,
         day=asset.get("day"),
         with_audio=bool(config.reel.clip_audio),
+        source_height=source.height,
     )
 
 
@@ -851,10 +889,14 @@ def render_segment(
 
     if segment.kind == "clip":
         source = Path(segment.source or "")
-        # `0:a?` is optional on purpose: a silent clip must render, not fail. Whether a segment
-        # ended up with sound is then read back off the file rather than assumed.
+        # `0:a:0?` -- the *first* audio stream, optionally. Two details, both learned from real
+        # footage: the `?` lets a silent clip render instead of failing, and the `:0` takes one
+        # track rather than all of them. A modern iPhone writes a second `apac` (spatial audio)
+        # stream that this ffmpeg has no decoder for, and `0:a?` maps it too, so 58 of 69 clips on
+        # the real trip failed with "no decoder found for: none". Proxies hid it, because
+        # transcoding one picks a single stream by default.
         audio = (
-            ["-map", "0:a?", "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2"]
+            ["-map", "0:a:0?", "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2"]
             if segment.with_audio
             else ["-an"]
         )
@@ -1167,6 +1209,7 @@ def write_reel_json(
         "video_sources": {
             "clips_with_footage": len(clips),
             "clips_rendered_as_stills": plan.clips_as_stills,
+            "clips_enlarged_to_fit_frame": plan.upscaled_clips,
             "roles": sorted({s.source_role for s in clips if s.source_role}),
         },
         "excerpts": {

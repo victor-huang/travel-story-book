@@ -65,6 +65,16 @@ the top. `reel.json` records what was used:
 drawing blanks and handing you a file that looks finished and says nothing. On Linux, install
 Noto Sans CJK. The soft track needs no font at all and keeps working either way.
 
+## Clips come from the originals when you point at them
+
+`--source <folder>` lets the reel cut from the original footage. Without it the only moving pixels
+available are the package's proxies, which are 720p at CRF 28 -- built to be uploadable, not to be
+rendered from. On the real trip a clip frame taken from a proxy and enlarged to 1080p retained
+**41% of the detail** of the same frame from the original.
+
+`reel.json` names any clip whose source was shorter than the frame under
+`clips_enlarged_to_fit_frame`, so a soft clip never goes unexplained.
+
 ## Cutting a long trip into parts
 
 A 22-day trip is about 13 minutes as one montage, which is longer than anyone watches. The seams

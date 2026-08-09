@@ -167,7 +167,12 @@ not leak the source tree. Three ways to get pixels, in preference order:
 3. **Poster and keyframes as stills.** Always available. The clip becomes a photograph, and
    `reel.json` says `video_rendered_as: "stills"`.
 
-v1 implements all three with that fallback order, and records which was used.
+**Corrected 2026-08-09: the original comes first, not the proxy.** A proxy is built to be small
+enough to upload to a chat -- 720p at CRF 28 -- so rendering from one and enlarging it to a 1080p
+frame retained **41% of the detail** of the same frame taken from the original. The proxy is the
+fallback. `reel.json` lists any clip whose source is shorter than the frame under
+`clips_enlarged_to_fit_frame`, because a soft clip beside a sharp photograph otherwise has no
+stated reason.
 
 ---
 

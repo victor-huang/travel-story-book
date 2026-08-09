@@ -444,6 +444,41 @@ class TestClipAudio:
         rendered = render_reel(plan, config, tmp_path)
         assert "audio" not in _probe(rendered.path, "stream=codec_type")
 
+    def test_a_clip_with_a_second_undecodable_audio_stream_still_renders(self, trip, tmp_path):
+        """A modern iPhone writes spatial audio as an extra `apac` track this ffmpeg cannot
+        decode. Mapping every audio stream failed on 58 of 69 real clips; only the first is
+        wanted anyway. Proxies hid it, since transcoding one picks a single stream by default."""
+        clip = tmp_path / "two_audio.mov"
+        subprocess.run(
+            ["ffmpeg", "-v", "error", "-y",
+             "-f", "lavfi", "-i", "testsrc=size=320x240:rate=15:duration=3",
+             "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+             "-f", "lavfi", "-i", "sine=frequency=880:duration=3",
+             "-map", "0:v", "-map", "1:a", "-map", "2:a",
+             "-c:v", "libx264", "-c:a", "aac", str(clip)],
+            check=True,
+        )  # fmt: skip
+        assert len(_probe(clip, "stream=codec_type").split()) == 3
+
+        trip["assets"]["vid"] = {
+            "asset_id": "vid",
+            "filename": "two_audio.mov",
+            "kind": "video",
+            "taken_utc": "2026-07-18T09:10:00+00:00",
+            "day": "2026-07-18",
+            "preview": "previews/asset0.jpg",
+            "thumbnail": "previews/asset0.jpg",
+            "video": {"duration_seconds": 3.0},
+            "location": {"place": {"city": "Vienna"}},
+        }
+        trip["days"][0]["events"][0]["assets"].append("vid")
+        config = _fast_config(clip_audio=True)
+        plan = build_plan(trip, config, clip_sources={"vid": ClipSource("original", clip)})
+        rendered = render_reel(plan, config, tmp_path)
+
+        assert plan.clips_with_sound == ["two_audio.mov"]
+        assert _probe(rendered.path, "stream=codec_type").count("audio") == 1
+
     def test_disabling_clip_audio_leaves_the_reel_silent(self, trip, tmp_path):
         clip = self._with_clip(trip, "clip_speech.mov")
         config = _fast_config(clip_audio=False)
@@ -1027,12 +1062,36 @@ class TestCueImages:
 
 
 class TestClipSourceResolution:
-    def test_finds_a_package_proxy(self, trip, tmp_path):
+    def test_uses_a_package_proxy_when_the_source_tree_is_not_given(self, trip, tmp_path):
         trip["assets"]["vid"] = {"asset_id": "vid", "kind": "video", "filename": "c.mov"}
         proxy = tmp_path / "package" / "2026-07-18" / "video_proxies" / "vid.mp4"
         proxy.parent.mkdir(parents=True)
         proxy.write_bytes(b"")
         assert resolve_clip_sources(trip, tmp_path)["vid"].role == "proxy"
+
+    def test_the_original_is_preferred_over_a_proxy(self, trip, tmp_path):
+        """A proxy is built small enough to upload to a chat -- 720p at CRF 28. Rendering from one
+        and enlarging to 1080p threw away 59% of the detail on the real trip."""
+        trip["assets"]["vid"] = {
+            "asset_id": "vid",
+            "kind": "video",
+            "filename": "clip_silent.mp4",
+        }
+        proxy = tmp_path / "package" / "2026-07-18" / "video_proxies" / "vid.mp4"
+        proxy.parent.mkdir(parents=True)
+        proxy.write_bytes(b"")
+
+        chosen = resolve_clip_sources(trip, tmp_path, FIXTURES)["vid"]
+        assert chosen.role == "original"
+        assert chosen.path.parent == FIXTURES
+
+    def test_the_resolved_source_carries_its_height(self, trip, tmp_path):
+        trip["assets"]["vid"] = {
+            "asset_id": "vid",
+            "kind": "video",
+            "filename": "clip_silent.mp4",
+        }
+        assert resolve_clip_sources(trip, tmp_path, FIXTURES)["vid"].height is not None
 
     def test_falls_back_to_the_source_tree(self, trip, tmp_path):
         trip["assets"]["vid"] = {
@@ -1041,6 +1100,46 @@ class TestClipSourceResolution:
             "filename": "clip_silent.mp4",
         }
         assert resolve_clip_sources(trip, tmp_path, FIXTURES)["vid"].role == "original"
+
+    def test_a_clip_smaller_than_the_frame_is_reported(self, trip, tmp_path):
+        """Silent about it, the reel looks soft next to the photographs for no stated reason."""
+        clip = FIXTURES / "clip_silent.mp4"
+        trip["assets"]["vid"] = {
+            "asset_id": "vid",
+            "filename": "clip_silent.mp4",
+            "kind": "video",
+            "taken_utc": "2026-07-18T09:10:00+00:00",
+            "day": "2026-07-18",
+            "preview": "previews/asset0.jpg",
+            "thumbnail": "previews/asset0.jpg",
+            "video": {"duration_seconds": 3.0},
+            "location": {"place": {"city": "Vienna"}},
+        }
+        trip["days"][0]["events"][0]["assets"].append("vid")
+        config = _fast_config(height=2160)
+        plan = build_plan(trip, config, clip_sources={"vid": ClipSource("proxy", clip, height=240)})
+        assert plan.upscaled_clips == ["clip_silent.mp4"]
+        assert any("enlarged to fit the frame" in note for note in plan.notes)
+
+    def test_a_clip_at_or_above_the_frame_height_is_not_reported(self, trip, tmp_path):
+        clip = FIXTURES / "clip_silent.mp4"
+        trip["assets"]["vid"] = {
+            "asset_id": "vid",
+            "filename": "clip_silent.mp4",
+            "kind": "video",
+            "taken_utc": "2026-07-18T09:10:00+00:00",
+            "day": "2026-07-18",
+            "preview": "previews/asset0.jpg",
+            "thumbnail": "previews/asset0.jpg",
+            "video": {"duration_seconds": 3.0},
+            "location": {"place": {"city": "Vienna"}},
+        }
+        trip["days"][0]["events"][0]["assets"].append("vid")
+        config = _fast_config()
+        plan = build_plan(
+            trip, config, clip_sources={"vid": ClipSource("original", clip, height=1080)}
+        )
+        assert plan.upscaled_clips == []
 
     def test_an_unfindable_clip_is_absent_rather_than_guessed(self, trip, tmp_path):
         trip["assets"]["vid"] = {"asset_id": "vid", "kind": "video", "filename": "nope.mov"}
