@@ -55,6 +55,21 @@ def _fast_config(**reel_overrides) -> Config:
     return Config(reel=ReelConfig(**defaults))
 
 
+def _small_clip_asset() -> dict:
+    """A video asset whose source is shorter than the frame, for the upscale notes."""
+    return {
+        "asset_id": "vid",
+        "filename": "clip_silent.mp4",
+        "kind": "video",
+        "taken_utc": "2026-07-18T09:10:00+00:00",
+        "day": "2026-07-18",
+        "preview": "previews/asset0.jpg",
+        "thumbnail": "previews/asset0.jpg",
+        "video": {"duration_seconds": 3.0},
+        "location": {"place": {"city": "Vienna"}},
+    }
+
+
 @pytest.fixture
 def trip(tmp_path: Path) -> dict:
     """A trip.json-shaped document backed by real fixture images copied into previews/."""
@@ -1120,6 +1135,30 @@ class TestClipSourceResolution:
         plan = build_plan(trip, config, clip_sources={"vid": ClipSource("proxy", clip, height=240)})
         assert plan.upscaled_clips == ["clip_silent.mp4"]
         assert any("enlarged to fit the frame" in note for note in plan.notes)
+
+    def test_a_small_proxy_is_told_to_pass_source(self, trip, tmp_path):
+        clip = FIXTURES / "clip_silent.mp4"
+        trip["assets"]["vid"] = _small_clip_asset()
+        trip["days"][0]["events"][0]["assets"].append("vid")
+        plan = build_plan(
+            trip,
+            _fast_config(height=2160),
+            clip_sources={"vid": ClipSource("proxy", clip, height=240)},
+        )
+        assert any("--source" in note for note in plan.notes)
+
+    def test_a_small_original_is_not_told_to_pass_source(self, trip, tmp_path):
+        """Advising a fix the person already applied sends them to repair what is not broken."""
+        clip = FIXTURES / "clip_silent.mp4"
+        trip["assets"]["vid"] = _small_clip_asset()
+        trip["days"][0]["events"][0]["assets"].append("vid")
+        plan = build_plan(
+            trip,
+            _fast_config(height=2160),
+            clip_sources={"vid": ClipSource("original", clip, height=240)},
+        )
+        note = next(n for n in plan.notes if "enlarged to fit the frame" in n)
+        assert "--source" not in note and "nothing sharper" in note
 
     def test_a_clip_at_or_above_the_frame_height_is_not_reported(self, trip, tmp_path):
         clip = FIXTURES / "clip_silent.mp4"

@@ -463,19 +463,28 @@ def build_plan(
             + (f" (places: {', '.join(selection.places)})" if selection.places else "")
         )
 
-    upscaled = sorted(
-        {
-            s.filename or s.asset_id or "?"
-            for s in plan.segments
-            if s.kind == "clip" and s.source_height and s.source_height < plan.height
-        }
-    )
+    small = [
+        s
+        for s in plan.segments
+        if s.kind == "clip" and s.source_height and s.source_height < plan.height
+    ]
+    upscaled = sorted({s.filename or s.asset_id or "?" for s in small})
     if upscaled:
         plan.upscaled_clips = upscaled
+        # Two different situations wear the same symptom, and the advice differs. Telling
+        # someone to pass `--source` when they already did, and the original is simply a 720p
+        # download, sends them to fix something that is not broken.
+        from_proxy = any(s.source_role == "proxy" for s in small)
+        remedy = (
+            "Pass --source <folder> to render from the originals; a package proxy is built "
+            "small enough to upload, not to render from."
+            if from_proxy
+            else "These are the originals -- the footage itself is below the frame height, so "
+            "there is nothing sharper to render from."
+        )
         plan.notes.append(
             f"{len(upscaled)} clip(s) were enlarged to fit the frame -- their source is shorter "
-            f"than {plan.height}px. Pass --source <folder> to render from the originals; a "
-            "package proxy is built small enough to upload, not to render from."
+            f"than {plan.height}px. {remedy}"
         )
 
     if plan.clips_as_stills:
