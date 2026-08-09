@@ -76,6 +76,7 @@ class Profile:
     without_timestamp: int = 0
     without_gps: int = 0
     offsets: Counter[str] = field(default_factory=Counter)
+    timezones: Counter[str] = field(default_factory=Counter)
     timezone_crossings: int = 0
     first: datetime | None = None
     last: datetime | None = None
@@ -215,7 +216,9 @@ def analyze(source: Path, items: list[Item], ignored: int, exiftool: bool) -> Pr
         profile.gaps = _gap_stats(dated)
         profile.largest_day_gap_days = _largest_gap_days(dated)
         profile.timezone_crossings = _count_crossings(dated)
-        conflicts = _offset_conflicts(dated)
+        zones = _gps_zones(dated)
+        profile.timezones = Counter(name for _, name in zones)
+        conflicts = _offset_conflicts(zones)
         profile.offset_conflicts = len(conflicts)
         profile.conflict_examples = [i.path.name for i in conflicts[:5]]
 
@@ -284,12 +287,12 @@ def _count_crossings(dated: list[Item], min_run: int = SUSTAINED_OFFSET_RUN) -> 
     return max(0, len(sustained) - 1)
 
 
-def _offset_conflicts(dated: list[Item]) -> list[Item]:
-    """Items whose EXIF offset disagrees with the offset their GPS location implies.
+def _gps_zones(dated: list[Item]) -> list[tuple[Item, str]]:
+    """Each GPS-bearing item paired with the IANA zone its coordinates fall in.
 
-    Real libraries contain these, and they matter: a photo taken in Vienna but tagged -07:00 is
-    nine hours wrong, which lands it on the wrong day. The plan's original fallback order trusted
-    OffsetTimeOriginal first; this check is the evidence that GPS must win a disagreement.
+    One lookup pass feeding two questions -- which zone dominates the trip, and which items
+    disagree with their own EXIF offset. `timezonefinder` is an optional extra, so an absent
+    import degrades to "no zone evidence" rather than aborting the profile.
     """
     try:
         from timezonefinder import TimezoneFinder
@@ -297,12 +300,26 @@ def _offset_conflicts(dated: list[Item]) -> list[Item]:
         return []
 
     finder = TimezoneFinder()
-    conflicts: list[Item] = []
+    out: list[tuple[Item, str]] = []
     for item in dated:
-        if item.utc_offset_minutes is None or item.lat is None or item.lon is None:
+        if item.lat is None or item.lon is None:
             continue
         zone_name = finder.timezone_at(lat=item.lat, lng=item.lon)
-        if zone_name is None:
+        if zone_name is not None:
+            out.append((item, zone_name))
+    return out
+
+
+def _offset_conflicts(zones: list[tuple[Item, str]]) -> list[Item]:
+    """Items whose EXIF offset disagrees with the offset their GPS location implies.
+
+    Real libraries contain these, and they matter: a photo taken in Vienna but tagged -07:00 is
+    nine hours wrong, which lands it on the wrong day. The plan's original fallback order trusted
+    OffsetTimeOriginal first; this check is the evidence that GPS must win a disagreement.
+    """
+    conflicts: list[Item] = []
+    for item, zone_name in zones:
+        if item.utc_offset_minutes is None:
             continue
         try:
             offset = ZoneInfo(zone_name).utcoffset(item.taken)
@@ -317,7 +334,12 @@ def _offset_conflicts(dated: list[Item]) -> list[Item]:
 
 
 def suggestions(profile: Profile) -> list[tuple[str, str, str]]:
-    """(config key, suggested value, why). The reason for running this command."""
+    """(config key, suggested value, why). The reason for running this command.
+
+    Values are TOML literals, not Python ones -- a string arrives quoted. `story-book init`
+    writes them into a config file verbatim, so anything else would need a second table saying
+    which keys are strings.
+    """
     out: list[tuple[str, str, str]] = []
     gaps = profile.gaps
 
@@ -365,11 +387,23 @@ def suggestions(profile: Profile) -> list[tuple[str, str, str]]:
             )
         )
 
+    if profile.timezones:
+        name, count = profile.timezones.most_common(1)[0]
+        located = sum(profile.timezones.values())
+        out.append(
+            (
+                "time.default_timezone",
+                f'"{name}"',
+                f"{count} of {located} located items ({count / located:.0%}) fall in {name}"
+                + (f"; {len(profile.timezones)} zones seen" if len(profile.timezones) > 1 else ""),
+            )
+        )
+
     if profile.videos:
         out.append(
             (
                 "video.transcribe",
-                "auto",
+                '"auto"',
                 f"{profile.videos} videos totaling {profile.video_seconds / 60:.0f} min; "
                 "'all' would transcribe silent b-roll too",
             )

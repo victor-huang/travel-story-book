@@ -6,10 +6,17 @@ write the travel journal.
 
 ```bash
 uv sync
-uv run story-book profile ~/Trips/Europe2026
-uv run story-book build ~/Trips/Europe2026 --out ~/story-out
-open ~/story-out/index.html
+uv run story-book init ~/Trips/Europe2026 --trip-dir ~/trips/europe2026
+uv run story-book build ~/Trips/Europe2026 --out ~/trips/europe2026/out \
+  --config ~/trips/europe2026/config.toml
+open ~/trips/europe2026/out/report/index.html
 ```
+
+`init` profiles the folder and writes a `config.toml` whose thresholds come from what it
+measured there, each one annotated with the observation behind it, plus an empty
+`overrides.toml` beside it. It prints the remaining commands with the paths filled in. For a
+second trip, `--like ~/trips/europe2026/config.toml` carries your home coordinates and face
+model across so neither is retyped.
 
 ## Guarantees
 

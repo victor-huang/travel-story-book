@@ -1,0 +1,141 @@
+# Travel Story Book configuration. Copy to config.toml and edit.
+# Every value shown is the default -- delete anything you don't want to change.
+
+config_version = 1
+
+# Name for this trip. Defaults to the source folder name.
+# trip_name = "Europe 2026"
+
+# Skip every network call. The pipeline still completes, just without landmark names.
+no_cloud = false
+
+# Media within exclusion_km of here is flagged and kept out of all exports.
+# Strongly recommended: leaking your home address into a shared album is the failure
+# mode that actually matters.
+# [home]
+# lat = 37.7749
+# lon = -122.4194
+# exclusion_km = 5.0
+
+[time]
+# A day runs from this hour to this hour, so a late night belongs to the evening it began.
+day_start_hour = 4
+# Warn (never split) if the media contains a gap this large -- usually means two trips
+# were passed in one folder.
+suspicious_gap_days = 3.0
+# Last-resort timezone when EXIF has no offset and there is no GPS anywhere nearby.
+default_timezone = "UTC"
+# Refuse to interpolate a location across a time gap larger than this.
+gps_interpolation_window_minutes = 120.0
+
+# Events are an INTERNAL scoping concept: they bound deduplication, selection and landmark
+# sampling. They are not the chapters you see in the book -- those are proposed by the AI from the
+# contact sheets and edited in overrides.toml. P03 measured why: real chapter boundaries sat at
+# 2-minute gaps and 10 metres, invisible to any time or location rule.
+[events]
+# Start a new event after this long without a photo...
+gap_minutes = 90.0
+# ...or after moving this far from the running centroid.
+jump_km = 1.5
+min_items = 2
+
+
+[dedup]
+# Two photos are duplicates only if BOTH signals agree. pHash proposes (it sees low-frequency
+# structure) and CLIP confirms (it sees subject). Either alone fails: pHash merges two different
+# composer busts lit identically, and CLIP alone cannot separate the classes at all.
+
+# Calibrated on 11,709 real within-event pairs: 19 fall at <=16, 27 at <=18, then 100 at <=20,
+# so 18 is just under the noise floor.
+phash_max_distance = 18
+burst_max_seconds = 3.0
+
+# The confirmation gate, meaningful only given a pHash match. At the ambiguous Hamming band of
+# 13-16, real duplicates scored 0.931-0.952 and false merges 0.838 and 0.625.
+confirm_min_cosine = 0.90
+
+[quality]
+# Content classes never eligible to be a *highlight*. They remain in the trip: still counted,
+# still on the map, still in the day gallery. For dropping a class from the artifact altogether,
+# see `timeline.exclude_content_classes` below -- the two are different questions.
+reject_content_classes = ["screenshot", "receipt", "document"]
+min_overall_for_highlight = 0.35
+
+[quality.weights]
+# The documented overall-score sum. Normalized at use, so these need not total 1.0.
+sharpness = 0.40
+exposure = 0.25
+contrast = 0.15
+face = 0.20
+
+[selection]
+highlights_per_event = 5
+highlights_per_day = 10
+# Minimum embedding distance between highlights, so you get five different shots of the
+# castle rather than five near-identical facades.
+diversity_min_distance = 0.15
+
+[video]
+# none | auto | all. auto = clips over transcribe_min_seconds that look like they contain speech.
+transcribe = "auto"
+transcribe_min_seconds = 10.0
+whisper_model = "small"
+keyframe_count = 5
+# Mean volume below this counts as silence, so `transcribe = "auto"` skips the clip. Measured
+# against real clips: speech reads around -21 dB, a silent clip around -91 dB.
+speech_mean_volume_floor_db = -50.0
+
+[models]
+clip_name = "ViT-B-32"
+clip_pretrained = "laion2b_s34b_b79k"
+clip_batch_size = 32
+# auto | mps | cuda | cpu
+device = "auto"
+
+# Path to a YuNet ONNX face-detection model, e.g. face_detection_yunet_2023mar.onnx from
+# OpenCV Zoo. OpenCV 5 removed the classic Haar cascade API and ships no detection data, so
+# without this there is no face detector. It is deliberately NOT downloaded automatically:
+# only the landmark stage is allowed to touch the network.
+#
+# Unset simply means the face signal is unavailable. The quality score then renormalizes over
+# its remaining components rather than feeding in a constant, so nothing is silently diluted.
+# face_detector_model = "models/face_detection_yunet_2023mar.onnx"
+#
+# Fetch it once (it is ~230 KB and not committed):
+#   curl -sLo models/face_detection_yunet_2023mar.onnx \
+#     https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
+
+[geocode]
+# Offline city/region lookup always works. Nominatim adds POI-level names but is
+# rate-limited by its usage policy.
+use_nominatim = false
+nominatim_user_agent = "travel-story-book"
+nominatim_min_interval_seconds = 1.1
+coordinate_rounding_decimals = 4
+
+[landmarks]
+# none disables the only cloud stage. Set a provider to get landmark names.
+provider = "none"
+# model = "claude-opus-5"
+images_per_request = 4
+max_requests = 400
+# Ask before spending more than this on a single run.
+confirm_above_estimated_usd = 1.0
+prompt_version = 1
+
+# Per-device corrections, keyed by the EXIF model string. Use this when a camera's clock
+# was never set to local time -- the pipeline warns when it detects a likely offset.
+# [devices."ILCE-7M4"]
+# clock_offset_minutes = -60
+# default_timezone = "Europe/Vienna"
+
+[timeline]
+# Content classes dropped from `trip.json` entirely -- not counted, not mapped, and unable to be
+# the sole member of a "stop". Only screenshots by default: a receipt or a menu is a photograph of
+# something physically in front of you, which is weak evidence of a place but still evidence,
+# while a screenshot is a picture of a phone. On a real trip two screen captures invented a 00:59
+# stop that never happened.
+#
+# Set to [] to keep everything, or add "receipt" / "document" to drop more. A photo pinned in
+# `overrides.toml` survives this either way -- the human's word beats the automatic filter.
+exclude_content_classes = ["screenshot"]

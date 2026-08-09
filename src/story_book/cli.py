@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import time
+import tomllib
 from collections import Counter
 from dataclasses import replace
 from pathlib import Path
@@ -42,6 +43,15 @@ from story_book.export.reel import (
 )
 from story_book.export.report import load_story, load_trip_json, render_report
 from story_book.export.subtitles import cue_font_size
+from story_book.init_trip import (
+    InitError,
+    face_detector_setting,
+    home_settings,
+    next_steps,
+    plan_settings,
+    resolve_face_model,
+    write_trip_dir,
+)
 from story_book.overrides import OverrideError, Overrides
 from story_book.pipeline.base import Stage, StageContext
 from story_book.pipeline.days import DaysStage
@@ -819,6 +829,100 @@ def profile(
         json_out.parent.mkdir(parents=True, exist_ok=True)
         json_out.write_text(json.dumps(profile_to_dict(result), indent=2))
         console.print(f"wrote {json_out}")
+
+
+@app.command()
+def init(
+    source: Annotated[Path, typer.Argument(exists=True, file_okay=False)],
+    trip_dir: Annotated[
+        Path, typer.Option("--trip-dir", help="Directory to create, holding this trip's config.")
+    ],
+    like: Annotated[
+        Path | None,
+        typer.Option(
+            "--like",
+            exists=True,
+            dir_okay=False,
+            # Escaped: Rich reads a bracketed literal in help text as a style tag and drops it.
+            help=r"An existing config.toml to inherit \[home] and the face model from.",
+        ),
+    ] = None,
+    trip_name: Annotated[
+        str | None, typer.Option("--trip-name", help="Defaults to the source folder name.")
+    ] = None,
+    face_model: Annotated[
+        Path | None, typer.Option("--face-model", help="Path to the YuNet ONNX model.")
+    ] = None,
+    no_face_model: Annotated[
+        bool,
+        typer.Option("--no-face-model", help="Build without the face signal, deliberately."),
+    ] = False,
+) -> None:
+    """Scaffold a new trip: profile the folder, write a config from what it measured.
+
+    Writes `config.toml` and `overrides.toml` into --trip-dir and prints the commands to run
+    next. It does not run `build` -- that log is worth reading.
+    """
+    source = source.resolve()
+    home: dict | None = None
+    face: dict | None = None
+
+    try:
+        if like is not None:
+            like = like.resolve()
+            home = home_settings(like)
+            if face_model is None and not no_face_model:
+                with like.open("rb") as handle:
+                    raw = tomllib.load(handle)
+                inherited = (raw.get("models") or {}).get("face_detector_model")
+                if inherited:
+                    face_model = resolve_face_model(inherited, relative_to=like.parent)
+
+        if face_model is not None and not no_face_model:
+            basis = f"inherited from {like}" if like else "the --face-model you gave"
+            face = face_detector_setting(face_model, basis=basis)
+    except InitError as exc:
+        console.print(f"[red]init error:[/] {exc}")
+        raise typer.Exit(2) from exc
+
+    with console.status(f"profiling {source}..."):
+        result = story_profile.run(source)
+    profile_render.render(result, console)
+
+    settings = plan_settings(
+        result,
+        trip_name=trip_name or source.name,
+        home=home,
+        face_model=face,
+    )
+    try:
+        plan = write_trip_dir(trip_dir, settings, source=source, home_source=like)
+    except InitError as exc:
+        console.print(f"[red]init error:[/] {exc}")
+        raise typer.Exit(2) from exc
+
+    console.print(f"wrote [bold]{plan.config_path}[/]", soft_wrap=True)
+    if plan.overrides_existed:
+        console.print(f"kept existing {plan.overrides_path}", soft_wrap=True)
+    else:
+        console.print(f"wrote {plan.overrides_path} (an empty corrections file)", soft_wrap=True)
+
+    if home is None:
+        console.print(
+            r"[yellow]![/] no \[home] block: nothing will be excluded from exports by "
+            "proximity to where you live. Add one, or pass --like an existing config."
+        )
+    if face is None:
+        console.print(
+            "[yellow]![/] no face detector: the quality score renormalizes without it, and "
+            "highlights favour scenery over people."
+        )
+
+    console.print("\n[bold]next:[/]")
+    for step in next_steps(source, plan):
+        # soft_wrap, because a command broken across lines by the terminal width cannot be
+        # copied, and copying it is the whole point of printing it.
+        console.print(f"  {step}", soft_wrap=True, highlight=False)
 
 
 def _validate_transcribe(value: str) -> None:
