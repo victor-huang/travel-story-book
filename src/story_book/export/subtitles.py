@@ -105,11 +105,48 @@ def _translated_field(record: dict, language: str, field_name: str) -> str | Non
     return None
 
 
-def _captions_by_asset(story: dict | None) -> dict[str, dict]:
+def generic_captions(story: dict | None) -> set[str]:
+    """Caption strings that describe a *day* rather than a photograph.
+
+    A model asked for 398 captions will fill the ones it cannot see with a template -- on one real
+    trip, 350 of 398 read "A moment from <place> during our <day title> day", one string covering
+    up to 32 different photographs. Burned onto each of them it says nothing and buries the picture.
+
+    Two signals, both independent of English phrasing:
+
+      * **Reuse.** A caption attached to more than one asset is not a caption of any of them. This
+        caught 342 of the 350 with no false positives -- no real description was ever shared.
+      * **Restating the day.** A caption containing its day's own title verbatim is derived from
+        the day, not from the frame. This catches the remainder, where a day held a single photo so
+        the template appeared only once.
+    """
+    records = (story or {}).get("captions") or []
+    counts: dict[str, int] = {}
+    for record in records:
+        caption = (record.get("caption") or "").strip()
+        if caption:
+            counts[caption] = counts.get(caption, 0) + 1
+
+    titles = [
+        (d.get("title") or "").strip().lower()
+        for d in (story or {}).get("days") or []
+        if (d.get("title") or "").strip()
+    ]
+    generic = {caption for caption, n in counts.items() if n > 1}
+    for caption in counts:
+        lowered = caption.lower()
+        if any(title in lowered for title in titles):
+            generic.add(caption)
+    return generic
+
+
+def _captions_by_asset(story: dict | None, *, drop_generic: bool = True) -> dict[str, dict]:
+    skip = generic_captions(story) if drop_generic else set()
     out: dict[str, dict] = {}
     for record in (story or {}).get("captions") or []:
         asset_id = record.get("asset_id")
-        if asset_id and record.get("caption"):
+        caption = (record.get("caption") or "").strip()
+        if asset_id and caption and caption not in skip:
             out[asset_id] = record
     return out
 
@@ -125,6 +162,7 @@ def build_cues(
     language: str,
     *,
     include_captions: bool = True,
+    drop_generic_captions: bool = True,
 ) -> SubtitleTrack:
     """Timed cues for `language`, one per title card and (optionally) per captioned photograph.
 
@@ -132,7 +170,7 @@ def build_cues(
     finished reel. Both come from the reel plan, so the subtitles cannot drift from the picture.
     """
     native = language.lower() == source_language(story)
-    captions = _captions_by_asset(story)
+    captions = _captions_by_asset(story, drop_generic=drop_generic_captions)
     days = _days_by_date(story)
     story = story or {}
 
@@ -163,6 +201,11 @@ def build_cues(
                 else:
                     translated = True
                 text = rendered
+
+        elif segment.kind == "end":
+            # Its text is already burned into the card, in the reel's own language. A cue would
+            # repeat it and, having no translation, would drag a track below 100%.
+            text = None
 
         elif include_captions and segment.asset_id:
             record = captions.get(segment.asset_id)
@@ -244,6 +287,13 @@ an outline stays legible on both without covering the picture."""
 MIN_CUE_FONT_PX = 12
 SUBTITLE_SCALE_RANGE = (0.2, 5.0)
 
+MIN_SHRINK_FRACTION = 0.55
+"""How far a cue may shrink to stay on one line, as a fraction of the configured size.
+
+A wrapped subtitle covers twice as much of the picture and reads worse, and Chinese wraps sooner
+than English because each glyph is full-width. Below this the text is small enough that wrapping
+is the lesser evil, so it wraps instead."""
+
 
 def cue_font_size(height: int, scale: float = 1.0) -> int:
     """Burned-in subtitle size in pixels: a fraction of frame height, times the user's scale."""
@@ -267,16 +317,19 @@ def render_cue_images(
     from PIL import Image, ImageDraw  # local: keeps the module importable without Pillow
 
     directory.mkdir(parents=True, exist_ok=True)
-    size = cue_font_size(height, scale)
+    nominal = cue_font_size(height, scale)
+    floor = max(MIN_CUE_FONT_PX, int(nominal * MIN_SHRINK_FRACTION))
     made: list[tuple[Cue, Path]] = []
 
     for index, cue in enumerate(track.cues):
-        font = font_for(cue.text, size)
-        text = renderable(cue.text, font)
         image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(image)
+        max_width = int(width * CUE_TEXT_WIDTH_FRACTION)
 
-        lines = _wrap_lines(draw, text, font, int(width * CUE_TEXT_WIDTH_FRACTION))
+        size = _one_line_size(draw, cue.text, max_width, nominal, floor)
+        font = font_for(cue.text, size)
+        text = renderable(cue.text, font)
+        lines = _wrap_lines(draw, text, font, max_width)
         line_height = int(size * 1.35)
         bottom = height - int(height * bottom_margin)
         # A large scale on a long caption can push the block off the top of the frame. Text that
@@ -298,6 +351,28 @@ def render_cue_images(
         image.save(target)
         made.append((cue, target))
     return made
+
+
+def _one_line_size(draw, text: str, max_width: int, nominal: int, floor: int) -> int:
+    """Largest size at or below `nominal` that keeps every paragraph on one line.
+
+    Falls back to `floor` when even that will not fit, and the caller then wraps -- unreadable text
+    is worse than a second line. Each paragraph is measured separately because a cue may
+    legitimately be two strings (a title and its subtitle), which should stay two lines.
+    """
+    paragraphs = [p for p in text.split("\n") if p.strip()]
+    if not paragraphs:
+        return nominal
+    for size in range(nominal, floor - 1, -1):
+        font = font_for(text, size)
+        drawable = renderable(text, font)
+        if all(
+            draw.textlength(paragraph, font=font) <= max_width
+            for paragraph in drawable.split("\n")
+            if paragraph.strip()
+        ):
+            return size
+    return floor
 
 
 def _wrap_lines(draw, text: str, font, max_width: int) -> list[str]:

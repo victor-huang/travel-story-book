@@ -10,8 +10,10 @@ from story_book.export.subtitles import (
     MIN_CUE_FONT_PX,
     Cue,
     SubtitleTrack,
+    _one_line_size,
     build_cues,
     cue_font_size,
+    generic_captions,
     source_language,
     to_srt,
     to_webvtt,
@@ -182,6 +184,112 @@ class TestTrackStats:
         track = SubtitleTrack("zh", [Cue(0, 1, "a", True), Cue(1, 2, "b", False)])
         assert track.fully_translated is False
         assert track.translated_count == 1
+
+
+class TestGenericCaptions:
+    """A model asked for 398 captions fills the ones it cannot see with a template. On one real
+    trip 350 of 398 read "A moment from <place> during our <day> day" -- one string covering up to
+    32 different photographs. Burned onto each it says nothing and buries the picture."""
+
+    def _story(self, *captions: tuple[str, str], days: list | None = None) -> dict:
+        return {
+            "days": days or [{"date": "2026-07-18", "title": "Vienna in Music and Gold"}],
+            "captions": [{"asset_id": a, "caption": c} for a, c in captions],
+        }
+
+    def test_a_caption_used_by_two_assets_is_generic(self):
+        story = self._story(("a", "A moment from Vienna."), ("b", "A moment from Vienna."))
+        assert generic_captions(story) == {"A moment from Vienna."}
+
+    def test_a_caption_unique_to_one_asset_is_kept(self):
+        story = self._story(("a", "Klimt's The Kiss."), ("b", "The Musikverein balcony."))
+        assert generic_captions(story) == set()
+
+    def test_a_caption_restating_its_day_title_is_generic_even_when_unique(self):
+        """The remaining cases: a day holding a single photo, so the template appears once."""
+        story = self._story(("a", "A moment during our vienna in music and gold day."))
+        assert len(generic_captions(story)) == 1
+
+    def test_day_title_matching_ignores_case(self):
+        story = self._story(("a", "Something about VIENNA IN MUSIC AND GOLD here."))
+        assert len(generic_captions(story)) == 1
+
+    def test_a_real_description_survives_both_tests(self):
+        story = self._story(("a", "The tandem wing carries us above the Zillertal."))
+        assert generic_captions(story) == set()
+
+    def test_generic_captions_produce_no_cues(self):
+        segments = [
+            Segment(kind="still", seconds=3.0, asset_id="a"),
+            Segment(kind="still", seconds=3.0, asset_id="b"),
+        ]
+        story = {
+            "days": [],
+            "captions": [
+                {"asset_id": "a", "caption": "A moment from Vienna."},
+                {"asset_id": "b", "caption": "A moment from Vienna."},
+            ],
+        }
+        assert build_cues(segments, [0.0, 3.0], story, "en").cues == []
+
+    def test_dropping_can_be_turned_off(self):
+        segments = [
+            Segment(kind="still", seconds=3.0, asset_id="a"),
+            Segment(kind="still", seconds=3.0, asset_id="b"),
+        ]
+        story = {
+            "days": [],
+            "captions": [
+                {"asset_id": "a", "caption": "A moment from Vienna."},
+                {"asset_id": "b", "caption": "A moment from Vienna."},
+            ],
+        }
+        track = build_cues(segments, [0.0, 3.0], story, "en", drop_generic_captions=False)
+        assert len(track.cues) == 2
+
+    def test_a_real_caption_beside_generic_ones_still_appears(self):
+        segments = [
+            Segment(kind="still", seconds=3.0, asset_id="a"),
+            Segment(kind="still", seconds=3.0, asset_id="b"),
+            Segment(kind="still", seconds=3.0, asset_id="c"),
+        ]
+        story = {
+            "days": [],
+            "captions": [
+                {"asset_id": "a", "caption": "A moment from Vienna."},
+                {"asset_id": "b", "caption": "A moment from Vienna."},
+                {"asset_id": "c", "caption": "Klimt's The Kiss, up close."},
+            ],
+        }
+        track = build_cues(segments, [0.0, 3.0, 6.0], story, "en")
+        assert [c.text for c in track.cues] == ["Klimt's The Kiss, up close."]
+
+
+class TestOneLineFitting:
+    """A wrapped subtitle covers twice as much picture, and Chinese wraps sooner than English
+    because every glyph is full-width. Shrink to fit one line before wrapping."""
+
+    def setup_method(self):
+        from PIL import Image, ImageDraw
+
+        self.draw = ImageDraw.Draw(Image.new("RGB", (10, 10)))
+
+    def test_short_text_keeps_the_configured_size(self):
+        assert _one_line_size(self.draw, "Vienna", 1600, 58, 31) == 58
+
+    def test_long_text_shrinks(self):
+        long = "a rather long subtitle line that will not fit at the configured size at all" * 2
+        assert _one_line_size(self.draw, long, 800, 58, 31) < 58
+
+    def test_shrinking_stops_at_the_floor(self):
+        assert _one_line_size(self.draw, "x" * 4000, 400, 58, 31) == 31
+
+    def test_each_paragraph_is_measured_separately(self):
+        """A title and its subtitle are two strings and should stay two lines."""
+        assert _one_line_size(self.draw, "Vienna\nJuly 2026", 1600, 58, 31) == 58
+
+    def test_empty_text_is_left_at_the_configured_size(self):
+        assert _one_line_size(self.draw, "", 1600, 58, 31) == 58
 
 
 class TestCueFontSize:

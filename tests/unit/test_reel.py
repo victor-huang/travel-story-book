@@ -24,6 +24,7 @@ from story_book.export.reel import (
     _xfade_chain,
     build_plan,
     frame_size,
+    mosaic_grid,
     parse_aspect,
     reel_filenames,
     segment_key,
@@ -293,6 +294,78 @@ class TestReelSelectionSlugs:
 
     def test_an_unusable_name_still_yields_something(self):
         assert ReelSelection(name="!!!").slug == "part"
+
+
+class TestEndCard:
+    """Without one the montage stops on whatever photograph happened to be last, which reads as
+    the file being truncated rather than the film being over."""
+
+    def test_the_reel_ends_on_a_card(self):
+        plan = build_plan(_doc([_asset("a"), _asset("b")]), Config())
+        assert plan.segments[-1].kind == "end"
+
+    def test_the_card_is_tiled_with_stills_from_this_reel(self):
+        plan = build_plan(_doc([_asset(f"a{i}") for i in range(6)]), Config())
+        stills = {s.source for s in plan.segments if s.kind == "still"}
+        assert set(plan.segments[-1].sources) <= stills
+        assert plan.segments[-1].sources
+
+    def test_it_carries_the_closing_text_and_the_part_name(self):
+        plan = build_plan(_doc([_asset("a")]), Config(), selection=ReelSelection(name="Vienna"))
+        end = plan.segments[-1]
+        assert end.title == "The End"
+        assert end.subtitle == "Vienna"
+
+    def test_the_closing_text_is_configurable(self):
+        config = Config(reel=ReelConfig(end_card_text="Fin"))
+        plan = build_plan(_doc([_asset("a")]), config)
+        assert plan.segments[-1].title == "Fin"
+
+    def test_it_can_be_turned_off(self):
+        config = Config(reel=ReelConfig(end_card=False))
+        plan = build_plan(_doc([_asset("a"), _asset("b")]), config)
+        assert all(s.kind != "end" for s in plan.segments)
+
+    def test_tiles_are_sampled_across_the_whole_reel_not_just_the_start(self):
+        plan = build_plan(_doc([_asset(f"a{i:02d}") for i in range(40)]), Config())
+        sources = plan.segments[-1].sources
+        assert "previews/a00.jpg" in sources
+        assert any(s > "previews/a20.jpg" for s in sources)
+
+    def test_the_tile_count_fills_the_grid_exactly(self):
+        """A hole in the corner of a mosaic reads as a rendering failure, not a design."""
+        plan = build_plan(_doc([_asset(f"a{i:02d}") for i in range(40)]), Config())
+        columns, rows = mosaic_grid(len(plan.segments[-1].sources), plan.width, plan.height)
+        assert columns * rows == len(plan.segments[-1].sources)
+
+    def test_it_lasts_the_configured_time(self):
+        config = Config(reel=ReelConfig(end_card_seconds=6.0))
+        plan = build_plan(_doc([_asset("a")]), config)
+        assert plan.segments[-1].seconds == 6.0
+
+    def test_changing_the_tiles_changes_the_cache_key(self):
+        plan = ReelPlan(segments=[], width=1920, height=1080, fps=30, crossfade=0.6)
+        one = Segment(kind="end", seconds=4.5, title="The End", sources=("previews/a.jpg",))
+        two = replace(one, sources=("previews/b.jpg",))
+        assert segment_key(one, plan, Config()) != segment_key(two, plan, Config())
+
+
+class TestMosaicGrid:
+    def test_twelve_tiles_fill_a_wide_frame_four_by_three(self):
+        assert mosaic_grid(12, 1920, 1080) == (4, 3)
+
+    def test_the_grid_never_leaves_an_empty_cell(self):
+        for count in range(2, 25):
+            columns, rows = mosaic_grid(count, 1920, 1080)
+            assert columns * rows <= count
+
+    def test_a_tall_frame_gets_a_tall_grid(self):
+        wide = mosaic_grid(12, 1920, 1080)
+        tall = mosaic_grid(12, 1080, 1920)
+        assert tall[1] > wide[1]
+
+    def test_one_tile_is_a_single_cell(self):
+        assert mosaic_grid(1, 1920, 1080) == (1, 1)
 
 
 class TestClipHandling:

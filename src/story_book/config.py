@@ -198,6 +198,14 @@ class ReelConfig:
     subtitle_bottom_margin: float = 0.07
     """Gap below the text, as a fraction of frame height."""
 
+    # A closing card: a mosaic of stills from this reel, dimmed, with a line of text over it.
+    # Without one the montage simply stops on whatever photograph happened to be last, which
+    # reads as the file being truncated rather than the film being over.
+    end_card: bool = True
+    end_card_seconds: float = 4.5
+    end_card_text: str = "The End"
+    end_card_tiles: int = 12
+
     x264_preset: str = "veryfast"
     x264_crf: int = 20
 

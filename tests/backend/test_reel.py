@@ -218,8 +218,11 @@ class TestRenderedFile:
 
 class TestMotion:
     def test_a_still_only_reel_holds_still(self, trip, tmp_path):
-        """The control for the test below: without clips, only crossfades change pixels."""
-        config = _fast_config(crossfade_seconds=0.0)
+        """The control for the test below: without clips, only crossfades change pixels.
+
+        The end card is off here because it is a *different* picture from the last still, so
+        cutting to it moves pixels by design -- which is not what this test is about."""
+        config = _fast_config(crossfade_seconds=0.0, end_card=False)
         rendered = render_reel(build_plan(trip, config), config, tmp_path)
         assert _frame_change(rendered.path) < 5.0
 
@@ -265,8 +268,11 @@ class TestSegmentCache:
         assert again.segments_cached == len(first.plan.segments) - 1
 
     def test_adding_a_photo_reuses_every_existing_segment(self, trip, tmp_path):
-        """The reason the key is the spec and not the position in the list."""
-        config = _fast_config()
+        """The reason the key is the spec and not the position in the list.
+
+        The end card is off here because its mosaic samples across the whole reel, so adding a
+        photo legitimately changes it -- see the test below, which asserts exactly that."""
+        config = _fast_config(end_card=False)
         before = render_reel(build_plan(trip, config), config, tmp_path)
         shutil.copy(FIXTURES / "burst_a.jpg", tmp_path / "previews" / "new.jpg")
         trip["assets"]["new"] = {
@@ -285,6 +291,31 @@ class TestSegmentCache:
         after = render_reel(build_plan(trip, config), config, tmp_path)
         assert after.segments_rendered == 1
         assert after.segments_cached == len(before.plan.segments)
+
+    def test_adding_a_photo_rebuilds_the_end_card(self, trip, tmp_path):
+        """The mosaic is sampled across the reel, so new material belongs in it. The cache has to
+        see that, which is why the tile list is part of the segment spec."""
+        config = _fast_config()
+        before = build_plan(trip, config)
+        shutil.copy(FIXTURES / "burst_a.jpg", tmp_path / "previews" / "new.jpg")
+        trip["assets"]["new"] = {
+            "asset_id": "new",
+            "filename": "burst_a.jpg",
+            "kind": "image",
+            "taken_utc": "2026-07-18T08:00:00+00:00",
+            "day": "2026-07-18",
+            "preview": "previews/new.jpg",
+            "thumbnail": "previews/new.jpg",
+            "location": {"place": {"city": "Vienna"}},
+        }
+        trip["days"][0]["highlights"].append("new")
+        trip["days"][0]["events"][0]["assets"].append("new")
+        after = build_plan(trip, config)
+
+        assert before.segments[-1].sources != after.segments[-1].sources
+        assert segment_key(before.segments[-1], before, config) != segment_key(
+            after.segments[-1], after, config
+        )
 
     def test_two_renders_of_an_unchanged_trip_agree_on_every_key(self, trip, tmp_path):
         config = _fast_config()

@@ -199,6 +199,16 @@ composites Pillow-drawn PNGs rather than using ffmpeg's `subtitles` filter, beca
 this project was developed against has no such filter** — libass is not in a stock Homebrew build,
 so a libass-based design would have been unbuildable here and unavailable to most users.
 
+### Closing card — shipped 2026-08-09
+
+The montage used to stop on whatever photograph happened to be last, which reads as the file being
+truncated rather than the film being over. It now ends on a mosaic of stills sampled evenly across
+that reel, dimmed, with a closing line over it. Its own stills rather than a fixed graphic: the
+card should be of *this* trip, and the images are already on disk.
+
+The grid is chosen to be filled exactly — a 12-tile mosaic laid out five wide leaves three empty
+cells, and a hole in a mosaic reads as a rendering failure rather than a design.
+
 ### v2 — the one that feels intentional
 
 - Beat-synced cuts (`librosa` or `aubio`, optional extra `--extra audio`).

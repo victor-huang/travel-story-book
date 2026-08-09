@@ -43,7 +43,9 @@ story-book reel --out <dir> --subtitles zh --burn-in zh --subtitle-scale 1.5
 ```
 
 `--subtitle-scale` is a multiple of the default, which is **frame height / 26** — 42 px at 1080p,
-so `1.5` gives 62 px and `2.0` gives 83 px. It scales with the frame, so the same value looks the
+so `1.5` gives 62 px and `2.0` gives 83 px. A cue too long for one line **shrinks to fit** rather
+than wrapping, down to 55% of that size; below there it wraps, because unreadable text is worse
+than a second line. Chinese hits this sooner than English, since every glyph is full-width. It scales with the frame, so the same value looks the
 same at 720p and 4K. Persist it as `reel.subtitle_scale`, alongside `reel.subtitle_bottom_margin`
 (a fraction of frame height, default `0.07`) if the text sits too high or low.
 
@@ -132,7 +134,19 @@ yours, and nothing in the pipeline rewrites it.
 | Video clip | its caption, if it has one |
 
 A photograph with no caption gets no cue, so the subtitles are as sparse or as dense as the story
-is. On a 61-segment reel with 23 captions that came to **28 cues**.
+is.
+
+**A caption that describes a day rather than a photograph is treated as no caption.** Asked for
+hundreds of captions, a model fills the ones it cannot see with a template: on one real trip 350 of
+398 read *"A moment from &lt;place&gt; during our &lt;day title&gt; day"*, a single string covering
+up to 32 different photographs. Burned onto each of them it says nothing and buries the picture.
+Two signals catch it, neither depending on English phrasing:
+
+- **Reuse** — a caption attached to more than one asset is not a caption of any of them.
+- **Restating the day** — a caption containing its own day's title is derived from the day.
+
+On that trip the two together left 48 real descriptions from 398, and dropped no genuine one.
+`reel.json` reports the cue count so you can see how sparse the result is.
 
 Cues are clamped so they never overlap. Segments overlap each other by `crossfade_seconds`, and
 two overlapping VTT cues render *stacked* rather than replacing one another.

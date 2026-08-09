@@ -25,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import re
 import shutil
 import subprocess
@@ -33,7 +34,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from story_book.config import Config
 from story_book.export.fonts import can_render, font_for, font_identity, renderable
@@ -198,6 +199,9 @@ class Segment:
     excerpt: str | None = None  # "story_range" | "fixed_head" | "whole_clip"
     day: str | None = None
     with_audio: bool = False  # keep this clip's own sound; part of the cache key by design
+    sources: tuple[str, ...] = ()
+    """Images tiled behind an end card. Part of the cache key, so changing the highlights that
+    appear in the mosaic rebuilds it."""
 
 
 @dataclass(slots=True)
@@ -428,6 +432,9 @@ def build_plan(
             if segment is not None:
                 plan.segments.append(segment)
 
+    if config.reel.end_card and len(plan.segments) > 1:
+        plan.segments.append(_end_card(plan, config, selection, story, trip))
+
     if len(plan.segments) < 2:
         raise ReelError(
             "nothing to render: no highlights or previews match this selection"
@@ -441,6 +448,31 @@ def build_plan(
             "`--source`, for moving footage."
         )
     return plan
+
+
+def _end_card(
+    plan: ReelPlan, config: Config, selection: ReelSelection, story: dict | None, trip: dict
+) -> Segment:
+    """A closing card tiled with stills already in this reel, sampled evenly across it.
+
+    Evenly rather than "the best": the mosaic is a reminder of where the film went, so it should
+    span the whole of it rather than cluster on whichever day scored highest.
+    """
+    stills = [s for s in plan.segments if s.kind == "still" and s.source]
+    columns, rows = mosaic_grid(
+        min(len(stills), max(1, int(config.reel.end_card_tiles))), plan.width, plan.height
+    )
+    wanted = columns * rows
+    if len(stills) > wanted:
+        step = len(stills) / wanted
+        stills = [stills[int(index * step)] for index in range(wanted)]
+    return Segment(
+        kind="end",
+        seconds=float(config.reel.end_card_seconds),
+        title=config.reel.end_card_text,
+        subtitle=selection.name or (story or {}).get("title") or trip.get("name"),
+        sources=tuple(s.source for s in stills if s.source),
+    )
 
 
 def _trip_dates(trip: dict) -> str | None:
@@ -528,7 +560,7 @@ def segment_key(segment: Segment, plan: ReelPlan, config: Config) -> str:
         "frame": [plan.width, plan.height, plan.fps],
         "encode": [config.reel.x264_preset, config.reel.x264_crf],
     }
-    if segment.kind == "title":
+    if segment.kind in ("title", "end"):
         payload["font"] = font_identity()
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.blake2b(blob, digest_size=16).hexdigest()
@@ -553,18 +585,19 @@ def _fill_filter(width: int, height: int) -> str:
     )
 
 
-def render_title_card(segment: Segment, width: int, height: int, target: Path) -> Path:
-    """Draw a title card as a PNG. Pillow's bundled font -- no TTF needs to exist here."""
-    image = Image.new("RGB", (width, height), TITLE_BACKGROUND)
+def _draw_card_text(
+    image: Image.Image, title: str | None, subtitle: str | None, width: int, height: int
+) -> None:
+    """Centred title over optional subtitle, in a font chosen by what has to be drawn."""
     draw = ImageDraw.Draw(image)
 
     # Chosen by what has to be drawn, not by a fixed default -- a Chinese day title needs a CJK
     # font, and Arial would silently render it as nothing at all.
-    title_font = font_for(segment.title or "", max(28, height // 14))
-    subtitle_font = font_for(segment.subtitle or "", max(18, height // 30))
+    title_font = font_for(title or "", max(28, height // 14))
+    subtitle_font = font_for(subtitle or "", max(18, height // 30))
 
-    title = renderable(segment.title or "", title_font)
-    subtitle = renderable(segment.subtitle or "", subtitle_font)
+    title = renderable(title or "", title_font)
+    subtitle = renderable(subtitle or "", subtitle_font)
 
     lines = _wrap(draw, title, title_font, int(width * 0.82))
     line_height = int(title_font.size * 1.25)
@@ -586,6 +619,63 @@ def render_title_card(segment: Segment, width: int, height: int, target: Path) -
             fill=SUBTITLE_COLOR,
         )
 
+
+def render_title_card(segment: Segment, width: int, height: int, target: Path) -> Path:
+    """Draw a title card as a PNG. The font is chosen by what has to be drawn -- see `fonts.py`."""
+    image = Image.new("RGB", (width, height), TITLE_BACKGROUND)
+    _draw_card_text(image, segment.title, segment.subtitle, width, height)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    image.save(target)
+    return target
+
+
+def mosaic_grid(tiles: int, width: int, height: int) -> tuple[int, int]:
+    """Columns and rows that use `tiles` exactly and sit closest to the frame's shape.
+
+    Exactly, not at most: a 12-tile mosaic laid out five wide leaves three empty cells in the
+    corner, and a hole in a mosaic reads as a rendering failure rather than a design.
+    """
+    if tiles <= 1:
+        return 1, 1
+    target = width / max(1, height)
+    best, best_error = (tiles, 1), None
+    for columns in range(1, tiles + 1):
+        for rows in range(1, tiles // columns + 1):
+            used = columns * rows
+            if used > tiles:
+                continue
+            # Shape first, then a mild preference for leaving no photograph out.
+            error = abs(columns / rows - target) + (tiles - used) * 0.08
+            if best_error is None or error < best_error:
+                best, best_error = (columns, rows), error
+    return best
+
+
+def render_end_card(segment: Segment, width: int, height: int, target: Path, out_dir: Path) -> Path:
+    """A mosaic of this reel's own stills, dimmed, with the closing line over it.
+
+    Its own stills rather than a fixed graphic: the card should be of *this* trip, and the images
+    are already on disk, so it costs nothing to make it specific.
+    """
+    image = Image.new("RGB", (width, height), TITLE_BACKGROUND)
+    tiles = [out_dir / src for src in segment.sources]
+    tiles = [t for t in tiles if t.exists()]
+
+    if tiles:
+        columns, rows = mosaic_grid(len(tiles), width, height)
+        tiles = tiles[: columns * rows]
+        cell_w, cell_h = math.ceil(width / columns), math.ceil(height / rows)
+        for index, path in enumerate(tiles):
+            try:
+                with Image.open(path) as raw:
+                    tile = ImageOps.fit(raw.convert("RGB"), (cell_w, cell_h), Image.LANCZOS)
+            except OSError:  # an unreadable preview costs one tile, not the card
+                continue
+            image.paste(tile, ((index % columns) * cell_w, (index // columns) * cell_h))
+        # Dim it hard: the mosaic is texture behind the words, not a photograph to read.
+        image = Image.blend(image, Image.new("RGB", (width, height), TITLE_BACKGROUND), 0.62)
+
+    _draw_card_text(image, segment.title, segment.subtitle, width, height)
     target.parent.mkdir(parents=True, exist_ok=True)
     image.save(target)
     return target
@@ -783,6 +873,9 @@ def render_segment(
         if segment.kind == "title":
             still = target.with_suffix(".png")
             render_title_card(segment, plan.width, plan.height, still)
+        elif segment.kind == "end":
+            still = target.with_suffix(".png")
+            render_end_card(segment, plan.width, plan.height, still, out_dir)
         else:
             still = out_dir / (segment.source or "")
             if not still.exists():
