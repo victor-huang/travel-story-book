@@ -231,13 +231,13 @@ class TestPlacesAreNamed:
 class TestTripContext:
     def test_absent_context_is_stated_explicitly_in_the_prompt(self, seeded: StageContext) -> None:
         built = build_package(_document(seeded), seeded.out_dir)
-        assert "No personal context was supplied" in built.days[0].prompt.read_text()
+        assert "No personal context was supplied" in built.prompt.read_text()
 
     def test_absent_context_instructs_the_model_not_to_invent_feelings(
         self, seeded: StageContext
     ) -> None:
         built = build_package(_document(seeded), seeded.out_dir)
-        assert "Do not invent reactions" in built.days[0].prompt.read_text()
+        assert "Do not invent reactions" in built.prompt.read_text()
 
     def test_supplied_context_reaches_the_prompt(self, seeded: StageContext) -> None:
         context = TripContext(
@@ -246,7 +246,7 @@ class TestTripContext:
             notes=("The concert was why we came.",),
         )
         built = build_package(_document(seeded, context), seeded.out_dir)
-        text = built.days[0].prompt.read_text()
+        text = built.prompt.read_text()
         assert "Sam" in text and "The concert was why we came." in text
 
 
@@ -264,11 +264,11 @@ class TestStructuredOutputIsRequested:
     )
     def test_the_prompt_asks_for_each_required_key(self, seeded: StageContext, key: str) -> None:
         built = build_package(_document(seeded), seeded.out_dir)
-        assert f'"{key}"' in built.days[0].prompt.read_text()
+        assert f'"{key}"' in built.prompt.read_text()
 
     def test_the_prompt_asks_for_a_video_storyboard(self, seeded: StageContext) -> None:
         built = build_package(_document(seeded), seeded.out_dir)
-        assert "storyboard" in built.days[0].prompt.read_text().lower()
+        assert "storyboard" in built.prompt.read_text().lower()
 
 
 class TestEventLocationIsRicherThanAPoint:
@@ -324,10 +324,10 @@ class TestPreviewOrOriginals:
 
 
 class TestPackagedFiles:
-    def test_a_day_directory_holds_a_sheet_a_brief_and_a_prompt(self, seeded: StageContext) -> None:
+    def test_a_day_directory_holds_a_sheet_and_a_brief(self, seeded: StageContext) -> None:
         built = build_package(_document(seeded), seeded.out_dir)
         day = built.days[0]
-        assert day.sheets and day.brief.exists() and day.prompt.exists()
+        assert day.sheets and day.brief.exists()
 
     def test_a_readme_explains_the_upload_steps(self, seeded: StageContext) -> None:
         built = build_package(_document(seeded), seeded.out_dir)
@@ -510,7 +510,7 @@ class TestEventsAreNotChapters:
 
     def test_the_prompt_asks_the_model_to_draw_chapters(self, seeded: StageContext) -> None:
         built = build_package(_document(seeded), seeded.out_dir)
-        assert "source_event_ids" in built.days[0].prompt.read_text()
+        assert "source_event_ids" in built.prompt.read_text()
 
 
 class TestSelectionReasons:
@@ -586,7 +586,7 @@ class TestPlaceCertainty:
         self, seeded: StageContext
     ) -> None:
         built = build_package(_document(seeded), seeded.out_dir)
-        text = built.days[0].prompt.read_text()
+        text = built.prompt.read_text()
         assert "may name a landmark you recognise" in text and "uncertainties" in text
 
 
@@ -605,34 +605,94 @@ class TestVideoStoryboardData:
         self, seeded: StageContext
     ) -> None:
         built = build_package(_document(seeded), seeded.out_dir)
-        text = built.days[0].prompt.read_text()
+        text = built.prompt.read_text()
         assert "source_start_seconds" in text and "source_end_seconds" in text
+
+
+class TestOneStoryPerTrip:
+    """The package is organised per day; the *work* is not.
+
+    Organising the input per day silently reorganised the output: three per-day chats each did as
+    they were told and each saved a `story.json` covering one day, so a combined file had to be
+    asked for a second time.
+    """
+
+    def test_the_prompt_lives_at_the_root_not_in_a_day(self, seeded: StageContext) -> None:
+        built = build_package(_document(seeded), seeded.out_dir)
+        assert built.prompt == built.root / "prompt.md" and built.prompt.exists()
+
+    def test_no_day_folder_carries_its_own_prompt(self, seeded: StageContext) -> None:
+        built = build_package(_document(seeded), seeded.out_dir)
+        assert not any((day.directory / "prompt.md").exists() for day in built.days)
+
+    def test_the_prompt_asks_for_exactly_one_file(self, seeded: StageContext) -> None:
+        built = build_package(_document(seeded), seeded.out_dir)
+        assert "exactly one JSON file" in built.prompt.read_text()
+
+    def test_the_prompt_names_every_date_in_the_skeleton(self, seeded: StageContext) -> None:
+        built = build_package(_document(seeded), seeded.out_dir)
+        text = built.prompt.read_text()
+        assert all(day.date in text for day in built.days)
+
+    def test_the_prompt_asks_for_a_trip_title(self, seeded: StageContext) -> None:
+        """A trip title cannot be written from one day, which is why one chat sees them all."""
+        built = build_package(_document(seeded), seeded.out_dir)
+        assert "subtitle for the trip as a whole" in built.prompt.read_text()
+
+    def test_the_readme_does_not_ask_for_a_chat_per_day(self, seeded: StageContext) -> None:
+        built = build_package(_document(seeded), seeded.out_dir)
+        text = (built.root / "README.md").read_text()
+        assert "One conversation for the whole trip" in text
+        assert "fresh chat" not in text
+
+
+class TestArchiveParts:
+    """Splitting is an upload limit, never a division of the work."""
+
+    def test_a_small_package_is_one_file(self, seeded: StageContext) -> None:
+        built = build_package(_document(seeded), seeded.out_dir)
+        parts = write_archive(built, max_part_bytes=500_000_000)
+        assert len(parts) == 1 and "part" not in parts[0].path.name
+
+    def test_a_single_day_cannot_be_split_however_large(self, seeded: StageContext) -> None:
+        """The fixture trip is one day. Splitting inside it would orphan the brief."""
+        built = build_package(_document(seeded), seeded.out_dir)
+        assert len(write_archive(built, max_part_bytes=1)) == 1
+
+    def test_an_oversized_day_is_reported_not_hidden(self, seeded: StageContext) -> None:
+        built = build_package(_document(seeded), seeded.out_dir)
+        parts = write_archive(built, max_part_bytes=1)
+        assert any(part.over_limit for part in parts)
+
+    def test_no_limit_means_no_split(self, seeded: StageContext) -> None:
+        built = build_package(_document(seeded), seeded.out_dir)
+        assert len(write_archive(built, max_part_bytes=None)) == 1
 
 
 class TestCleanArchive:
     def test_it_writes_a_zip(self, seeded: StageContext) -> None:
         built = build_package(_document(seeded), seeded.out_dir)
-        assert write_archive(built).exists()
+        assert write_archive(built)[0].path.exists()
 
     def test_macos_droppings_are_excluded(self, seeded: StageContext) -> None:
         built = build_package(_document(seeded), seeded.out_dir)
         (built.root / ".DS_Store").write_bytes(b"junk")
         (built.days[0].directory / "._IMG_1.jpeg").write_bytes(b"junk")
 
-        with zipfile.ZipFile(write_archive(built)) as archive:
+        with zipfile.ZipFile(write_archive(built)[0].path) as archive:
             names = archive.namelist()
         assert not any(".DS_Store" in n or "/._" in n for n in names)
 
     def test_the_manifest_is_in_the_archive(self, seeded: StageContext) -> None:
         built = build_package(_document(seeded), seeded.out_dir)
-        with zipfile.ZipFile(write_archive(built)) as archive:
+        with zipfile.ZipFile(write_archive(built)[0].path) as archive:
             assert any(n.endswith("manifest.json") for n in archive.namelist())
 
     def test_rewriting_replaces_rather_than_appends(self, seeded: StageContext) -> None:
         built = build_package(_document(seeded), seeded.out_dir)
-        first = write_archive(built)
+        first = write_archive(built)[0].path
         count = len(zipfile.ZipFile(first).namelist())
-        assert len(zipfile.ZipFile(write_archive(built)).namelist()) == count
+        assert len(zipfile.ZipFile(write_archive(built)[0].path).namelist()) == count
 
 
 class TestExportedFilesAreWhatTheyClaim:
@@ -748,7 +808,7 @@ class TestPromptDoesNotManufacturePrecision:
         """Five stills from a 112-second clip cannot support a confident choice of seconds 43-51."""
         _add_video(seeded, make_media, processed=True, text=None)
         built = build_package(_document(seeded), seeded.out_dir)
-        text = built.days[0].prompt.read_text()
+        text = built.prompt.read_text()
         assert "No playable footage is included" in text and "estimates" in text
 
     def test_without_proxies_the_model_is_told_to_anchor_to_a_keyframe(
@@ -756,11 +816,11 @@ class TestPromptDoesNotManufacturePrecision:
     ) -> None:
         _add_video(seeded, make_media, processed=True, text=None)
         built = build_package(_document(seeded), seeded.out_dir)
-        assert "anchor them" in built.days[0].prompt.read_text()
+        assert "anchor them" in built.prompt.read_text()
 
     def test_a_day_with_no_footage_says_so(self, seeded: StageContext) -> None:
         built = build_package(_document(seeded), seeded.out_dir)
-        assert "no footage" in built.days[0].prompt.read_text()
+        assert "no footage" in built.prompt.read_text()
 
 
 class TestAfterMidnightIsExplicit:
@@ -929,4 +989,4 @@ class TestTheContextTemplateTravels:
 
     def test_the_prompt_points_at_the_template(self, seeded: StageContext) -> None:
         built = build_package(_document(seeded), seeded.out_dir)
-        assert "trip_context.template.toml" in built.days[0].prompt.read_text()
+        assert "trip_context.template.toml" in built.prompt.read_text()

@@ -440,6 +440,13 @@ def package(
         bool,
         typer.Option("--zip", help="Also write package.zip, without macOS filesystem droppings."),
     ] = False,
+    max_part_mb: Annotated[
+        float,
+        typer.Option(
+            "--max-part-mb",
+            help="Split the zip into parts above this size, on day boundaries. 0 disables.",
+        ),
+    ] = 200.0,
 ) -> None:
     """Build the ChatGPT upload package: contact sheets, brief, prompt, and a manifest.
 
@@ -497,10 +504,26 @@ def package(
         f"[{built.mode}] -> [bold]{built.root}[/]"
     )
     if archive:
-        target = write_archive(built)
-        size_mb = target.stat().st_size / 1_048_576
-        console.print(f"archive: [bold]{target}[/] ({size_mb:.0f} MB, no .DS_Store)")
-    console.print("Open a fresh chat per day; attach the sheets and brief.md, paste prompt.md.")
+        limit = int(max_part_mb * 1_048_576) if max_part_mb > 0 else None
+        parts = write_archive(built, max_part_bytes=limit)
+        for part in parts:
+            size_mb = part.path.stat().st_size / 1_048_576
+            console.print(f"archive: [bold]{part.path}[/] ({size_mb:.0f} MB, no .DS_Store)")
+            if part.over_limit:
+                # Never silently hand back a file too big to upload. A day is the smallest unit
+                # that keeps a brief with the sheets it maps, so this one cannot be divided here.
+                console.print(
+                    f"[yellow]![/] that part is over the {max_part_mb:g} MB limit on its own "
+                    f"({', '.join(part.days)}) and cannot be split further without separating a "
+                    "brief from its photographs."
+                )
+        if len(parts) > 1:
+            console.print(
+                f"[bold]{len(parts)} parts -- upload all of them to the SAME chat[/], then paste "
+                "prompt.md. The split is an upload limit, not a division of the work."
+            )
+    console.print("Open one chat for the whole trip; attach the package and paste prompt.md.")
+    console.print("Ask for a single story.json covering every day.")
 
 
 @app.command()

@@ -63,7 +63,12 @@ CONTEXT_TEMPLATE_SOURCE = Path(__file__).parent / "trip_context_template.toml"
 # look unfinished and they are noise for whoever opens it.
 JUNK_NAMES = (".DS_Store", "Thumbs.db", "__MACOSX", ".Spotlight-V100", ".fseventsd")
 MANIFEST_FILENAME = "manifest.json"
+PROMPT_FILENAME = "prompt.md"
 MANIFEST_SCHEMA_VERSION = 3
+
+DEFAULT_MAX_PART_BYTES = 200 * 1024 * 1024
+"""Upload ceiling per zip. Below it the whole package is one file and one chat; above it the
+parts are split on day boundaries and all go to the same conversation."""
 
 CELLS_PER_SHEET = 12
 SHEET_COLUMNS = 4
@@ -79,7 +84,6 @@ class PackagedDay:
     directory: Path
     sheets: tuple[Path, ...]
     brief: Path
-    prompt: Path
     asset_count: int
 
 
@@ -87,6 +91,8 @@ class PackagedDay:
 class Package:
     root: Path
     manifest: Path
+    prompt: Path
+    """One prompt for the whole trip. Day folders are an upload convenience, not a work split."""
     days: tuple[PackagedDay, ...]
     mode: str
     skipped: tuple[tuple[str, str], ...]
@@ -555,16 +561,16 @@ def _brief_line(asset: dict, event_place: str | None = None, day_date: str = "")
     return " ".join(bits)
 
 
-def _video_guidance(manifest: dict, day: dict) -> str:
+def _video_guidance(manifest: dict) -> str:
     """What the model may and may not conclude about the footage.
 
     Asking for an exact source range when the package holds five stills from a 112-second clip
     manufactures precision: nothing between the keyframes was ever visible. Either the proxies are
     there and the range is a judgement, or they are not and it is an estimate that must say so.
     """
-    videos = [a for a in day["assets"] if a["kind"] == "video"]
+    videos = [a for day in manifest["days"] for a in day["assets"] if a["kind"] == "video"]
     if not videos:
-        return "## Video\n\nThis day has no footage."
+        return "## Video\n\nThis trip has no footage."
     if manifest["package"]["video_proxies_included"]:
         return (
             "## Video\n\n"
@@ -593,7 +599,15 @@ def _video_guidance(manifest: dict, day: dict) -> str:
     return note
 
 
-def _render_prompt(manifest: dict, day: dict) -> str:
+def _render_prompt(manifest: dict, days: list[PackagedDay]) -> str:
+    """One prompt for the whole trip, at the package root.
+
+    It used to be one prompt per day, because the package is organised per day -- and organising
+    the *input* that way silently reorganised the *output*. Three per-day chats each did as they
+    were told and each saved a file called `story.json` covering one day, so the traveller had to
+    ask a second time for a combined one. The day split is a size workaround; the unit of work is
+    the trip.
+    """
     context = manifest["context"]
     if context["supplied"]:
         who = (
@@ -623,15 +637,31 @@ def _render_prompt(manifest: dict, day: dict) -> str:
             "absence of context limits the journal, say so in `uncertainties`."
         )
 
-    video_guidance = _video_guidance(manifest, day)
-    return f"""# Write the journal for {day["date"]}
+    video_guidance = _video_guidance(manifest)
+    dates = [d.date for d in days]
+    sheet_count = sum(len(d.sheets) for d in days)
+    day_listing = "\n".join(
+        f"- `{d.date}/` — `brief.md` and {len(d.sheets)} contact sheet(s), {d.asset_count} items"
+        for d in days
+    )
+    days_skeleton = ", ".join(
+        f'{{"date": "{date}", "narrative": "", "summary": ""}}' for date in dates
+    )
+    first, last = (dates[0], dates[-1]) if dates else ("", "")
+    return f"""# Write the journal for {manifest["trip"]["name"] or "this trip"}
 
-Attached: {len(day["sheets"])} contact sheet(s) and `brief.md` for one day of a trip
-({manifest["trip"]["name"] or "unnamed"}).
+Attached: the whole trip — {len(days)} day(s) from {first} to {last}, {sheet_count} contact
+sheet(s), and one `brief.md` per day.
 
-Each contact-sheet cell is labelled `NN-NN`. **`brief.md` maps every cell to an `asset_id`.
-Refer to photos by `asset_id`, never by cell number** — cell numbers are positional and change
-whenever the selection changes.
+**This is one job, not one per day.** The folders are per day because that is how the photographs
+were taken and how large packages are split for upload; the journal, and the single JSON file at
+the end, cover the entire trip. Read every day's brief before you start writing.
+
+{day_listing}
+
+Each contact-sheet cell is labelled `NN-NN`. **Each day's `brief.md` maps every cell to an
+`asset_id`. Refer to photos by `asset_id`, never by cell number** — cell numbers are positional
+and change whenever the selection changes.
 
 {context_block}
 
@@ -639,11 +669,13 @@ whenever the selection changes.
 
 Write these as readable prose first:
 
-1. **A journal entry** for the day, in the voice above. Ground every claim in the brief or in
-   what is visible on the sheets.
-2. **Captions** for the photos worth captioning, keyed by `asset_id`.
-3. **A photo-book layout** — which photos share a page, which is the hero, and why.
-4. **A video storyboard** using the clips listed under "Video" in the brief. Read the note there
+1. **A journal entry for each day**, in the voice above. Ground every claim in that day's brief or
+   in what is visible on its sheets.
+2. **A title and a one-line subtitle for the trip as a whole**, plus a short summary. You can only
+   write these once you have seen every day, which is why this is a single conversation.
+3. **Captions** for the photos worth captioning, keyed by `asset_id`.
+4. **A photo-book layout** — which photos share a page, which is the hero, and why.
+5. **A video storyboard** using the clips listed under "Video" in each brief. Read the note there
    about what this package actually contains before you commit to a range — and note that
    `no speech found` is a *measured* result, not an unexamined clip.
 
@@ -653,17 +685,25 @@ Write these as readable prose first:
 
 After the prose, output a single fenced ```json block with this shape. **Use these key names
 exactly** — a renderer consumes them, and a rename means the file cannot be read. The full contract
-is `schema/story.schema.json` in this package; save your JSON as `story.json` and the traveller can
-check it with `story-book check-story story.json --out <dir>`.
+is `schema/story.schema.json` in this package.
+
+**Return exactly one JSON file, named `story.json`, covering every day of the trip.** Not one per
+day: the traveller runs one command over one file, and per-day files silently overwrite each other
+because they share a name. The `days` array below has one entry per date in this package, and all
+{len(days)} must be present. The traveller checks it with
+`story-book check-story story.json --out <dir>`.
 
 ```json
 {{
   "schema_version": 1,
   "language": "en",
-  "days": [{{"date": "{day["date"]}", "narrative": "", "summary": ""}}],
+  "title": "",
+  "subtitle": "",
+  "summary": "",
+  "days": [{days_skeleton}],
   "chapters": [
     {{
-      "chapter_id": "", "date": "{day["date"]}", "title": "", "narrative": "",
+      "chapter_id": "", "date": "{first}", "title": "", "narrative": "",
       "starts_at": "HH:MM",
       "source_event_ids": ["<the event_id(s) in the brief this chapter drew from — required>"],
       "asset_ids": []
@@ -838,8 +878,6 @@ def build_package(
 
         brief = day_dir / "brief.md"
         brief.write_text(_render_brief(manifest, day))
-        prompt = day_dir / "prompt.md"
-        prompt.write_text(_render_prompt(manifest, day))
 
         packaged.append(
             PackagedDay(
@@ -847,7 +885,6 @@ def build_package(
                 directory=day_dir,
                 sheets=tuple(sheets),
                 brief=brief,
-                prompt=prompt,
                 asset_count=len(day["assets"]),
             )
         )
@@ -866,12 +903,15 @@ def build_package(
     # than an adapter that guesses at every variation. The canonical copy lives inside the
     # package directory so it ships in the wheel; a test keeps the repo-root example identical.
     shutil.copyfile(CONTEXT_TEMPLATE_SOURCE, schema_dir / CONTEXT_TEMPLATE_FILENAME)
+    prompt_path = root / PROMPT_FILENAME
+    prompt_path.write_text(_render_prompt(manifest, packaged))
     (root / "README.md").write_text(_render_readme(manifest, packaged))
 
     logger.info("package: %d day(s) in %s (%s)", len(packaged), root, mode)
     return Package(
         root=root,
         manifest=manifest_path,
+        prompt=prompt_path,
         days=tuple(packaged),
         mode=mode,
         skipped=tuple(skipped),
@@ -960,24 +1000,112 @@ def _source_path(
     return out_dir / preview if preview else None
 
 
-def write_archive(package: Package, target: Path | None = None) -> Path:
+def _archive_members(root: Path) -> list[Path]:
+    """Every file that belongs in the archive, junk excluded."""
+    return [
+        path
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+        and not any(
+            part in JUNK_NAMES or part.startswith("._") for part in path.relative_to(root).parts
+        )
+    ]
+
+
+@dataclass(frozen=True, slots=True)
+class ArchivePart:
+    """One uploadable zip, and what had to be said about it."""
+
+    path: Path
+    days: tuple[str, ...]
+    bytes_before_compression: int
+    over_limit: bool
+
+
+def plan_parts(
+    root: Path, members: list[Path], max_part_bytes: int | None
+) -> list[tuple[list[Path], list[str]]]:
+    """Group files into uploadable parts, splitting on day boundaries only.
+
+    A day is the smallest unit that keeps a brief with the sheets it describes, so parts split
+    between days and never inside one. A single day larger than the limit therefore gets a part
+    of its own that exceeds it -- reported rather than silently shipped, because the alternative
+    is separating a brief from the photographs it maps.
+    """
+    shared = [p for p in members if _day_of(root, p) is None]
+    by_day: dict[str, list[Path]] = {}
+    for path in members:
+        day = _day_of(root, path)
+        if day is not None:
+            by_day.setdefault(day, []).append(path)
+
+    if max_part_bytes is None or _size(members) <= max_part_bytes:
+        return [(members, sorted(by_day))]
+
+    parts: list[tuple[list[Path], list[str]]] = []
+    current, current_days, current_size = list(shared), [], _size(shared)
+    for day in sorted(by_day):
+        files = by_day[day]
+        size = _size(files)
+        if current_days and current_size + size > max_part_bytes:
+            parts.append((current, current_days))
+            current, current_days, current_size = [], [], 0
+        current += files
+        current_days.append(day)
+        current_size += size
+    if current_days or not parts:
+        parts.append((current, current_days))
+    return parts
+
+
+def _day_of(root: Path, path: Path) -> str | None:
+    parts = path.relative_to(root).parts
+    return parts[0] if len(parts) > 1 and parts[0] not in (SCHEMA_DIRNAME,) else None
+
+
+def _size(paths: list[Path]) -> int:
+    return sum(p.stat().st_size for p in paths)
+
+
+def write_archive(
+    package: Package, target: Path | None = None, *, max_part_bytes: int | None = None
+) -> list[ArchivePart]:
     """Zip the package, excluding macOS and Windows filesystem droppings.
 
     Worth doing here rather than leaving to the user: a Finder-created archive carries `.DS_Store`
     and `__MACOSX` entries, which is exactly what a reviewer noticed about the first one.
+
+    Returns one part when everything fits, and several when it does not. Splitting is about the
+    upload limit and nothing else -- every part goes into the *same* conversation and the answer
+    is still one `story.json` for the whole trip.
     """
-    target = target or package.root.with_suffix(".zip")
-    if target.exists():
-        target.unlink()
-    with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
-        for path in sorted(package.root.rglob("*")):
-            if not path.is_file():
-                continue
-            parts = path.relative_to(package.root).parts
-            if any(part in JUNK_NAMES or part.startswith("._") for part in parts):
-                continue
-            archive.write(path, Path(package.root.name, *parts))
-    return target
+    base = target or package.root.with_suffix(".zip")
+    members = _archive_members(package.root)
+    grouped = plan_parts(package.root, members, max_part_bytes)
+    written: list[ArchivePart] = []
+
+    for index, (files, days) in enumerate(grouped, start=1):
+        path = base if len(grouped) == 1 else _part_path(base, index, len(grouped))
+        if path.exists():
+            path.unlink()
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+            for file in files:
+                rel = file.relative_to(package.root)
+                archive.write(file, Path(package.root.name, *rel.parts))
+        raw = _size(files)
+        written.append(
+            ArchivePart(
+                path=path,
+                days=tuple(days),
+                bytes_before_compression=raw,
+                over_limit=max_part_bytes is not None and raw > max_part_bytes,
+            )
+        )
+    return written
+
+
+def _part_path(base: Path, index: int, total: int) -> Path:
+    return base.with_name(f"{base.stem}.part{index}of{total}{base.suffix}")
 
 
 def _render_readme(manifest: dict, days: list[PackagedDay]) -> str:
@@ -986,11 +1114,18 @@ def _render_readme(manifest: dict, days: list[PackagedDay]) -> str:
     )
     return f"""# {manifest["trip"]["name"] or "Trip"} — ChatGPT package
 
-One directory per day. For each day, open a fresh chat and attach:
+**One conversation for the whole trip, and one `story.json` back.**
 
-1. every `contact_sheet_*.jpg` in that day's folder,
-2. `brief.md`,
-3. `prompt.md` — then paste its contents as your message.
+1. Open a single chat and attach this package — everything in it, all days.
+2. Paste the contents of `prompt.md` (at this root, not in a day folder) as your message.
+3. Save the JSON it returns as `story.json` in `<out>/story/`.
+
+If the package was zipped into several parts (`…part1of3.zip`), **upload every part to that same
+chat** before asking for the story. The parts exist because of an upload size limit, not because
+the work divides: a trip title cannot be written from one day, and a per-day answer would be
+saved over the previous day's file, since they share a name.
+
+The day folders below are how the photographs are organised, not a list of separate jobs.
 
 {listing}
 

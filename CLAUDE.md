@@ -15,12 +15,13 @@ human hands to ChatGPT to write the travel journal.
 
 ```bash
 uv sync --extra vision --extra video --extra exif --extra geo   # a bare `uv sync` PRUNES these
-uv run pytest                                    # 1327 tests, expect 0 failures 0 skips locally
+uv run pytest                                    # 1700 tests, expect 0 failures 0 skips locally
 uv run pytest tests/unit                         # fast, mocked, no DB
+uv run story-book init <src> --trip-dir <dir> [--like <other/config.toml>]  # scaffold a trip
 uv run story-book build <src> --out <dir>        # the pipeline
 uv run story-book report --out <dir> [--story story.json] [--context ctx.yaml]  # re-render
 uv run story-book profile <src>                  # folder stats + suggested config
-uv run story-book package --out <dir> [--zip] [--video-proxies]   # ChatGPT package
+uv run story-book package --out <dir> [--zip] [--video-proxies] [--max-part-mb 200]  # ChatGPT package
 uv run story-book reel --out <dir> [--music f] [--aspect 9:16] [--day D]  # video montage
 uv run story-book check-story <story.json> --out <dir>   # validate the model's answer
 uv run story-book eval <truth.toml> --out <dir>   # score against a labelled truth set
@@ -187,6 +188,12 @@ lived in places a per-stage test cannot reach.
 - **Publish the target rather than adapt to what arrives.** The story schema and the trip-context
   template both ship inside the package because a model invents its own shape otherwise. An
   adapter guessing at every variation is unbounded work; a published contract is one file.
+- **Organising the input silently reorganises the output.** The package is one folder per day and
+  its README said "for each day, open a fresh chat" — so three chats each did as told and each
+  saved a `story.json` covering one day, which had to be re-asked as one combined file. The day
+  split is an *upload size* workaround; the unit of work is the trip. There is now one `prompt.md`
+  at the package root asking for exactly one `story.json`, and `--zip` splits on day boundaries
+  only when the package exceeds `--max-part-mb`, with every part going to the same conversation.
 - **A story is an overlay, never a source of structure.** `--story` adds words to the report; the
   pipeline still decides what exists, and a chapter citing absent media is dropped, not rendered.
 - **A published request format ships with a published response format.** Three reviews hardened
@@ -235,6 +242,14 @@ lived in places a per-stage test cannot reach.
   `volumedetect` output being parsed, and `crop=w:h:x` silently centring `y` so two "different"
   bands sampled the same region. Each failed only because the assertion happened to reject equal
   sentinels. **Pair every measurement with a control that must differ from it.**
+- **A file that is safe to read is not automatically safe to copy.** `story-book init` scaffolded
+  a new trip by copying `overrides.example.toml`, which is a *worked example* naming photographs
+  from the Europe trip — so the first `build` it told you to run died on
+  `pin: no media in this library is named 'IMG_1880'`. Twelve tests passed; every one asked
+  whether the file was *present*. When you copy a file into a new context, **load it in that new
+  context** — `Overrides.load(scaffolded).is_empty` is one line. The starter is now derived from
+  the example rather than kept beside it, because two copies of one file is one copy eventually
+  wrong.
 - **Look at real output.** A rendered contact sheet exposed the flat-score bug in seconds; no
   assertion had. Loading the report found that every image 404'd while the HTML validated
   perfectly — **when output references external files, resolve the references**, since the markup

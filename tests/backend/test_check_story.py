@@ -203,4 +203,4 @@ class TestTheShippedSchemaTravelsWithThePackage:
         from story_book.export.package import build_package
 
         built = build_package(build_timeline(ctx.conn, ctx.config, None, ctx.out_dir), ctx.out_dir)
-        assert "story.schema.json" in built.days[0].prompt.read_text()
+        assert "story.schema.json" in built.prompt.read_text()

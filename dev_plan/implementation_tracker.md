@@ -579,6 +579,82 @@ interpolated fixes stay visually distinct as they do in the report.
 
 ---
 
+# Wave 6 — A second trip (added 2026-08-09)
+
+Everything calibrated in this project is calibrated against one trip. `diversity_min_distance`
+is recorded as "open — needs a second trip"; keeper agreement is 67% **over 6 groups**; dedup
+precision was "100%" **over 8 pairs**. None of those numbers can move without different media.
+This wave is the machinery for running one, and then running one.
+
+| ID | Task | Status | Owner | Depends on |
+| --- | --- | --- | --- | --- |
+| T56 | `story-book init` — scaffold a trip from its profile | done | claude (main) | T17 |
+| T58 | One story per trip; split the upload, not the work | done | claude (main) | T41 |
+| T57 | Build and review a second trip; revisit the n=1 thresholds | in progress — Mammoth built | claude (main) | T56 |
+
+### T58 — One story per trip *(added 2026-08-09)*
+**Owns:** `export/package.py`, `tests/backend/test_package.py`, `tests/unit/test_package_parts.py`.
+
+The package README said *"One directory per day. For each day, open a fresh chat"* and each day's
+`prompt.md` said *"save your JSON as `story.json`"*. Three per-day chats therefore each produced a
+correct file with the same name covering one day, and the traveller had to ask a second time for a
+combined one. The consumer has always read exactly one `story.json` for the whole trip.
+
+The day split is an **upload size** workaround, not a division of the work:
+
+- One `prompt.md` at the package **root**, covering the trip. Per-day `prompt.md` files are gone —
+  with a root prompt they would contradict it. `brief.md` and contact sheets stay per day.
+- The prompt asks for **exactly one `story.json`**, lists every date in the `days` skeleton, and
+  asks for a trip title/subtitle/summary — which cannot be written from one day, and is the
+  clearest argument for one conversation.
+- `--zip` writes one archive when the package fits and `package.partNofM.zip` when it does not,
+  splitting **on day boundaries only** so a brief is never separated from the sheets it maps.
+  `--max-part-mb` defaults to 200; `0` disables. A day larger than the limit gets its own part and
+  is **reported** rather than silently shipped.
+- Splitting measures **uncompressed** size, which is conservative in the safe direction: the zip
+  is always smaller than the budget it was planned against.
+
+Measured: Mammoth 73 MB → **one** zip. Europe 21 days → **2 parts, 187 MB + 65 MB**; 800 files on
+disk, 800 across the parts, **zero overlap and zero days split**.
+
+### T56 — `story-book init`
+**Owns:** `src/story_book/init_trip.py`, `tests/unit/test_init_trip.py`,
+`tests/backend/test_init_command.py`, and the packaged copies of the two example files.
+
+Profiles a source folder and writes `<trip-dir>/config.toml` + `overrides.toml`, then prints the
+remaining commands with paths filled in. Deliberately does **not** run `build`: that log carries
+the timezone conflicts and the missing-model warnings, and a scaffold that hides it behind a
+progress bar is how those go unread.
+
+Three decisions worth keeping:
+
+- **It rewrites the shipped example rather than emitting a fresh file**, so every comment
+  explaining a threshold survives and a key added to `config.example.toml` later reaches new
+  trips with no change here. A suggested key the example does not contain raises rather than
+  being dropped.
+- **Only measured keys get a value**, and each is annotated with its `origin` — `measured` for a
+  number from this folder's own media, `copied` for a home coordinate inherited via `--like`,
+  `verified` for the face model path. Labelling an inherited coordinate "measured" would be this
+  project's most repeated failure in miniature.
+- **`models.face_detector_model` is resolved absolute and checked at scaffold time.** Relative
+  is a trap: it resolves against the working directory and a miss only warns, which is the
+  difference between a book of family photographs and a book of parked vans.
+
+`profile` gained `time.default_timezone` on the way — the modal IANA zone across GPS-bearing
+items, with the zone count in its basis. It was the highest-consequence key still being typed by
+hand. On the 25 fixtures: `Europe/Vienna`, 15 of 18 located items, 2 zones seen.
+
+**Acceptance:** the generated config completes a `build` with 0 failures. Proven by doing it —
+which is how the one real bug was found, below.
+
+### T57 — A second trip
+**Depends on:** T56. Not a coding task. Run a different trip end to end and record, with sample
+sizes: the CLIP cosine spread between chosen highlights (is `diversity_min_distance` inert here
+too?), keeper agreement, visible false merges, and the timezone conflict tally. A trip with a
+camera Europe 2026 did not contain is worth more than a larger one.
+
+---
+
 # Pre-flight for Wave 1+ (do these first, they can invalidate the plan)
 
 From Phase 0 in the plan doc. Neither is a coding task; both are cheap and can save weeks.
@@ -711,6 +787,8 @@ decision made.
 | 2026-08-02 | claude | **T50 done. The reel renders.** Real trip: 61 segments → **2m41s at 1920×1080**, 78 s cold, 28 s from cache; 5 title cards, 48 stills, 8 clips all with real proxy footage. 95 new tests, **1422 pass, 0 skips**. Aspect is a free-form `W:H` (16:9 default, 9:16 tested); music is `--music`, user-supplied, looped with a tail fade. Cache invalidation demonstrated live: adding the font to the title-card key re-rendered exactly 5 of 61 segments. Motion verified rather than assumed — max inter-frame change **99.15 with footage vs 0.12 poster-only**, run both ways to show the assertion can fail. |
 | 2026-08-02 | claude | **Found and fixed a live defect in an existing artifact: Pillow's bundled font has no `é ü ö à ñ – —`.** A story subtitle rendered as `July 17□20`. `contact_sheet.py` used the same font, so every sheet shared the bug latently — a German or French place name would have drawn boxes. New `export/fonts.py` prefers a real system font and otherwise transliterates (`München` → `Munchen`), and the resolved font is now part of the title-card cache key, because installing a font changes the pixels. |
 | 2026-08-02 | claude | **Wave 5 opened: the reel.** Plan doc at [`reel_video_montage.md`](./reel_video_montage.md), T50–T53 unclaimed. Feasibility checked against the real `trip.json` first: 47 day highlights + 9 trip highlights already selected and human-corrected, 4 days → 20 events, 13 chapter titles in `story.json`, previews at 1600 px, 9 clips totalling 478 s, `ffmpeg` already required. v1 needs **no new Python dependency**. Three constraints are real and documented rather than scheduled away — music cannot be shipped (licensing), `motion_score` is whole-clip so the good 5 s of a 112 s clip is not knowable until P05's `highlight_ranges` lands, and the 149/125 landscape/portrait split has no free framing without face bounding boxes the schema does not store (`face_count` and `face_max_frac` only). |
+| 2026-08-09 | claude | **T58: the package asked for the wrong thing, and got it.** The traveller reported having to ask ChatGPT twice — once per day, then again for a combined file. Not a model failure: the README said *"for each day, open a fresh chat"* and each day's prompt said *"save your JSON as `story.json`"*, so three chats each obeyed and each wrote a one-day file under a name they all shared. Same class as P07's renamed keys — a published request format disagreeing with the published response format — except the mismatch was **scope**, not key names, and the schema pins a story's shape while saying nothing about how many days one file covers. Fixed by moving the prompt to the package root, asking for exactly one `story.json` with every date pre-listed in the skeleton, and splitting `--zip` by size on day boundaries instead of splitting the work. Measured: Mammoth 73 MB → one zip; Europe → 2 parts (187 + 65 MB), 800 files on disk and 800 across the parts, zero overlap, zero days divided. |
+| 2026-08-09 | claude | **T56 done: `story-book init`.** Removes the transcription step between `profile` measuring a threshold and a human retyping it into `config.toml`. It rewrites the shipped example so the comments survive, annotates each written value with its origin (`measured` / `copied` / `verified`), and fails at scaffold time on a missing face model instead of warning at build time and silently dropping 20% of the quality weight. `profile` gained `time.default_timezone` — the modal IANA zone over GPS-bearing items — which was the highest-consequence key still typed by hand. **The one real bug was found by running it, not by a test:** `init` copied `overrides.example.toml` verbatim, and that file is a *worked example* naming photos from the Europe trip, so the scaffolded corrections file failed the very first build with `pin: no media in this library is named 'IMG_1880'`. The starter is now derived from the example with every entry commented out — one file, not two. 1678 tests pass, 0 failures. |
 | 2026-07-26 | claude | **P01 done** on a 286-item / 1.9 GB real export. Two bugs and one bad heuristic found, both plan amendments above. Corrected numbers: 4-day span (not 10), largest gap 0.49 days (not 5.88), 2 offset changes (not 14). `config.toml` written locally (gitignored) with `events.gap_minutes = 45` — **half the guessed default of 90**, because this library is shot in dense bursts (p50 gap = 1 min). |
 | 2026-07-26 | claude | Fixture set extended for the above: timezone crossing is now 3 items per side (a real crossing is sustained), plus a new `offset_gps_conflict.jpg`. 26 fixtures, 338 tests. |
 | 2026-07-26 | claude | **T17 done.** `story-book profile` ships with warnings + a suggested-config table computed from observed data, and `--json`. 308 tests pass. Shared extension allowlist added at `story_book/media_types.py` — **T10 must import it, not fork it**. |
