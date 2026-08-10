@@ -121,6 +121,30 @@ def _probe(path: Path, entries: str) -> str:
     return result.stdout.strip()
 
 
+def _top_level_boxes(path: Path) -> list[str]:
+    """Names of the MP4 boxes at the top level, in the order they appear on disk.
+
+    Read from the bytes rather than asked of ffprobe, because ffprobe reports what the file
+    *contains* and the question here is where in the file it is. `moov` before `mdat` is what
+    lets a player start on a partial download.
+    """
+    boxes: list[str] = []
+    with path.open("rb") as handle:
+        while True:
+            header = handle.read(8)
+            if len(header) < 8:
+                return boxes
+            size = int.from_bytes(header[:4], "big")
+            boxes.append(header[4:8].decode("ascii", "replace"))
+            if size == 0:  # extends to end of file
+                return boxes
+            if size == 1:  # 64-bit largesize follows the header
+                size = int.from_bytes(handle.read(8), "big")
+                handle.seek(size - 16, 1)
+            else:
+                handle.seek(size - 8, 1)
+
+
 def _frame_change(path: Path, width: int = 32, height: int = 18) -> float:
     """Mean absolute difference between consecutive frames. A repeated still scores ~0."""
     dump = subprocess.run(
@@ -763,6 +787,30 @@ class TestSubtitles:
     def test_no_subtitle_request_means_no_track(self, trip, tmp_path):
         rendered, _ = self._render(trip, tmp_path, [])
         assert "subtitle" not in _probe(rendered.path, "stream=codec_type")
+
+    def test_the_muxed_file_still_starts_with_moov(self, trip, tmp_path):
+        """The soft-track mux rewrites the container and replaces the video in place, so it has
+        to re-apply `+faststart`. Without it a reel built with --subtitles has its moov atom at
+        the end and cannot begin playing until the whole file is fetched -- invisible to a local
+        player, a multi-second stall over HTTP."""
+        rendered, _ = self._render(trip, tmp_path, ["zh"])
+        boxes = _top_level_boxes(rendered.path)
+        assert "moov" in boxes and "mdat" in boxes
+        assert boxes.index("moov") < boxes.index("mdat")
+
+    def test_a_mux_without_faststart_puts_moov_last(self, trip, tmp_path):
+        """The control for the test above. Without it, a `_top_level_boxes` that always reported
+        moov first -- or a parser that silently stopped at the first box -- would pass on no
+        evidence. This is the same stream copy with the flag removed, and it must differ."""
+        rendered, _ = self._render(trip, tmp_path, ["zh"])
+        target = tmp_path / "no-faststart.mp4"
+        subprocess.run(
+            ["ffmpeg", "-v", "error", "-y", "-i", str(rendered.path), "-c", "copy", str(target)],
+            check=True,
+        )
+        boxes = _top_level_boxes(target)
+        assert "moov" in boxes and "mdat" in boxes
+        assert boxes.index("mdat") < boxes.index("moov")
 
     def test_cues_do_not_overlap_in_the_rendered_file(self, trip, tmp_path):
         self._render(trip, tmp_path, ["zh"])

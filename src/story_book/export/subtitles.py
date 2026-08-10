@@ -477,7 +477,11 @@ def mux_subtitles(video: Path, tracks: list[tuple[str, Path]]) -> bool:
     command += ["-map", "0:v", "-map", "0:a?"]
     for index in range(len(tracks)):
         command += ["-map", f"{index + 1}:s"]
-    command += ["-c", "copy", "-c:s", "mov_text"]
+    # `+faststart` again, not just on the render. This mux rewrites the container and replaces
+    # the video in place, so without it the moov atom lands at the end and a reel built with
+    # --subtitles cannot start playing until the whole file has been fetched. Invisible to a
+    # local player, which seeks; a multi-second stall when the file is served over HTTP.
+    command += ["-c", "copy", "-c:s", "mov_text", "-movflags", "+faststart"]
     for index, (language, _) in enumerate(tracks):
         code = ISO_639_2.get(language.lower(), language.lower())
         command += [f"-metadata:s:s:{index}", f"language={code}"]
