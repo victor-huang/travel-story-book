@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from story_book.db import connection as db
-from story_book.export.report import REPORT_DIRNAME, render_report
+from story_book.export.report import REPORT_DIRNAME, MediaPrefix, render_report
 from story_book.pipeline.base import StageContext
 from story_book.pipeline.days import DaysStage
 from story_book.pipeline.events import EventStage
@@ -431,3 +431,86 @@ class TestStoryDirectoryIsNeverDestroyed:
 
         build_package(_document(seeded), seeded.out_dir)
         assert kept.read_text() == '{"schema_version": 1}'
+
+
+class TestMediaPrefixIsAParameter:
+    """XT-1, from the iOS tracker's I25.
+
+    The app renders *this* report with a custom scheme and resolves each image against the
+    phone's originals. The alternative was rewriting generated HTML in the app, which is
+    unbounded work and drifts the moment a template changes.
+
+    The load-bearing test is the first one: the default has to stay byte-identical, or this
+    stopped being a parameter and became a change.
+    """
+
+    def _render_to(self, seeded: StageContext, name: str, **kwargs) -> dict[str, str]:
+        out = seeded.out_dir / name
+        out.mkdir()
+        rendered = render_report(_document(seeded), out, **kwargs)
+        return {
+            page.relative_to(rendered.root).as_posix(): page.read_text()
+            for page in [rendered.index, *rendered.day_pages]
+        }
+
+    def test_omitting_the_prefix_matches_passing_the_default(self, seeded: StageContext) -> None:
+        """Only the `None` wiring. This deliberately does *not* prove the default is unchanged:
+        both sides read the same constant, so it passed happily with the default broken to
+        `./`. Kept because it is the cheapest guard on the argument being threaded through at
+        all, and paired with the test below, which is the one that can see a change."""
+        without = self._render_to(seeded, "plain")
+        explicit = self._render_to(seeded, "explicit", media_prefix=MediaPrefix())
+        assert without == explicit
+
+    def test_the_default_prefixes_are_still_the_relative_pair(self, seeded: StageContext) -> None:
+        """The claim XT-1 actually makes: adding the parameter changed no existing output.
+
+        Asserted against the literal prefixes rather than against another render, because a
+        comparison of the default with itself cannot fail. Two depths, because the index and the
+        day pages differ and a single-prefix regression would only show on one of them.
+        """
+        pages = self._render_to(seeded, "default_literal")
+        assert 'src="../thumbs/' in pages["index.html"]
+        day = next(html for name, html in pages.items() if name.startswith("days/"))
+        assert 'src="../../thumbs/' in day
+
+    def test_a_custom_scheme_reaches_the_index(self, seeded: StageContext) -> None:
+        pages = self._render_to(
+            seeded, "scheme", media_prefix=MediaPrefix.absolute("storyasset://")
+        )
+        assert 'src="storyasset://' in pages["index.html"]
+
+    def test_a_custom_scheme_reaches_the_day_pages(self, seeded: StageContext) -> None:
+        """The day pages sit one level deeper, so a prefix that only reached the index would
+        look like it worked while every image on the page a reader actually opens was wrong."""
+        pages = self._render_to(
+            seeded, "scheme_days", media_prefix=MediaPrefix.absolute("storyasset://")
+        )
+        day = next(html for name, html in pages.items() if name.startswith("days/"))
+        assert 'src="storyasset://' in day
+
+    def test_a_custom_scheme_leaves_no_relative_media_reference_behind(
+        self, seeded: StageContext
+    ) -> None:
+        """The control. A prefix applied to the thumbnail but not the tap-through `<a href>`
+        would pass every check above and give the reader a dead link on every photograph."""
+        pages = self._render_to(
+            seeded, "scheme_all", media_prefix=MediaPrefix.absolute("storyasset://")
+        )
+        stragglers = [
+            (name, ref)
+            for name, html in pages.items()
+            for ref in SRC_PATTERN.findall(html)
+            if "thumbs/" in ref or "previews/" in ref
+            if not ref.startswith("storyasset://")
+        ]
+        assert stragglers == []
+
+    def test_the_stylesheet_and_vendored_code_are_not_media(self, seeded: StageContext) -> None:
+        """`media_rel` prefixes media, not the report's own files. Sending `style.css` through
+        a scheme handler that resolves asset ids would unstyle the page."""
+        pages = self._render_to(
+            seeded, "scheme_assets", media_prefix=MediaPrefix.absolute("storyasset://")
+        )
+        assert 'href="style.css"' in pages["index.html"]
+        assert "storyasset://style.css" not in pages["index.html"]

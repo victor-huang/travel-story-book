@@ -56,6 +56,35 @@ MAP_SCRIPT = TEMPLATE_DIR / "_map.js"
 MEDIA_REL_FROM_INDEX = "../"
 MEDIA_REL_FROM_DAY = "../../"
 
+
+@dataclass(frozen=True, slots=True)
+class MediaPrefix:
+    """What every image reference in the report is prefixed with.
+
+    Two prefixes rather than one because the index and the day pages sit at different depths.
+
+    The default is the relative pair above and is what `build` and `report` always use. The iOS
+    app renders the *same* report with a custom scheme -- `MediaPrefix.absolute("storyasset://")`
+    -- and resolves each request against the phone's originals, falling back to the server preview
+    (iOS tracker D4/I25). That is a parameter here rather than string surgery on generated HTML in
+    the app, because an adapter rewriting someone else's markup is unbounded work and a second
+    renderer would drift from this one within a release.
+    """
+
+    from_index: str = MEDIA_REL_FROM_INDEX
+    from_day: str = MEDIA_REL_FROM_DAY
+
+    @classmethod
+    def absolute(cls, prefix: str) -> MediaPrefix:
+        """One prefix for both depths -- correct only when it is depth-independent.
+
+        A scheme like `storyasset://` addresses the asset directly, so `../` would be nonsense.
+        Passing a *relative* prefix here would silently break the day pages, which sit one level
+        deeper than the index.
+        """
+        return cls(from_index=prefix, from_day=prefix)
+
+
 MAP_WIDTH = 720
 MAP_HEIGHT = 420
 MAP_PADDING = 28
@@ -425,13 +454,19 @@ def _environment() -> Environment:
     return env
 
 
-def render_report(doc: dict, out_dir: Path, story: dict | None = None) -> RenderedReport:
+def render_report(
+    doc: dict,
+    out_dir: Path,
+    story: dict | None = None,
+    media_prefix: MediaPrefix | None = None,
+) -> RenderedReport:
     """Write `index.html`, a page per day, and the stylesheet into `<out_dir>/report/`.
 
     The directory is rebuilt from scratch each time. Nothing in it is a source of truth, and a
     day page left behind from a previous run would be a correction that failed to take.
     """
     env = _environment()
+    prefix = media_prefix or MediaPrefix()
     root = out_dir / REPORT_DIRNAME
     if root.exists():
         shutil.rmtree(root)
@@ -451,7 +486,7 @@ def render_report(doc: dict, out_dir: Path, story: dict | None = None) -> Render
     index.write_text(
         env.get_template("index.html").render(
             rel="",
-            media_rel=MEDIA_REL_FROM_INDEX,
+            media_rel=prefix.from_index,
             trip=doc["trip"],
             days=_index_view(doc),
             trip_highlights=trip_highlights,
@@ -469,7 +504,7 @@ def render_report(doc: dict, out_dir: Path, story: dict | None = None) -> Render
         page.write_text(
             env.get_template("day.html").render(
                 rel="../",
-                media_rel=MEDIA_REL_FROM_DAY,
+                media_rel=prefix.from_day,
                 trip=doc["trip"],
                 day=view,
                 marks=view["marks"],

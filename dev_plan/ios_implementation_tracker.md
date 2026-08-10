@@ -628,7 +628,7 @@ Need a change in a file you don't own? Add a row. The owning agent (or the human
 
 | From | To (task/file) | Request | Status |
 | --- | --- | --- | --- |
-| XT-1 / I25 | Python tracker → `src/story_book/export/report.py` | Make `MEDIA_REL_FROM_INDEX` / `MEDIA_REL_FROM_DAY` overridable so the report can render with a `storyasset://` prefix. Filed in `implementation_tracker.md`'s table 2026-08-09. **Blocks I25.** | open |
+| XT-1 / I25 | Python tracker → `src/story_book/export/report.py` | Make `MEDIA_REL_FROM_INDEX` / `MEDIA_REL_FROM_DAY` overridable so the report can render with a `storyasset://` prefix. Filed 2026-08-09, **resolved the same day** with the human's authorisation: `MediaPrefix` on `render_report`. | resolved |
 
 ---
 
