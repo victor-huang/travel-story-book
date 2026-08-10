@@ -19,6 +19,7 @@ let package = Package(
         .library(name: "StoryKit", targets: ["StoryKit"]),
         .library(name: "PhotoExport", targets: ["PhotoExport"]),
         .library(name: "StoryService", targets: ["StoryService"]),
+        .library(name: "StoryApp", targets: ["StoryApp"]),
     ],
     targets: [
         // Pure logic. No UIKit, no SwiftUI, no PhotoKit.
@@ -36,5 +37,11 @@ let package = Package(
         ),
         .testTarget(name: "PhotoExportTests", dependencies: ["PhotoExport"]),
         .testTarget(name: "StoryServiceTests", dependencies: ["StoryService"]),
+        // Added by D13. Wave 2 onward is mostly StoryApp, and there was nowhere to put its tests.
+        .testTarget(
+            name: "StoryAppTests",
+            dependencies: ["StoryApp"],
+            resources: [.copy("Fixtures")]
+        ),
     ]
 )

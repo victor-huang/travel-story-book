@@ -677,6 +677,7 @@ Need a change in a file you don't own? Add a row. The owning agent (or the human
 
 | From | To (task/file) | Request | Status |
 | --- | --- | --- | --- |
+| **iOS I25** | owner of `src/story_book/export/report.py` | **Make `MEDIA_REL_FROM_INDEX` / `MEDIA_REL_FROM_DAY` overridable.** They are module constants at `report.py:56-57`, read at `:454` and `:472`. The iOS app renders the same report with `media_rel="storyasset://"` and resolves each request through a custom `WKURLSchemeHandler` against the phone's originals (iOS tracker D4/I25). The templates already interpolate `media_rel` (`templates/_shot.html:5`, `templates/index.html:32`), so this is a parameter on the render entry point, not a template change and not string surgery on generated HTML. Default must stay byte-identical — a fork of the renderer is the thing this avoids. **Blocks iOS I25.** | open — filed 2026-08-09 |
 | T05 | human | `brew install ffmpeg exiftool`, then re-run `tests/fixtures/generate.py`. Blocks T11 and T15. | resolved 2026-07-26 |
 | T13 | T14 | T13 needs CLIP zero-shot classification. T14 owns the implementation; T13 defines a narrow interface and mocks it. Agree the signature before either lands. | resolved — interface matched verbatim |
 | T12 | T11 | **Correctness bug.** `metadata.py` computes the EXIF offset but never persists it, so `tz_offset_minutes`/`tz_source` stay at defaults and **level 1 of the timezone order can never fire** — every item silently falls through to GPS. One-line fix in `_apply`. | resolved |

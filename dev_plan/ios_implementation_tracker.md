@@ -163,6 +163,8 @@ Taken 2026-08-09 with the human. Recorded here because they change task scope.
 | D8 | **Sign-in with Apple and Google; the service indexes trips and reels.** | Wave 2 owns auth. In-app account deletion is an App Store requirement and collides with indefinite metadata retention — unresolved, see [Open questions](#open-questions). |
 | D9 | **Seeded simulator for the export suite** (decided 2026-08-09, I05). Tests seed a simulator photo library from the committed fixtures via `PHAssetCreationRequest` (`LibraryFixtures.swift`). | Delivered. Both prerequisites are met: Xcode 26.3 is installed, and two real captures live in `tests/fixtures/device_media/`. **Not CI-runnable** — see D11. |
 | D10 | **An Xcode project hosts the PhotoExport tests** — `ios/StoryBookHost.xcodeproj` plus a minimal `HostApp`. Amends I01's "Swift Package, no Xcode project". Approved by the human 2026-08-09. | PhotoKit authorization goes through TCC, and TCC attributes a request to a *bundle identity*. A bare SwiftPM test target has none, so `requestAuthorization` fails with `unable to construct an identity to kTCCServicePhotos` — nothing to grant *to*, which no `simctl privacy grant` can fix, and a physical device would not have dodged it either. `StoryKit` and `StoryService` still test hostless under `swift test` in 0.008 s; only `PhotoExport` pays the Xcode cost. |
+| D13 | **`Package.swift` gains a `StoryAppTests` target and a `StoryApp` library product.** Amends I01. Approved by the human 2026-08-09. | Every Wave 2 task says "+ tests" and there was nowhere to put them — three test targets existed, none for `StoryApp`. Additive only: no existing target, dependency or platform changes. The product exists for the same reason the other three do, so the Xcode host can link it. |
+| D12 | **Exporters read an `ExportSource`: a `PHAsset` or a local file URL.** Decided 2026-08-09 with the human, answering open question 11. | `PHAsset` is the production path and stays first-class — it is the only source of `creationDate`, `location`, burst ids and Live Photo pairing. But the metadata-preserving core (ImageIO downscale, AVFoundation export) takes *bytes*, so the same code exports a committed fixture file with no library and no authorization. Consequence: the riskiest work in the project gets CI coverage despite D11, and I16 can drive both halves through one API. Resource selection collapses to "the file" for the file case. |
 | D11 | **`PhotoExportTests` runs locally, not in CI, and needs one human click per simulator.** | On Xcode 26.3 / iOS 26, `simctl privacy grant photos` is **not honoured**: `tccd` logs `Got 1 auth from db for client` and then `AUTHREQ_PROMPTING` anyway, for `photos` and for `all` alike. In a headless run that dialog blocks forever. Once a human clicks *Allow Full Access* once, the decision persists and later runs take 5 s. Until that is automated (XCUITest tapping SpringBoard is the known route), CI runs `swift test` only. **Always pass `-test-timeouts-enabled YES`** so a stuck dialog fails in seconds instead of hanging. |
 
 ---
@@ -241,9 +243,9 @@ on.** It is shippable alone for anyone with a laptop.
 | ID | Task | Status | Owner | Depends on |
 | --- | --- | --- | --- | --- |
 | I10 | `LibraryScope` — authorization and scope selection | todo | — | Wave 0 |
-| I11 | `StillExporter` — 1080px, properties copied | todo | — | I10, I13 |
+| I11 | `StillExporter` — 1080px, properties copied | review | claude (2026-08-09) | I10, I13 |
 | I12 | `ClipExporter` — 1080p, metadata carried | todo | — | I10, I13 |
-| I13 | `ResourceSelection` — which resource to export | todo | — | I10 |
+| I13 | `ResourceSelection` — which resource to export | review | claude (2026-08-09) | I10 |
 | I14 | `HomeFilter` — exclusion before upload | todo | — | I10 |
 | I15 | `FolderWriter` — the source folder, and hand-off | todo | — | I11, I12, I14 |
 | I16 | **Parity harness** — the M0 gate | todo | — | I15 |
@@ -348,12 +350,30 @@ iOS-exported fixtures join `tests/fixtures/media/` as a second producer of the s
 
 | ID | Task | Status | Owner | Depends on |
 | --- | --- | --- | --- | --- |
-| I20 | `NegotiateClient` — hash negotiation | todo | — | I02, service M1 |
-| I21 | `UploadQueue` — background, per-file retry | todo | — | I20 |
-| I22 | `JobPoller` — build progress | todo | — | I20 |
-| I23 | `Auth` + app shell + trip list | todo | — | Wave 0 |
-| I24 | Report webview | todo | — | I03, I23 |
-| I25 | `AssetSchemeHandler` — images from the phone | todo | — | I04, I24 |
+| I20 | `NegotiateClient` — hash negotiation | **blocked** | — | I02, service M1 |
+| I21 | `UploadQueue` — background, per-file retry | **blocked** | — | I20 |
+| I22 | `JobPoller` — build progress | **blocked** | — | I20 |
+| I23 | `Auth` + app shell + trip list | **blocked** | — | Wave 0, service M1 |
+| I24 | Report webview | wip | claude (2026-08-09) | I03 |
+| I25 | `AssetSchemeHandler` — images from the phone | **blocked** | — | I04, I24, XT-1 |
+
+**Four of the six are blocked, and not merely unstarted.** Recorded 2026-08-09:
+
+- **There is no backend, and no task in any wave builds one.** `ios_backend_service.md` describes
+  M1 (object store, queue, CLI runner) but this tracker owns no ID for it, so `service M1` is a
+  dependency on something nobody has been asked to write. I20, I21 and I22 cannot start, and I23's
+  criterion — *a signed-in user sees only their own trips, verified by a test with two accounts* —
+  is an assertion about a service, not about the client. The client half of I23 is writable; its
+  acceptance criterion is not reachable. **A task whose criterion cannot be met is not `todo`.**
+- **I24 lost its `I23` dependency.** D3 says the book is the existing HTML report in a webview and
+  D24 says the service delivers it as a *bundle* loaded with `loadFileURL`. Neither needs a signed-in
+  user: a report directory produced by `story-book report` exercises every claim the task makes,
+  and offline is the acceptance criterion anyway. Waiting for auth would have blocked the one Wave 2
+  task that is fully testable today.
+- **I25 waits on XT-1** — the report must be rendered with `media_rel="storyasset://"`, and
+  `src/story_book/export/report.py` belongs to the Python tracker. Request filed there; not
+  starting the Swift half until it resolves, because the handler's shape follows what the rendered
+  HTML actually asks for.
 
 ### I20 — `NegotiateClient`
 **Owns:** `ios/Sources/StoryService/NegotiateClient.swift` + tests
@@ -576,7 +596,7 @@ Need a change in a file you don't own? Add a row. The owning agent (or the human
 
 | From | To (task/file) | Request | Status |
 | --- | --- | --- | --- |
-| — | — | *(none yet)* | — |
+| XT-1 / I25 | Python tracker → `src/story_book/export/report.py` | Make `MEDIA_REL_FROM_INDEX` / `MEDIA_REL_FROM_DAY` overridable so the report can render with a `storyasset://` prefix. Filed in `implementation_tracker.md`'s table 2026-08-09. **Blocks I25.** | open |
 
 ---
 
@@ -596,7 +616,7 @@ Unresolved. Each blocks the wave named, not the whole plan.
 | 8 | Config ownership: does the app expose thresholds, or does the service pin one config and keep the knobs on the laptop path? | I30 |
 | 9 | Does `ios/` stay in this repo past Wave 2? | — |
 | 10 | **How does `PhotoExportTests` run unattended?** `simctl privacy grant` is ignored on Xcode 26.3 / iOS 26 (D11), so today it needs one human click per simulator. XCUITest tapping SpringBoard's *Allow Full Access* is the known route; it needs a UI-test target. Until then the export path has **no CI coverage**. | CI for Wave 1 |
-| 11 | **Should the risky half of Wave 1 avoid PhotoKit entirely?** Metadata surviving an ImageIO downscale (I11) and an AVFoundation export (I12) can be tested against plain file URLs — no library, no authorization, runs in CI. That would leave only `LibraryScope` (I10) and `ResourceSelection` (I13) needing a real `PHAsset`. Decide before I11 starts, because it shapes both APIs. | I11, I12 |
+| ~~11~~ | ~~**Should the risky half of Wave 1 avoid PhotoKit entirely?**~~ **Answered 2026-08-09: neither — both.** See D12: exporters take an `ExportSource` that is a `PHAsset` or a file URL. Original text: Metadata surviving an ImageIO downscale (I11) and an AVFoundation export (I12) can be tested against plain file URLs — no library, no authorization, runs in CI. That would leave only `LibraryScope` (I10) and `ResourceSelection` (I13) needing a real `PHAsset`. | ~~I11, I12~~ |
 
 ---
 
@@ -607,6 +627,9 @@ made.
 
 | Date | Who | Entry |
 | --- | --- | --- |
+| 2026-08-09 | claude | **I11 done → review.** Every field survives a 1080px export of the real iPhone HEIC, verified twice as the task asks: with ImageIO in the Swift suite, and by running `story-book build` over the exported file, which resolved `Europe/Vienna` via `exif_offset` and geocoded Salzburg — meaning `OffsetTimeOriginal` and GPS both made it. A field-by-field `exiftool` diff of source against export is identical for `DateTimeOriginal`, `OffsetTimeOriginal`, GPS, `Orientation`, `Make`, `Model` and even `LensModel`; only the dimensions move, 4032×3024 → 1080×810, 3.4 MB → 364 KB. Two deliberate choices: orientation is preserved **as a tag, not baked into the pixels**, because the pipeline reads `Orientation` for `geometry.orientation` and rotating pixels would give a right-looking image with a wrong geometry; and the original's `PixelWidth`/`PixelHeight` are *stripped* from the copied properties, since a downscaled file claiming 4032×3024 is a measurement it cannot support. Bytes are staged through a temp file rather than held as `Data` — this is where an app gets jetsam-killed. |
+| 2026-08-09 | claude | **I13 done → review.** The choice is a pure function over resource descriptors, so all ten variants are CI tests — the `Photos` *framework* is available on macOS even though a library is not, which is what makes D12 work. The subtlety worth knowing: for an edited still the bytes come from `.fullSizePhoto` but the **filename must come from `.photo`**, because the render's own filename is `FullSizeRender.heic` and `overrides.toml` addresses media by filename — shipping the render's name would silently break every correction written on the laptop. RAW+JPEG exports the processed image, a Live Photo exports the still and never the paired video. **Gap:** "at least one asset not resident on device" is only covered by asserting `isNetworkAccessAllowed`; a simulator cannot produce a genuine iCloud-offloaded asset, so that case is unproven until someone runs it against a real library. |
+| 2026-08-09 | claude | **Wave 1 opened with D12, answering open question 11.** Exporters take an `ExportSource` — a `PHAsset` or a file URL — so the metadata-preserving core is CI-tested despite D11 leaving the simulator path manual. The `PHAsset` path is not left unverified by that: a simulator test asserts both sources produce the same dimensions and filename for the same picture, because a CI-green file path would otherwise prove nothing about production. |
 | 2026-08-09 | claude | **I05 done.** Six tests green on an iPhone 17 Pro simulator, and the acceptance criterion is met exactly: a `PHAsset` for the HEIC+GPS+offset fixture *and* for the spatial-audio `.mov`, the latter asserted to still carry **two** audio tracks rather than merely to exist. Getting there cost most of a session and produced D10 and D11 — see `retro/agentic_coding/2026-08-09-i05-photokit-harness.md`. Three findings worth carrying: TCC needs a bundle identity, so a SwiftPM test target can never authorize; `simctl privacy grant` is silently ignored on iOS 26, and the only honest way to see that was `tccd`'s own log; and killing an `xcodebuild` run that is sitting on a simulator dialog poisons the device, so every retry after it was doomed before it started. |
 | 2026-08-09 | claude | **A test suite wrote to the developer's real photo library.** Rewriting `LibraryFixtures` for the device fixtures dropped the `#if os(iOS)` guard, so one `swift test` on the mac host imported all eleven fixtures and an album into `~/Pictures/Photos Library.photoslibrary` — and **passed**, which is what made it dangerous. Now guarded twice (tests gated on `canSeedLibrary`, and `seedIfNeeded` refuses regardless), and the guard is proven by asset count before and after rather than by reading the code. A harness that can reach a real library is not a test detail; it is the non-destructive guarantee applied to our own machine. |
 | 2026-08-09 | claude | **Device fixtures landed in `tests/fixtures/device_media/`, deliberately not `media/`.** `tests/fixtures/generate.py` opens with `shutil.rmtree(MEDIA_DIR)`, so a documented command would have destroyed two irreplaceable captures. Both had home GPS and this repo is public: coordinates were rewritten to Salzburg with the UTC offset moved to `+02:00` so the pair stays coherent. The video needed more than `exiftool` — iPhone clips record per-frame GPS into the `mebx` samples, so the original ISO 6709 string survived inside `mdat` while every metadata reader reported the new value. Patched in place (both strings are 26 bytes, so no atom moved). **Grep the raw bytes, not the tags.** |
