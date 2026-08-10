@@ -249,6 +249,7 @@ on.** It is shippable alone for anyone with a laptop.
 | I14 | `HomeFilter` — exclusion before upload | review | claude (2026-08-09) | I10 |
 | I15 | `FolderWriter` — the source folder, and hand-off | review | claude (2026-08-09) | I11, I12, I14 |
 | I16 | **Parity harness** — the M0 gate | review | claude (2026-08-09) | I15 |
+| I17 | **M0 export app** — one screen, so a human can run M0 | wip | claude (2026-08-09) | I10, I15 |
 
 I11 and I12 are where the project's risk is concentrated, and they are testable long before there
 is an app around them. Start there.
@@ -458,6 +459,21 @@ The music track is an ordinary hash-addressed asset, so S02 already carries it.
 **Done when:** a re-cut at a different aspect returns a new `reel_id` rather than mutating one.
 
 ---
+
+### I17 — M0 export app *(added 2026-08-09, not in the design docs)*
+**Owns:** `ios/Sources/StoryApp/ExportScreen.swift`, `ios/HostApp/HostApp.swift`, the `HostApp` target in `StoryBookHost.xcodeproj`
+**Why this exists.** Wave 1 is described as "shippable alone for anyone with a laptop", but I10–I16
+are library code plus a test harness — **nothing in M0 produces something a traveller can run**,
+and the app shell is I23, in Wave 2. So M0 as specified cannot be exercised by a human. This is the
+smallest thing that fixes that: pick a scope, see the cull-check nudge, export, hand the folder off.
+No account, no upload, no backend.
+**Deliberately thin.** The screen owns no logic — scope selection, the nudge, the privacy filter,
+the exporters and the ledger are all already built and tested. If anything here starts making
+decisions, it belongs in `PhotoExport` instead. I23 replaces the shell; this screen should survive
+into it or be deleted, not grow.
+**Done when:** an export run on a simulator produces a folder that `story-book build` completes on,
+driven entirely by tapping.
+
 
 # Wave 2 — Upload, build, and the book (M1)
 
