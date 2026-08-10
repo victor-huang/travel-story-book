@@ -222,7 +222,7 @@ hash-addressed asset.
   client hashes locally with BLAKE2b so the server can answer "which of these do you already
   have?" — dedup and resume fall out of the pipeline's existing identity model.
 - **Playback:** `AVPlayer` against a short-lived signed CDN URL. Progressive MP4 streams cleanly
-  now that the soft-subtitle mux re-applies `+faststart` (`cf2c75e`).
+  now that the soft-subtitle mux re-applies `+faststart` (`9eb53ab`).
 - **Retention:** media is kept for one month after the most recent photo book or reel, resetting
   on each generation. Two consequences the UI owns:
   - **Offer aspect, music and day-range at render time**, while the media is still there. That is

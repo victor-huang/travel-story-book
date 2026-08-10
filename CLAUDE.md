@@ -9,6 +9,7 @@ human hands to ChatGPT to write the travel journal.
 | --- | --- |
 | `dev_plan/mvp_process_from_picture_to_stories.md` | **What and why.** Source of truth for design. Amend it rather than letting code diverge. |
 | `dev_plan/implementation_tracker.md` | **Who, in what order, and how not to collide.** Source of truth for progress. Claim your task here before writing code. |
+| `dev_plan/ios_implementation_tracker.md` | The same, for the iOS client and its backend. Only if you are working under `ios/`. It owns no file in `src/story_book/`. |
 | `retro/agentic_coding/` | Errors and lessons from past cycles. Skim the latest before a new one. |
 
 ## Commands
