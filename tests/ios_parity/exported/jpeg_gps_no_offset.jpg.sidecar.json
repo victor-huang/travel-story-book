@@ -1,0 +1,14 @@
+{
+  "content_hash" : "708735532acbac692d84f0cd1486f6a81235b943314329016afed8ffced74e4db27610dcf5992f87291bbf6af3c613187b2e5f65e96ef2227c34df81de846e6d",
+  "creation" : {
+    "source" : "unavailable",
+    "utc" : null
+  },
+  "location" : {
+    "lat" : null,
+    "lon" : null,
+    "source" : "unavailable"
+  },
+  "original_filename" : "jpeg_gps_no_offset.jpg",
+  "schema_version" : 1
+}

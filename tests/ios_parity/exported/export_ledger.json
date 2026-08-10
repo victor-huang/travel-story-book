@@ -1,0 +1,50 @@
+{
+  "entries": [
+    {
+      "content_hash": "201c0e29a38ba21077f7dfc284a8f6df5b98bc91b37e9d22517b80f1ce4f75a412796fd768dc28c42b6728ee21e2c3ac8c44e6a40d504bcc981dbb0c8f345e2d",
+      "local_identifier": "/Users/victor.huang/work/travel-story-book/tests/fixtures/device_media/iphone_heic_gps_offset.heic",
+      "original_filename": "iphone_heic_gps_offset.heic"
+    },
+    {
+      "content_hash": "4b60b02f5dab548fe2dde051fa6a9fd5b9b044340e10c1b8f7217f3a48d6999ef5a56fc9baaf658fc9e152e114c69ac2bfeca0a57b32238230b3d83253a2e5e1",
+      "local_identifier": "/Users/victor.huang/work/travel-story-book/tests/fixtures/media/clip_apple_export.mov",
+      "original_filename": "clip_apple_export.mov"
+    },
+    {
+      "content_hash": "8e55ec43107dc6eb5d0cfbf69cd7691c8377e29aff6b881371a05fe338d361c7da1181f4458b69bb5674c7dee077fce8068cecc8470faf62a83e2ffe31a7a2cb",
+      "local_identifier": "/Users/victor.huang/work/travel-story-book/tests/fixtures/media/clip_speech.mov",
+      "original_filename": "clip_speech.mov"
+    },
+    {
+      "content_hash": "f90f12bcbe63bfd22a97a1c2d6a7e84e6239a8a313ff89ba85d8dfcfbcd765e7f49d17e2aeee8d64ff49b15fc31959b65904f61f97b7cc80d8feabef1f0bb8a3",
+      "local_identifier": "/Users/victor.huang/work/travel-story-book/tests/fixtures/media/heic_gps_offset.heic",
+      "original_filename": "heic_gps_offset.heic"
+    },
+    {
+      "content_hash": "708735532acbac692d84f0cd1486f6a81235b943314329016afed8ffced74e4db27610dcf5992f87291bbf6af3c613187b2e5f65e96ef2227c34df81de846e6d",
+      "local_identifier": "/Users/victor.huang/work/travel-story-book/tests/fixtures/media/jpeg_gps_no_offset.jpg",
+      "original_filename": "jpeg_gps_no_offset.jpg"
+    },
+    {
+      "content_hash": "6f83512bddce7fd1640e0d549cab94d67dc3605e2a32537befbe10c076120f232e07fbd90f42ab2b775bd10084aee6130e323704feac7c39d77733c2f7979d27",
+      "local_identifier": "/Users/victor.huang/work/travel-story-book/tests/fixtures/media/jpeg_no_gps.jpg",
+      "original_filename": "jpeg_no_gps.jpg"
+    },
+    {
+      "content_hash": "0b74e657211d1f50dc07c0ac3ab0cb73a060bddc00a30544f4378c0bff8e12c853e3215ab16a66304086c90718b083d69635c262daf4ff776a3807bfd15baad2",
+      "local_identifier": "/Users/victor.huang/work/travel-story-book/tests/fixtures/media/offset_gps_conflict.jpg",
+      "original_filename": "offset_gps_conflict.jpg"
+    },
+    {
+      "content_hash": "6e22574a1f117fd7ac5590865374d7bedb9fecee5899b0760e713661ac32f6174a66a57abb30359adce3739be47f051fb74d48513962863cf80379c828a1e263",
+      "local_identifier": "/Users/victor.huang/work/travel-story-book/tests/fixtures/media/tz_after_1.jpg",
+      "original_filename": "tz_after_1.jpg"
+    },
+    {
+      "content_hash": "cf21d98ab44229eef749bbda0bcea450cebe7fda7d24416ed09e4143783bdac2ca58c9c17f309e708c00c491af0f28c98deb4d1ec01159f662d2da22aeb892c8",
+      "local_identifier": "/Users/victor.huang/work/travel-story-book/tests/fixtures/media/tz_before_1.jpg",
+      "original_filename": "tz_before_1.jpg"
+    }
+  ],
+  "schema_version": 1
+}

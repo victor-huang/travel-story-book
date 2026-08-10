@@ -1,0 +1,14 @@
+{
+  "content_hash" : "0b74e657211d1f50dc07c0ac3ab0cb73a060bddc00a30544f4378c0bff8e12c853e3215ab16a66304086c90718b083d69635c262daf4ff776a3807bfd15baad2",
+  "creation" : {
+    "source" : "unavailable",
+    "utc" : null
+  },
+  "location" : {
+    "lat" : null,
+    "lon" : null,
+    "source" : "unavailable"
+  },
+  "original_filename" : "offset_gps_conflict.jpg",
+  "schema_version" : 1
+}
