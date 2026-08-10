@@ -4,7 +4,8 @@
 > [`implementation_tracker.md`](./implementation_tracker.md), and no code depends on it.
 > Created 2026-08-09.
 >
-> Companion to [`reel_video_montage.md`](./reel_video_montage.md) (the reel itself) and
+> Companions: [`ios_client_app.md`](./ios_client_app.md) (the app half — export, curation,
+> playback), [`reel_video_montage.md`](./reel_video_montage.md) (the reel itself) and
 > [`reel_on_ios_avfoundation.md`](./reel_on_ios_avfoundation.md) (the eventual on-device
 > renderer, which this service exists to defer).
 
