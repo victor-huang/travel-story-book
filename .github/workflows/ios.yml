@@ -1,0 +1,53 @@
+name: iOS
+
+on:
+  push:
+    branches: [main]
+    paths: ["ios/**", ".github/workflows/ios.yml"]
+  pull_request:
+    paths: ["ios/**", ".github/workflows/ios.yml"]
+
+jobs:
+  swift:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: ios
+    steps:
+      # Pinned exactly, matching ci.yml: a floating major tag tells you the version, not which
+      # refs resolve.
+      - uses: actions/checkout@v7
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Build
+        run: swift build
+
+      # StoryKit and StoryService only. PhotoExportTests are skipped here by design: they need
+      # a photo library, and on macOS that would be the *developer's own* -- an earlier version
+      # without that guard imported eleven fixtures into a real ~/Pictures library and passed.
+      # They are gated on LibraryFixtures.canSeedLibrary and run on a simulator; see D11 and
+      # open question 10 for why that cannot yet happen unattended.
+      - name: Test
+        run: swift test
+
+      # The other half of the I02 hash-parity gate. The Swift suite asserts ContentHash against
+      # ios/Tests/StoryKitTests/Fixtures/expected_media_hashes.json; this recomputes the same
+      # file with hashlib.blake2b, so a digest disagreement fails CI on whichever side drifted.
+      - name: Verify hash parity with Python hashlib
+        working-directory: .
+        run: |
+          python3 - <<'EOF'
+          import hashlib, json, sys
+          expected = json.load(open("ios/Tests/StoryKitTests/Fixtures/expected_media_hashes.json"))
+          assert expected, "expected_media_hashes.json is empty"
+          for name, hexdigest in expected.items():
+              h = hashlib.blake2b()
+              with open(f"tests/fixtures/media/{name}", "rb") as fh:
+                  while chunk := fh.read(1 << 20):
+                      h.update(chunk)
+              if h.hexdigest() != hexdigest:
+                  sys.exit(f"hash parity broken for {name}: {h.hexdigest()}")
+          print(f"hash parity holds for {len(expected)} fixtures")
+          EOF

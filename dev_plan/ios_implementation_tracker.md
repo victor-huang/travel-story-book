@@ -161,6 +161,9 @@ Taken 2026-08-09 with the human. Recorded here because they change task scope.
 | D6 | **`ContentHash` moves from M1 to Wave 0.** | `asset_id` is a prefix of the BLAKE2b of the *exported* bytes, so only the phone at export time knows which `PHAsset` produced which hash. If Wave 1 does not record it, it cannot be rebuilt without re-exporting the whole library. |
 | D7 | **Reel first after M1.** | Wave 3 outranks Wave 4. Consequence: the music picker is on the critical path, and it is the one screen that will feel broken if done late. |
 | D8 | **Sign-in with Apple and Google; the service indexes trips and reels.** | Wave 2 owns auth. In-app account deletion is an App Store requirement and collides with indefinite metadata retention — unresolved, see [Open questions](#open-questions). |
+| D9 | **Seeded simulator for the export suite** (decided 2026-08-09, I05). Tests seed a simulator photo library from the committed fixtures via `PHAssetCreationRequest` (`LibraryFixtures.swift`). | Delivered. Both prerequisites are met: Xcode 26.3 is installed, and two real captures live in `tests/fixtures/device_media/`. **Not CI-runnable** — see D11. |
+| D10 | **An Xcode project hosts the PhotoExport tests** — `ios/StoryBookHost.xcodeproj` plus a minimal `HostApp`. Amends I01's "Swift Package, no Xcode project". Approved by the human 2026-08-09. | PhotoKit authorization goes through TCC, and TCC attributes a request to a *bundle identity*. A bare SwiftPM test target has none, so `requestAuthorization` fails with `unable to construct an identity to kTCCServicePhotos` — nothing to grant *to*, which no `simctl privacy grant` can fix, and a physical device would not have dodged it either. `StoryKit` and `StoryService` still test hostless under `swift test` in 0.008 s; only `PhotoExport` pays the Xcode cost. |
+| D11 | **`PhotoExportTests` runs locally, not in CI, and needs one human click per simulator.** | On Xcode 26.3 / iOS 26, `simctl privacy grant photos` is **not honoured**: `tccd` logs `Got 1 auth from db for client` and then `AUTHREQ_PROMPTING` anyway, for `photos` and for `all` alike. In a headless run that dialog blocks forever. Once a human clicks *Allow Full Access* once, the decision persists and later runs take 5 s. Until that is automated (XCUITest tapping SpringBoard is the known route), CI runs `swift test` only. **Always pass `-test-timeouts-enabled YES`** so a stuck dialog fails in seconds instead of hanging. |
 
 ---
 
@@ -170,11 +173,11 @@ One agent does all of Wave 0, in order. Do not parallelize this.
 
 | ID | Task | Status | Owner | Depends on |
 | --- | --- | --- | --- | --- |
-| I01 | Package skeleton, four targets, CI | todo | — | — |
-| I02 | `ContentHash` — BLAKE2b, chunked | todo | — | I01 |
-| I03 | `TripDocument` — decode `trip.json` | todo | — | I01 |
-| I04 | `ExportLedger` + `Sidecar` formats | todo | — | I02 |
-| I05 | Test harness: fixtures on device or seeded simulator | todo | — | I01 |
+| I01 | Package skeleton, four targets, CI | review | claude (2026-08-09) | — |
+| I02 | `ContentHash` — BLAKE2b, chunked | review | claude (2026-08-09) | I01 |
+| I03 | `TripDocument` — decode `trip.json` | review | claude (2026-08-09) | I01 |
+| I04 | `ExportLedger` + `Sidecar` formats | review | claude (2026-08-09) | I02 |
+| I05 | Test harness: fixtures on device or seeded simulator | done | claude (2026-08-09) | I01 |
 
 ### I01 — Package skeleton, four targets, CI
 **Owns:** `ios/Package.swift`, all target directories with a placeholder, `.github/workflows/ios.yml`
@@ -583,8 +586,8 @@ Unresolved. Each blocks the wave named, not the whole plan.
 
 | # | Question | Blocks |
 | --- | --- | --- |
-| 1 | Does `swift-crypto` expose BLAKE2b, or is it vendored Swift vs. libb2 interop? | I02 |
-| 2 | Device or seeded simulator for the export suite? | I05 |
+| 1 | ~~Does `swift-crypto` expose BLAKE2b, or is it vendored Swift vs. libb2 interop?~~ **Answered 2026-08-09:** neither CryptoKit nor swift-crypto exposes BLAKE2b; a vendored pure-Swift RFC 7693 implementation ships in `ContentHash.swift` (~600 MB/s after de-allocating the hot loop, digest verified against `hashlib` and the RFC vectors). | ~~I02~~ |
+| 2 | ~~Device or seeded simulator for the export suite?~~ **Answered 2026-08-09:** seeded simulator — see D9. | ~~I05~~ |
 | 3 | **In-app account deletion is an App Store requirement (5.1.1(v)) and contradicts keeping `story.db`, `trip.json` and previews indefinitely.** Reconcile before submission. | Ship |
 | 4 | Does the service store a source tree per trip or per user? Hash-addressed storage makes cross-trip dedup free but complicates deletion — a shared asset cannot be removed with one trip. Same decision as "does the app hold a local trip list". | I20, I23 |
 | 5 | Where is the cull threshold? "60 of 800 in-range" clearly warrants the nudge and "600 of 800" clearly does not. Set it by watching real selections, not by guessing. | I10 |
@@ -592,6 +595,8 @@ Unresolved. Each blocks the wave named, not the whole plan.
 | 7 | Does curation re-run happen automatically on edit, or on an explicit rebuild tap? | I44 |
 | 8 | Config ownership: does the app expose thresholds, or does the service pin one config and keep the knobs on the laptop path? | I30 |
 | 9 | Does `ios/` stay in this repo past Wave 2? | — |
+| 10 | **How does `PhotoExportTests` run unattended?** `simctl privacy grant` is ignored on Xcode 26.3 / iOS 26 (D11), so today it needs one human click per simulator. XCUITest tapping SpringBoard's *Allow Full Access* is the known route; it needs a UI-test target. Until then the export path has **no CI coverage**. | CI for Wave 1 |
+| 11 | **Should the risky half of Wave 1 avoid PhotoKit entirely?** Metadata surviving an ImageIO downscale (I11) and an AVFoundation export (I12) can be tested against plain file URLs — no library, no authorization, runs in CI. That would leave only `LibraryScope` (I10) and `ResourceSelection` (I13) needing a real `PHAsset`. Decide before I11 starts, because it shapes both APIs. | I11, I12 |
 
 ---
 
@@ -602,4 +607,12 @@ made.
 
 | Date | Who | Entry |
 | --- | --- | --- |
+| 2026-08-09 | claude | **I05 done.** Six tests green on an iPhone 17 Pro simulator, and the acceptance criterion is met exactly: a `PHAsset` for the HEIC+GPS+offset fixture *and* for the spatial-audio `.mov`, the latter asserted to still carry **two** audio tracks rather than merely to exist. Getting there cost most of a session and produced D10 and D11 — see `retro/agentic_coding/2026-08-09-i05-photokit-harness.md`. Three findings worth carrying: TCC needs a bundle identity, so a SwiftPM test target can never authorize; `simctl privacy grant` is silently ignored on iOS 26, and the only honest way to see that was `tccd`'s own log; and killing an `xcodebuild` run that is sitting on a simulator dialog poisons the device, so every retry after it was doomed before it started. |
+| 2026-08-09 | claude | **A test suite wrote to the developer's real photo library.** Rewriting `LibraryFixtures` for the device fixtures dropped the `#if os(iOS)` guard, so one `swift test` on the mac host imported all eleven fixtures and an album into `~/Pictures/Photos Library.photoslibrary` — and **passed**, which is what made it dangerous. Now guarded twice (tests gated on `canSeedLibrary`, and `seedIfNeeded` refuses regardless), and the guard is proven by asset count before and after rather than by reading the code. A harness that can reach a real library is not a test detail; it is the non-destructive guarantee applied to our own machine. |
+| 2026-08-09 | claude | **Device fixtures landed in `tests/fixtures/device_media/`, deliberately not `media/`.** `tests/fixtures/generate.py` opens with `shutil.rmtree(MEDIA_DIR)`, so a documented command would have destroyed two irreplaceable captures. Both had home GPS and this repo is public: coordinates were rewritten to Salzburg with the UTC offset moved to `+02:00` so the pair stays coherent. The video needed more than `exiftool` — iPhone clips record per-frame GPS into the `mebx` samples, so the original ISO 6709 string survived inside `mdat` while every metadata reader reported the new value. Patched in place (both strings are 26 bytes, so no atom moved). **Grep the raw bytes, not the tags.** |
+| 2026-08-09 | claude | **I05 blocked, escalated.** Two facts, both needing the human: (1) this machine has Command Line Tools only, no Xcode — so neither a simulator nor a device can run PhotoKit tests here, whichever way the decision goes; (2) no committed fixture has spatial audio — `clip_speech.mov` is plain h264+aac, and an `apac` track plus `mebx` streams can only come from a real iPhone capture, so half the acceptance criterion cannot be met from `tests/fixtures/media/` at all. Recommendation recorded, not decided: seed a simulator from committed fixtures via `PHAssetCreationRequest` (the helper, `LibraryFixtures.swift`, is written and compiles), and add a small set of device-captured fixtures — spatial-audio `.mov`, Live Photo pair, burst — to cover what no generator can produce. Needs from the human: Xcode installed (or a provisioned device), and those captures. |
+| 2026-08-09 | claude | **I04 done → review.** `Sidecar`: UTC instant + coordinates with a `source` beside each (`photokit_asset` / `unavailable`); absent values encode as explicit nulls, never omitted keys; never claims a timezone offset it does not have. `ExportLedger`: upsert by `localIdentifier`, `asset_id`-prefix lookup returns *every* match (byte-identical duplicates legitimately share a hash), atomic file persistence, relaunch survival proven by reloading from disk into a fresh instance. |
+| 2026-08-09 | claude | **I03 done → review, with one substitution.** The committed decode fixture is a full `--no-cloud` pipeline run over `tests/fixtures/media/` (22 assets, 2 days, 3 videos, clusters, all four selection scopes), not the real trip — I do not have the real trip's photographs. Swap or add the real `trip.json` when available. Decoder uses explicit `CodingKeys` throughout: `convertFromSnakeCase` also rewrites data-bearing dictionary keys, so `counts["day_highlights"]` would silently become `"dayHighlights"`. The CI tripwire for schema drift is a committed BLAKE2b of `trip_schema.json` asserted in the Swift suite — crude, but it fails in CI rather than in someone's hands, and the failure message says how to regenerate. |
+| 2026-08-09 | claude | **I02 done → review.** Vendored pure-Swift RFC 7693 BLAKE2b (CryptoKit and swift-crypto have none). Parity is a committed file, `ios/Tests/StoryKitTests/Fixtures/expected_media_hashes.json`, asserted by the Swift suite *and* recomputed with `hashlib.blake2b` in `ios.yml` — a disagreement fails CI on whichever side drifted. First cut ran at 108 MB/s; removing per-block allocation and bounds checks in `compress` took it to ~600 MB/s, so a 400 MB clip hashes in under a second. |
+| 2026-08-09 | claude | **I01 done → review.** Swift 6 package, four targets + three test targets, iOS 17 + macOS 14 so `swift test` runs hostless on CI. `ios.yml` runs on `macos-15`, path-filtered to `ios/**`; the existing Python jobs are untouched. "In CI" half of the criterion pends the first push. |
 | 2026-08-09 | claude | **Tracker created.** Eight decisions recorded (D1–D8). Two changed task scope from the design docs: `ContentHash` moves from M1 to Wave 0, because the export ledger's key is the hash of the *exported* bytes and only the phone at export time knows which `PHAsset` produced it; and the reel (Wave 3) outranks curation (Wave 4), which puts the music picker on the critical path. Also found while checking references: `ios_client_app.md:225` cited the faststart fix as `cf2c75e`, which is not reachable from `HEAD` — the commit was amended, the live one is `9eb53ab`, and the old object will be garbage-collected. Fixed. A commit hash in a doc is a reference that can rot silently, since nothing resolves it. |

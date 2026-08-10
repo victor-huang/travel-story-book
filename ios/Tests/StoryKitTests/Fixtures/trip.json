@@ -1,0 +1,1917 @@
+{
+  "schema_version": 5,
+  "generator": {
+    "tool": "story-book",
+    "version": "0.1.0"
+  },
+  "trip": {
+    "name": "media",
+    "day_assignment_rule": "a trip day runs from 04:00 local to 04:00 the next morning",
+    "timezone": "Europe/Vienna",
+    "start_local": "2026-07-18T09:20:00+02:00",
+    "end_local": "2026-07-20T00:30:00+03:00",
+    "start_utc": "2026-07-18T07:20:00+00:00",
+    "end_utc": "2026-07-19T21:30:00+00:00",
+    "counts": {
+      "media": 22,
+      "images": 19,
+      "videos": 3,
+      "days": 2,
+      "events": 9,
+      "undated": 3,
+      "day_highlights": 9,
+      "trip_highlights": 2
+    }
+  },
+  "privacy": {
+    "home_configured": false,
+    "exclusion_km": null,
+    "excluded_near_home": 0,
+    "excluded_by_override": 0,
+    "excluded_by_content_class": 3,
+    "excluded_content_classes": [
+      "screenshot"
+    ]
+  },
+  "context": {
+    "supplied": false,
+    "journal_voice": null,
+    "travelers": [],
+    "known_plans": [],
+    "notes": []
+  },
+  "assets": {
+    "40d835219a4089f4": {
+      "asset_id": "40d835219a4089f4",
+      "content_hash": "40d835219a4089f49b2c460208ca471948c20fda3accc2a93a323fd86bf7958e609a86ce44ac33cdc23f288a2e653097f9cb9871109fc9691d09cd40101d711a",
+      "filename": "clip_silent.mp4",
+      "kind": "video",
+      "bytes": 10626,
+      "geometry": {
+        "width": 160,
+        "height": 120,
+        "orientation": "landscape",
+        "aspect_ratio": 1.3333
+      },
+      "taken_local": null,
+      "taken_utc": null,
+      "timezone": {
+        "name": null,
+        "offset_minutes": null,
+        "source": "unknown"
+      },
+      "day": null,
+      "calendar_date": null,
+      "event_id": null,
+      "location": null,
+      "near_home": false,
+      "quality": null,
+      "cluster": null,
+      "selected": {},
+      "landmark_ids": [],
+      "thumbnail": ".cache/video/40d835219a4089f49b2c460208ca471948c20fda3accc2a93a323fd86bf7958e609a86ce44ac33cdc23f288a2e653097f9cb9871109fc9691d09cd40101d711a_poster.jpg",
+      "preview": ".cache/video/40d835219a4089f49b2c460208ca471948c20fda3accc2a93a323fd86bf7958e609a86ce44ac33cdc23f288a2e653097f9cb9871109fc9691d09cd40101d711a_poster.jpg",
+      "video": {
+        "duration_seconds": 3.0,
+        "subtype": "clip",
+        "storyboard_candidate": true,
+        "fps": 10.0,
+        "poster": ".cache/video/40d835219a4089f49b2c460208ca471948c20fda3accc2a93a323fd86bf7958e609a86ce44ac33cdc23f288a2e653097f9cb9871109fc9691d09cd40101d711a_poster.jpg",
+        "keyframes": [
+          {
+            "seconds": 0.3,
+            "path": ".cache/video/40d835219a4089f49b2c460208ca471948c20fda3accc2a93a323fd86bf7958e609a86ce44ac33cdc23f288a2e653097f9cb9871109fc9691d09cd40101d711a_frame0.jpg"
+          },
+          {
+            "seconds": 0.9,
+            "path": ".cache/video/40d835219a4089f49b2c460208ca471948c20fda3accc2a93a323fd86bf7958e609a86ce44ac33cdc23f288a2e653097f9cb9871109fc9691d09cd40101d711a_frame1.jpg"
+          },
+          {
+            "seconds": 1.5,
+            "path": ".cache/video/40d835219a4089f49b2c460208ca471948c20fda3accc2a93a323fd86bf7958e609a86ce44ac33cdc23f288a2e653097f9cb9871109fc9691d09cd40101d711a_frame2.jpg"
+          },
+          {
+            "seconds": 2.1,
+            "path": ".cache/video/40d835219a4089f49b2c460208ca471948c20fda3accc2a93a323fd86bf7958e609a86ce44ac33cdc23f288a2e653097f9cb9871109fc9691d09cd40101d711a_frame3.jpg"
+          },
+          {
+            "seconds": 2.7,
+            "path": ".cache/video/40d835219a4089f49b2c460208ca471948c20fda3accc2a93a323fd86bf7958e609a86ce44ac33cdc23f288a2e653097f9cb9871109fc9691d09cd40101d711a_frame4.jpg"
+          }
+        ],
+        "motion_score": 0.022369983149509803,
+        "mean_volume_db": null,
+        "transcript_status": "no_speech",
+        "transcript": null
+      }
+    },
+    "486f36b7c18c2982": {
+      "asset_id": "486f36b7c18c2982",
+      "content_hash": "486f36b7c18c2982791be62bdea809f62394c1d39b21c99a6d4a12ea9601d9bc3d2b1e837b6dfb3aefaf88caf9a6b3505e00d0a764e740862e060c164e131ce8",
+      "filename": "clip_speech.mov",
+      "kind": "video",
+      "bytes": 17377,
+      "geometry": {
+        "width": 160,
+        "height": 120,
+        "orientation": "landscape",
+        "aspect_ratio": 1.3333
+      },
+      "taken_local": null,
+      "taken_utc": null,
+      "timezone": {
+        "name": null,
+        "offset_minutes": null,
+        "source": "unknown"
+      },
+      "day": null,
+      "calendar_date": null,
+      "event_id": null,
+      "location": null,
+      "near_home": false,
+      "quality": null,
+      "cluster": null,
+      "selected": {},
+      "landmark_ids": [],
+      "thumbnail": ".cache/video/486f36b7c18c2982791be62bdea809f62394c1d39b21c99a6d4a12ea9601d9bc3d2b1e837b6dfb3aefaf88caf9a6b3505e00d0a764e740862e060c164e131ce8_poster.jpg",
+      "preview": ".cache/video/486f36b7c18c2982791be62bdea809f62394c1d39b21c99a6d4a12ea9601d9bc3d2b1e837b6dfb3aefaf88caf9a6b3505e00d0a764e740862e060c164e131ce8_poster.jpg",
+      "video": {
+        "duration_seconds": 3.0,
+        "subtype": "clip",
+        "storyboard_candidate": true,
+        "fps": 10.0,
+        "poster": ".cache/video/486f36b7c18c2982791be62bdea809f62394c1d39b21c99a6d4a12ea9601d9bc3d2b1e837b6dfb3aefaf88caf9a6b3505e00d0a764e740862e060c164e131ce8_poster.jpg",
+        "keyframes": [
+          {
+            "seconds": 0.3,
+            "path": ".cache/video/486f36b7c18c2982791be62bdea809f62394c1d39b21c99a6d4a12ea9601d9bc3d2b1e837b6dfb3aefaf88caf9a6b3505e00d0a764e740862e060c164e131ce8_frame0.jpg"
+          },
+          {
+            "seconds": 0.9,
+            "path": ".cache/video/486f36b7c18c2982791be62bdea809f62394c1d39b21c99a6d4a12ea9601d9bc3d2b1e837b6dfb3aefaf88caf9a6b3505e00d0a764e740862e060c164e131ce8_frame1.jpg"
+          },
+          {
+            "seconds": 1.5,
+            "path": ".cache/video/486f36b7c18c2982791be62bdea809f62394c1d39b21c99a6d4a12ea9601d9bc3d2b1e837b6dfb3aefaf88caf9a6b3505e00d0a764e740862e060c164e131ce8_frame2.jpg"
+          },
+          {
+            "seconds": 2.1,
+            "path": ".cache/video/486f36b7c18c2982791be62bdea809f62394c1d39b21c99a6d4a12ea9601d9bc3d2b1e837b6dfb3aefaf88caf9a6b3505e00d0a764e740862e060c164e131ce8_frame3.jpg"
+          },
+          {
+            "seconds": 2.7,
+            "path": ".cache/video/486f36b7c18c2982791be62bdea809f62394c1d39b21c99a6d4a12ea9601d9bc3d2b1e837b6dfb3aefaf88caf9a6b3505e00d0a764e740862e060c164e131ce8_frame4.jpg"
+          }
+        ],
+        "motion_score": 0.022369983149509803,
+        "mean_volume_db": null,
+        "transcript_status": "no_speech",
+        "transcript": null
+      }
+    },
+    "8d38424d31b7c13b": {
+      "asset_id": "8d38424d31b7c13b",
+      "content_hash": "8d38424d31b7c13b9dd11d254ec04a0b7c2ac7f201c30173ad3e9a1676d8dc0a7ecd737aded928c917936589fdd52fb41db67964785452b4c9204099368a62b0",
+      "filename": "jpeg_no_exif.jpg",
+      "kind": "image",
+      "bytes": 4708,
+      "geometry": {
+        "width": 320,
+        "height": 240,
+        "orientation": "landscape",
+        "aspect_ratio": 1.3333
+      },
+      "taken_local": null,
+      "taken_utc": null,
+      "timezone": {
+        "name": null,
+        "offset_minutes": null,
+        "source": "unknown"
+      },
+      "day": null,
+      "calendar_date": null,
+      "event_id": null,
+      "location": null,
+      "near_home": false,
+      "quality": {
+        "overall": 0.564691669709276,
+        "sharpness": 0.4366155383196162,
+        "exposure": 0.9886067708333334,
+        "contrast": 0.19970285154160625,
+        "face_count": null,
+        "face_max_frac": null,
+        "content_class": "other"
+      },
+      "cluster": null,
+      "selected": {},
+      "landmark_ids": [],
+      "thumbnail": "thumbs/8d38424d31b7c13b.jpg",
+      "preview": "previews/8d38424d31b7c13b.jpg"
+    },
+    "9766d66bac42fad6": {
+      "asset_id": "9766d66bac42fad6",
+      "content_hash": "9766d66bac42fad67e57b156ffc518ea3fe4c381f4c5527f73523273a44f427e4261e2a361090fa64057fcb685457d961a09864005cdaffb5ed9ab098851a7d8",
+      "filename": "heic_gps_offset.heic",
+      "kind": "image",
+      "bytes": 3824,
+      "geometry": {
+        "width": 320,
+        "height": 240,
+        "orientation": "landscape",
+        "aspect_ratio": 1.3333
+      },
+      "taken_local": "2026-07-18T09:20:00+02:00",
+      "taken_utc": "2026-07-18T07:20:00+00:00",
+      "timezone": {
+        "name": "Europe/Vienna",
+        "offset_minutes": 120,
+        "source": "exif_offset"
+      },
+      "day": "2026-07-18",
+      "calendar_date": "2026-07-18",
+      "event_id": "2026-07-18#1",
+      "location": {
+        "lat": 47.8095,
+        "lon": 13.055,
+        "source": "exif",
+        "confidence": null,
+        "place": {
+          "id": 1,
+          "poi": null,
+          "city": "Salzburg",
+          "region": "Salzburg",
+          "country": "AT",
+          "lat": 47.8095,
+          "lon": 13.055,
+          "source": "offline"
+        }
+      },
+      "near_home": false,
+      "quality": {
+        "overall": 0.530701998056255,
+        "sharpness": 0.37672367082197167,
+        "exposure": 0.9876041666666666,
+        "contrast": 0.1798072563303246,
+        "face_count": null,
+        "face_max_frac": null,
+        "content_class": "other"
+      },
+      "cluster": null,
+      "selected": {
+        "event": {
+          "rank": 1,
+          "reason": "event sample"
+        },
+        "day": {
+          "rank": 1,
+          "reason": "day highlight"
+        }
+      },
+      "landmark_ids": [],
+      "thumbnail": "thumbs/9766d66bac42fad6.jpg",
+      "preview": "previews/9766d66bac42fad6.jpg"
+    },
+    "801ce8ed89f43820": {
+      "asset_id": "801ce8ed89f43820",
+      "content_hash": "801ce8ed89f43820beb78ea11bbf309b3049c3ccf9ee7de2320091e932ceb401fa87668cc5e3c38bb7a26fcab76ed80c2339bb970c1eca2f6527011b56e41081",
+      "filename": "jpeg_gps_no_offset.jpg",
+      "kind": "image",
+      "bytes": 4664,
+      "geometry": {
+        "width": 320,
+        "height": 240,
+        "orientation": "landscape",
+        "aspect_ratio": 1.3333
+      },
+      "taken_local": "2026-07-18T11:45:00+02:00",
+      "taken_utc": "2026-07-18T09:45:00+00:00",
+      "timezone": {
+        "name": "Europe/Vienna",
+        "offset_minutes": 120,
+        "source": "gps"
+      },
+      "day": "2026-07-18",
+      "calendar_date": "2026-07-18",
+      "event_id": "2026-07-18#2",
+      "location": {
+        "lat": 47.8095,
+        "lon": 13.055,
+        "source": "exif",
+        "confidence": null,
+        "place": {
+          "id": 1,
+          "poi": null,
+          "city": "Salzburg",
+          "region": "Salzburg",
+          "country": "AT",
+          "lat": 47.8095,
+          "lon": 13.055,
+          "source": "offline"
+        }
+      },
+      "near_home": false,
+      "quality": {
+        "overall": 0.5349659640984994,
+        "sharpness": 0.384390576585956,
+        "exposure": 0.9907161458333333,
+        "contrast": 0.17691669457389214,
+        "face_count": null,
+        "face_max_frac": null,
+        "content_class": "other"
+      },
+      "cluster": null,
+      "selected": {
+        "event": {
+          "rank": 1,
+          "reason": "event sample"
+        },
+        "day": {
+          "rank": 2,
+          "reason": "day highlight"
+        }
+      },
+      "landmark_ids": [],
+      "thumbnail": "thumbs/801ce8ed89f43820.jpg",
+      "preview": "previews/801ce8ed89f43820.jpg"
+    },
+    "f3864d98ae91b9e8": {
+      "asset_id": "f3864d98ae91b9e8",
+      "content_hash": "f3864d98ae91b9e8ce8a3d43ecfc0333ce4f1d039b248cba010e0370c892093f0505e6c477a8ece01ea7a763ca1b77aa951feb6edf1a6844582e23248e4b4e6f",
+      "filename": "clip_apple_export.mov",
+      "kind": "video",
+      "bytes": 8268,
+      "geometry": {
+        "width": 160,
+        "height": 120,
+        "orientation": "landscape",
+        "aspect_ratio": 1.3333
+      },
+      "taken_local": "2026-07-18T11:37:58+00:00",
+      "taken_utc": "2026-07-18T11:37:58+00:00",
+      "timezone": {
+        "name": "UTC",
+        "offset_minutes": 0,
+        "source": "config"
+      },
+      "day": "2026-07-18",
+      "calendar_date": "2026-07-18",
+      "event_id": "2026-07-18#3",
+      "location": {
+        "lat": 47.8095,
+        "lon": 13.055,
+        "source": "interpolated",
+        "confidence": 0.0625,
+        "place": {
+          "id": 1,
+          "poi": null,
+          "city": "Salzburg",
+          "region": "Salzburg",
+          "country": "AT",
+          "lat": 47.8095,
+          "lon": 13.055,
+          "source": "offline"
+        }
+      },
+      "near_home": false,
+      "quality": null,
+      "cluster": null,
+      "selected": {},
+      "landmark_ids": [],
+      "thumbnail": ".cache/video/f3864d98ae91b9e8ce8a3d43ecfc0333ce4f1d039b248cba010e0370c892093f0505e6c477a8ece01ea7a763ca1b77aa951feb6edf1a6844582e23248e4b4e6f_poster.jpg",
+      "preview": ".cache/video/f3864d98ae91b9e8ce8a3d43ecfc0333ce4f1d039b248cba010e0370c892093f0505e6c477a8ece01ea7a763ca1b77aa951feb6edf1a6844582e23248e4b4e6f_poster.jpg",
+      "video": {
+        "duration_seconds": 2.0,
+        "subtype": "clip",
+        "storyboard_candidate": true,
+        "fps": 10.0,
+        "poster": ".cache/video/f3864d98ae91b9e8ce8a3d43ecfc0333ce4f1d039b248cba010e0370c892093f0505e6c477a8ece01ea7a763ca1b77aa951feb6edf1a6844582e23248e4b4e6f_poster.jpg",
+        "keyframes": [
+          {
+            "seconds": 0.2,
+            "path": ".cache/video/f3864d98ae91b9e8ce8a3d43ecfc0333ce4f1d039b248cba010e0370c892093f0505e6c477a8ece01ea7a763ca1b77aa951feb6edf1a6844582e23248e4b4e6f_frame0.jpg"
+          },
+          {
+            "seconds": 0.6,
+            "path": ".cache/video/f3864d98ae91b9e8ce8a3d43ecfc0333ce4f1d039b248cba010e0370c892093f0505e6c477a8ece01ea7a763ca1b77aa951feb6edf1a6844582e23248e4b4e6f_frame1.jpg"
+          },
+          {
+            "seconds": 1.0,
+            "path": ".cache/video/f3864d98ae91b9e8ce8a3d43ecfc0333ce4f1d039b248cba010e0370c892093f0505e6c477a8ece01ea7a763ca1b77aa951feb6edf1a6844582e23248e4b4e6f_frame2.jpg"
+          },
+          {
+            "seconds": 1.4,
+            "path": ".cache/video/f3864d98ae91b9e8ce8a3d43ecfc0333ce4f1d039b248cba010e0370c892093f0505e6c477a8ece01ea7a763ca1b77aa951feb6edf1a6844582e23248e4b4e6f_frame3.jpg"
+          },
+          {
+            "seconds": 1.8,
+            "path": ".cache/video/f3864d98ae91b9e8ce8a3d43ecfc0333ce4f1d039b248cba010e0370c892093f0505e6c477a8ece01ea7a763ca1b77aa951feb6edf1a6844582e23248e4b4e6f_frame4.jpg"
+          }
+        ],
+        "motion_score": 0.015297564338235294,
+        "mean_volume_db": null,
+        "transcript_status": "no_speech",
+        "transcript": null
+      }
+    },
+    "535b676bfeddce27": {
+      "asset_id": "535b676bfeddce27",
+      "content_hash": "535b676bfeddce276d5a6f84a36cb684bc10b0417596189ab8539088cca3dac1f072860c5f6bd42aa54f2dba84acc2dd3b1a4f83e149ae9438f4e45845ce7886",
+      "filename": "jpeg_no_gps.jpg",
+      "kind": "image",
+      "bytes": 5023,
+      "geometry": {
+        "width": 320,
+        "height": 240,
+        "orientation": "landscape",
+        "aspect_ratio": 1.3333
+      },
+      "taken_local": "2026-07-18T12:05:00+00:00",
+      "taken_utc": "2026-07-18T12:05:00+00:00",
+      "timezone": {
+        "name": "UTC",
+        "offset_minutes": 0,
+        "source": "config"
+      },
+      "day": "2026-07-18",
+      "calendar_date": "2026-07-18",
+      "event_id": "2026-07-18#3",
+      "location": {
+        "lat": 47.8095,
+        "lon": 13.055,
+        "source": "interpolated",
+        "confidence": 0.2042,
+        "place": {
+          "id": 1,
+          "poi": null,
+          "city": "Salzburg",
+          "region": "Salzburg",
+          "country": "AT",
+          "lat": 47.8095,
+          "lon": 13.055,
+          "source": "offline"
+        }
+      },
+      "near_home": false,
+      "quality": {
+        "overall": 0.5702905890124388,
+        "sharpness": 0.44837367517708304,
+        "exposure": 0.9885807291666666,
+        "contrast": 0.19825212564967448,
+        "face_count": null,
+        "face_max_frac": null,
+        "content_class": "other"
+      },
+      "cluster": {
+        "id": "535b676bfeddce27",
+        "kind": "similar",
+        "is_keeper": true
+      },
+      "selected": {
+        "cluster": {
+          "rank": 1,
+          "reason": "best in cluster"
+        },
+        "event": {
+          "rank": 1,
+          "reason": "event sample"
+        },
+        "day": {
+          "rank": 3,
+          "reason": "day highlight"
+        },
+        "trip": {
+          "rank": 1,
+          "reason": "trip highlight"
+        }
+      },
+      "landmark_ids": [],
+      "thumbnail": "thumbs/535b676bfeddce27.jpg",
+      "preview": "previews/535b676bfeddce27.jpg"
+    },
+    "c089727e2194dce4": {
+      "asset_id": "c089727e2194dce4",
+      "content_hash": "c089727e2194dce4d4183aadaeb0a318a3cea928647e992f426ed92e10c2e65886e37ff87f2cd52f73d4103ea7a117e3624c4181205a3fd72725e4e12fe81f34",
+      "filename": "burst_a.jpg",
+      "kind": "image",
+      "bytes": 4892,
+      "geometry": {
+        "width": 320,
+        "height": 240,
+        "orientation": "landscape",
+        "aspect_ratio": 1.3333
+      },
+      "taken_local": "2026-07-18T15:30:00+02:00",
+      "taken_utc": "2026-07-18T13:30:00+00:00",
+      "timezone": {
+        "name": "Europe/Vienna",
+        "offset_minutes": 120,
+        "source": "exif_offset"
+      },
+      "day": "2026-07-18",
+      "calendar_date": "2026-07-18",
+      "event_id": "2026-07-18#3",
+      "location": {
+        "lat": 47.8095,
+        "lon": 13.055,
+        "source": "exif",
+        "confidence": null,
+        "place": {
+          "id": 1,
+          "poi": null,
+          "city": "Salzburg",
+          "region": "Salzburg",
+          "country": "AT",
+          "lat": 47.8095,
+          "lon": 13.055,
+          "source": "offline"
+        }
+      },
+      "near_home": false,
+      "quality": {
+        "overall": 0.5519852132033822,
+        "sharpness": 0.4095036490259598,
+        "exposure": 0.9903776041666666,
+        "contrast": 0.20128206607103474,
+        "face_count": null,
+        "face_max_frac": null,
+        "content_class": "other"
+      },
+      "cluster": {
+        "id": "c089727e2194dce4",
+        "kind": "burst",
+        "is_keeper": true
+      },
+      "selected": {
+        "cluster": {
+          "rank": 1,
+          "reason": "best in cluster"
+        }
+      },
+      "landmark_ids": [],
+      "thumbnail": "thumbs/c089727e2194dce4.jpg",
+      "preview": "previews/c089727e2194dce4.jpg"
+    },
+    "02a9b81b0763c828": {
+      "asset_id": "02a9b81b0763c828",
+      "content_hash": "02a9b81b0763c82869713ad42e426270f900a4cad7d07eef0a29eaae5e8723f57849e0aa81a533b91ebd2f98be183e31e85fde74761ee06df2c8e809b37a3662",
+      "filename": "burst_b.jpg",
+      "kind": "image",
+      "bytes": 4607,
+      "geometry": {
+        "width": 320,
+        "height": 240,
+        "orientation": "landscape",
+        "aspect_ratio": 1.3333
+      },
+      "taken_local": "2026-07-18T15:30:02+02:00",
+      "taken_utc": "2026-07-18T13:30:02+00:00",
+      "timezone": {
+        "name": "Europe/Vienna",
+        "offset_minutes": 120,
+        "source": "exif_offset"
+      },
+      "day": "2026-07-18",
+      "calendar_date": "2026-07-18",
+      "event_id": "2026-07-18#3",
+      "location": {
+        "lat": 47.8095,
+        "lon": 13.055,
+        "source": "exif",
+        "confidence": null,
+        "place": {
+          "id": 1,
+          "poi": null,
+          "city": "Salzburg",
+          "region": "Salzburg",
+          "country": "AT",
+          "lat": 47.8095,
+          "lon": 13.055,
+          "source": "offline"
+        }
+      },
+      "near_home": false,
+      "quality": {
+        "overall": 0.46607072715389986,
+        "sharpness": 0.23681201567257315,
+        "exposure": 0.9940885416666667,
+        "contrast": 0.19739760024949315,
+        "face_count": null,
+        "face_max_frac": null,
+        "content_class": "other"
+      },
+      "cluster": {
+        "id": "c089727e2194dce4",
+        "kind": "burst",
+        "is_keeper": false
+      },
+      "selected": {},
+      "landmark_ids": [],
+      "thumbnail": "thumbs/02a9b81b0763c828.jpg",
+      "preview": "previews/02a9b81b0763c828.jpg"
+    },
+    "59eff78caad7c74f": {
+      "asset_id": "59eff78caad7c74f",
+      "content_hash": "59eff78caad7c74f7aabb6d4e28ee5b0a1f021c78bca0ca76d7978bb067b868bc625ff041fb15706c68b770fd22559052d11bf0635119ca419f001b3c4b84e2d",
+      "filename": "exact_b.jpg",
+      "kind": "image",
+      "bytes": 4650,
+      "geometry": {
+        "width": 320,
+        "height": 240,
+        "orientation": "landscape",
+        "aspect_ratio": 1.3333
+      },
+      "taken_local": "2026-07-18T16:00:00+02:00",
+      "taken_utc": "2026-07-18T14:00:00+00:00",
+      "timezone": {
+        "name": "Europe/Vienna",
+        "offset_minutes": 120,
+        "source": "exif_offset"
+      },
+      "day": "2026-07-18",
+      "calendar_date": "2026-07-18",
+      "event_id": "2026-07-18#3",
+      "location": {
+        "lat": 47.8095,
+        "lon": 13.055,
+        "source": "exif",
+        "confidence": null,
+        "place": {
+          "id": 1,
+          "poi": null,
+          "city": "Salzburg",
+          "region": "Salzburg",
+          "country": "AT",
+          "lat": 47.8095,
+          "lon": 13.055,
+          "source": "offline"
+        }
+      },
+      "near_home": false,
+      "quality": {
+        "overall": 0.5482781803755339,
+        "sharpness": 0.4009076676633967,
+        "exposure": 0.9902734375,
+        "contrast": 0.2046074524004562,
+        "face_count": null,
+        "face_max_frac": null,
+        "content_class": "other"
+      },
+      "cluster": {
+        "id": "c089727e2194dce4",
+        "kind": "burst",
+        "is_keeper": false
+      },
+      "selected": {},
+      "landmark_ids": [],
+      "thumbnail": "thumbs/59eff78caad7c74f.jpg",
+      "preview": "previews/59eff78caad7c74f.jpg"
+    },
+    "61f023f8173c87f1": {
+      "asset_id": "61f023f8173c87f1",
+      "content_hash": "61f023f8173c87f1af8c392bf58326dc9db706cc4792a52cbb276a562041d01966cf319a2704e028e1a53fc3f7d552c12f061264fee90c220e1a80aaf4d8d6d3",
+      "filename": "distinct_a.jpg",
+      "kind": "image",
+      "bytes": 4724,
+      "geometry": {
+        "width": 320,
+        "height": 240,
+        "orientation": "landscape",
+        "aspect_ratio": 1.3333
+      },
+      "taken_local": "2026-07-18T17:10:00+02:00",
+      "taken_utc": "2026-07-18T15:10:00+00:00",
+      "timezone": {
+        "name": "Europe/Vienna",
+        "offset_minutes": 120,
+        "source": "exif_offset"
+      },
+      "day": "2026-07-18",
+      "calendar_date": "2026-07-18",
+      "event_id": "2026-07-18#3",
+      "location": {
+        "lat": 47.8095,
+        "lon": 13.055,
+        "source": "exif",
+        "confidence": null,
+        "place": {
+          "id": 1,
+          "poi": null,
+          "city": "Salzburg",
+          "region": "Salzburg",
+          "country": "AT",
+          "lat": 47.8095,
+          "lon": 13.055,
+          "source": "offline"
+        }
+      },
+      "near_home": false,
+      "quality": {
+        "overall": 0.5443503028673383,
+        "sharpness": 0.39366723074577437,
+        "exposure": 0.9911848958333334,
+        "contrast": 0.20144750691485094,
+        "face_count": null,
+        "face_max_frac": null,
+        "content_class": "other"
+      },
+      "cluster": {
+        "id": "61f023f8173c87f1",
+        "kind": "similar",
+        "is_keeper": true
+      },
+      "selected": {
+        "cluster": {
+          "rank": 1,
+          "reason": "best in cluster"
+        }
+      },
+      "landmark_ids": [],
+      "thumbnail": "thumbs/61f023f8173c87f1.jpg",
+      "preview": "previews/61f023f8173c87f1.jpg"
+    },
+    "9f64fe79090d86a3": {
+      "asset_id": "9f64fe79090d86a3",
+      "content_hash": "9f64fe79090d86a3eda2cbc28f89dfd09a99b3d195f2845782b75ea9311add84454ad27a5d14f44bc165207dcdddd0d7154d1bc41dc7e4064d3aad5893e15298",
+      "filename": "distinct_b.jpg",
+      "kind": "image",
+      "bytes": 4801,
+      "geometry": {
+        "width": 320,
+        "height": 240,
+        "orientation": "landscape",
+        "aspect_ratio": 1.3333
+      },
+      "taken_local": "2026-07-18T17:12:00+02:00",
+      "taken_utc": "2026-07-18T15:12:00+00:00",
+      "timezone": {
+        "name": "Europe/Vienna",
+        "offset_minutes": 120,
+        "source": "exif_offset"
+      },
+      "day": "2026-07-18",
+      "calendar_date": "2026-07-18",
+      "event_id": "2026-07-18#3",
+      "location": {
+        "lat": 47.8095,
+        "lon": 13.055,
+        "source": "exif",
+        "confidence": null,
+        "place": {
+          "id": 1,
+          "poi": null,
+          "city": "Salzburg",
+          "region": "Salzburg",
+          "country": "AT",
+          "lat": 47.8095,
+          "lon": 13.055,
+          "source": "offline"
+        }
+      },
+      "near_home": false,
+      "quality": {
+        "overall": 0.5415302163770576,
+        "sharpness": 0.384884063242122,
+        "exposure": 0.9906380208333333,
+        "contrast": 0.21074028397642627,
+        "face_count": null,
+        "face_max_frac": null,
+        "content_class": "other"
+      },
+      "cluster": {
+        "id": "535b676bfeddce27",
+        "kind": "similar",
+        "is_keeper": false
+      },
+      "selected": {},
+      "landmark_ids": [],
+      "thumbnail": "thumbs/9f64fe79090d86a3.jpg",
+      "preview": "previews/9f64fe79090d86a3.jpg"
+    },
+    "7997adfd07def67e": {
+      "asset_id": "7997adfd07def67e",
+      "content_hash": "7997adfd07def67e870abf0b7148e9414b89df1cb88abc9c51286cfaf75c7a98d2b629b214c5eef6f5a00ce268ea8408f917e5af7aa1c0ce84771a1d7e70e2b3",
+      "filename": "sharp.jpg",
+      "kind": "image",
+      "bytes": 4791,
+      "geometry": {
+        "width": 320,
+        "height": 240,
+        "orientation": "landscape",
+        "aspect_ratio": 1.3333
+      },
+      "taken_local": "2026-07-18T18:00:00+02:00",
+      "taken_utc": "2026-07-18T16:00:00+00:00",
+      "timezone": {
+        "name": "Europe/Vienna",
+        "offset_minutes": 120,
+        "source": "exif_offset"
+      },
+      "day": "2026-07-18",
+      "calendar_date": "2026-07-18",
+      "event_id": "2026-07-18#3",
+      "location": {
+        "lat": 47.8095,
+        "lon": 13.055,
+        "source": "exif",
+        "confidence": null,
+        "place": {
+          "id": 1,
+          "poi": null,
+          "city": "Salzburg",
+          "region": "Salzburg",
+          "country": "AT",
+          "lat": 47.8095,
+          "lon": 13.055,
+          "source": "offline"
+        }
+      },
+      "near_home": false,
+      "quality": {
+        "overall": 0.5381594635660129,
+        "sharpness": 0.37939296268634815,
+        "exposure": 0.9907421875,
+        "contrast": 0.20723225935514056,
+        "face_count": null,
+        "face_max_frac": null,
+        "content_class": "other"
+      },
+      "cluster": {
+        "id": "61f023f8173c87f1",
+        "kind": "similar",
+        "is_keeper": false
+      },
+      "selected": {},
+      "landmark_ids": [],
+      "thumbnail": "thumbs/7997adfd07def67e.jpg",
+      "preview": "previews/7997adfd07def67e.jpg"
+    },
+    "ed245c29cf10e028": {
+      "asset_id": "ed245c29cf10e028",
+      "content_hash": "ed245c29cf10e028007c55a22d6337b695e0c4ce05a2ded5bb00a1777efdccb8366f1a39650e3b503cb85efa3de5e0c5b6be1d6515b5ae1b328db2df31928cc6",
+      "filename": "blurred.jpg",
+      "kind": "image",
+      "bytes": 2949,
+      "geometry": {
+        "width": 320,
+        "height": 240,
+        "orientation": "landscape",
+        "aspect_ratio": 1.3333
+      },
+      "taken_local": "2026-07-18T18:00:04+02:00",
+      "taken_utc": "2026-07-18T16:00:04+00:00",
+      "timezone": {
+        "name": "Europe/Vienna",
+        "offset_minutes": 120,
+        "source": "exif_offset"
+      },
+      "day": "2026-07-18",
+      "calendar_date": "2026-07-18",
+      "event_id": "2026-07-18#3",
+      "location": {
+        "lat": 47.8095,
+        "lon": 13.055,
+        "source": "exif",
+        "confidence": null,
+        "place": {
+          "id": 1,
+          "poi": null,
+          "city": "Salzburg",
+          "region": "Salzburg",
+          "country": "AT",
+          "lat": 47.8095,
+          "lon": 13.055,
+          "source": "offline"
+        }
+      },
+      "near_home": false,
+      "quality": {
+        "overall": 0.3452380657382627,
+        "sharpness": 0.0011801711052357167,
+        "exposure": 1.0,
+        "contrast": 0.17145589432343933,
+        "face_count": null,
+        "face_max_frac": null,
+        "content_class": "other"
+      },
+      "cluster": null,
+      "selected": {},
+      "landmark_ids": [],
+      "thumbnail": "thumbs/ed245c29cf10e028.jpg",
+      "preview": "previews/ed245c29cf10e028.jpg"
+    },
+    "e669754c5e87e529": {
+      "asset_id": "e669754c5e87e529",
+      "content_hash": "e669754c5e87e529c4d79ff56f5ea69a6edabfa284ca0456b313f1fce91644f3893a1bc6a5c59589ae1773455d37d3edc317aa3125d8b6a4f08962a7257b7117",
+      "filename": "receipt.jpg",
+      "kind": "image",
+      "bytes": 6749,
+      "geometry": {
+        "width": 240,
+        "height": 380,
+        "orientation": "portrait",
+        "aspect_ratio": 0.6316
+      },
+      "taken_local": "2026-07-18T20:30:00+02:00",
+      "taken_utc": "2026-07-18T18:30:00+00:00",
+      "timezone": {
+        "name": "Europe/Vienna",
+        "offset_minutes": 120,
+        "source": "exif_offset"
+      },
+      "day": "2026-07-18",
+      "calendar_date": "2026-07-18",
+      "event_id": "2026-07-18#3",
+      "location": {
+        "lat": 47.8095,
+        "lon": 13.055,
+        "source": "exif",
+        "confidence": null,
+        "place": {
+          "id": 1,
+          "poi": null,
+          "city": "Salzburg",
+          "region": "Salzburg",
+          "country": "AT",
+          "lat": 47.8095,
+          "lon": 13.055,
+          "source": "offline"
+        }
+      },
+      "near_home": false,
+      "quality": {
+        "overall": 0.5394585058167058,
+        "sharpness": 0.9688992733017664,
+        "exposure": 0.05061403508771933,
+        "contrast": 0.20902391040485505,
+        "face_count": null,
+        "face_max_frac": null,
+        "content_class": "receipt"
+      },
+      "cluster": null,
+      "selected": {},
+      "landmark_ids": [],
+      "thumbnail": "thumbs/e669754c5e87e529.jpg",
+      "preview": "previews/e669754c5e87e529.jpg"
+    },
+    "b4fcf14742c7f8e8": {
+      "asset_id": "b4fcf14742c7f8e8",
+      "content_hash": "b4fcf14742c7f8e80b875ab7111e02f172d417dba7397a5878bde45dc1b8478d35a5c3158992427ceb3be1fc3be0224f4fb376dacc7502482f6ca11ef0b6c1b4",
+      "filename": "offset_gps_conflict.jpg",
+      "kind": "image",
+      "bytes": 5136,
+      "geometry": {
+        "width": 320,
+        "height": 240,
+        "orientation": "landscape",
+        "aspect_ratio": 1.3333
+      },
+      "taken_local": "2026-07-19T15:15:00+02:00",
+      "taken_utc": "2026-07-19T13:15:00+00:00",
+      "timezone": {
+        "name": "Europe/Vienna",
+        "offset_minutes": 120,
+        "source": "gps"
+      },
+      "day": "2026-07-19",
+      "calendar_date": "2026-07-19",
+      "event_id": "2026-07-19#1",
+      "location": {
+        "lat": 48.2082,
+        "lon": 16.3738,
+        "source": "exif",
+        "confidence": null,
+        "place": {
+          "id": 2,
+          "poi": null,
+          "city": "Vienna",
+          "region": "Vienna",
+          "country": "AT",
+          "lat": 48.2082,
+          "lon": 16.3738,
+          "source": "offline"
+        }
+      },
+      "near_home": false,
+      "quality": {
+        "overall": 0.5740769219100648,
+        "sharpness": 0.44673023937307277,
+        "exposure": 0.9887630208333333,
+        "contrast": 0.22252457713659612,
+        "face_count": null,
+        "face_max_frac": null,
+        "content_class": "other"
+      },
+      "cluster": null,
+      "selected": {
+        "event": {
+          "rank": 1,
+          "reason": "event sample"
+        },
+        "day": {
+          "rank": 1,
+          "reason": "day highlight"
+        },
+        "trip": {
+          "rank": 2,
+          "reason": "trip highlight"
+        }
+      },
+      "landmark_ids": [],
+      "thumbnail": "thumbs/b4fcf14742c7f8e8.jpg",
+      "preview": "previews/b4fcf14742c7f8e8.jpg"
+    },
+    "47dffa4af88ebda9": {
+      "asset_id": "47dffa4af88ebda9",
+      "content_hash": "47dffa4af88ebda99b28628045777ab3b57d302d0baf8a365653faed5f8ccd935ea04b382cceeceea986d4b8c9e8c0864e9d5a9fbc3efa0e3bf3995b1c2f28fa",
+      "filename": "tz_before_1.jpg",
+      "kind": "image",
+      "bytes": 4760,
+      "geometry": {
+        "width": 320,
+        "height": 240,
+        "orientation": "landscape",
+        "aspect_ratio": 1.3333
+      },
+      "taken_local": "2026-07-19T23:10:00+02:00",
+      "taken_utc": "2026-07-19T21:10:00+00:00",
+      "timezone": {
+        "name": "Europe/Vienna",
+        "offset_minutes": 120,
+        "source": "exif_offset"
+      },
+      "day": "2026-07-19",
+      "calendar_date": "2026-07-19",
+      "event_id": "2026-07-19#2",
+      "location": {
+        "lat": 48.2082,
+        "lon": 16.3738,
+        "source": "exif",
+        "confidence": null,
+        "place": {
+          "id": 2,
+          "poi": null,
+          "city": "Vienna",
+          "region": "Vienna",
+          "country": "AT",
+          "lat": 48.2082,
+          "lon": 16.3738,
+          "source": "offline"
+        }
+      },
+      "near_home": false,
+      "quality": {
+        "overall": 0.5363393749213891,
+        "sharpness": 0.3765029421504199,
+        "exposure": 0.9907942708333334,
+        "contrast": 0.20514503579073315,
+        "face_count": null,
+        "face_max_frac": null,
+        "content_class": "other"
+      },
+      "cluster": null,
+      "selected": {
+        "event": {
+          "rank": 1,
+          "reason": "event sample"
+        },
+        "day": {
+          "rank": 2,
+          "reason": "day highlight"
+        }
+      },
+      "landmark_ids": [],
+      "thumbnail": "thumbs/47dffa4af88ebda9.jpg",
+      "preview": "previews/47dffa4af88ebda9.jpg"
+    },
+    "5b95a4a67bee41ab": {
+      "asset_id": "5b95a4a67bee41ab",
+      "content_hash": "5b95a4a67bee41ab548eb289196ade1700830ac6f0a995e7efca5df1de251a2728d8b9937fb29e6a76d14a094bc75cc942cff20066e7b3ad86f0ed2f0f1dddd7",
+      "filename": "tz_after_1.jpg",
+      "kind": "image",
+      "bytes": 4965,
+      "geometry": {
+        "width": 320,
+        "height": 240,
+        "orientation": "landscape",
+        "aspect_ratio": 1.3333
+      },
+      "taken_local": "2026-07-20T00:10:00+03:00",
+      "taken_utc": "2026-07-19T21:10:00+00:00",
+      "timezone": {
+        "name": "Europe/Istanbul",
+        "offset_minutes": 180,
+        "source": "exif_offset"
+      },
+      "day": "2026-07-19",
+      "calendar_date": "2026-07-20",
+      "event_id": "2026-07-19#3",
+      "location": {
+        "lat": 41.0082,
+        "lon": 28.9784,
+        "source": "exif",
+        "confidence": null,
+        "place": {
+          "id": 3,
+          "poi": null,
+          "city": "Eminoenue",
+          "region": "Istanbul",
+          "country": "TR",
+          "lat": 41.0082,
+          "lon": 28.9784,
+          "source": "offline"
+        }
+      },
+      "near_home": false,
+      "quality": {
+        "overall": 0.5484704586895739,
+        "sharpness": 0.39805669382001485,
+        "exposure": 0.9903515625,
+        "contrast": 0.21310532532435475,
+        "face_count": null,
+        "face_max_frac": null,
+        "content_class": "other"
+      },
+      "cluster": null,
+      "selected": {
+        "event": {
+          "rank": 1,
+          "reason": "event sample"
+        },
+        "day": {
+          "rank": 3,
+          "reason": "day highlight"
+        }
+      },
+      "landmark_ids": [],
+      "thumbnail": "thumbs/5b95a4a67bee41ab.jpg",
+      "preview": "previews/5b95a4a67bee41ab.jpg"
+    },
+    "b13ab5922844fe9e": {
+      "asset_id": "b13ab5922844fe9e",
+      "content_hash": "b13ab5922844fe9e78a93445badd002be9389dcd344e3623d2be8447709c62cedc00964521fc7a5e775381d202c38b7c4476a8c75e38aedbb2e99a058c691eef",
+      "filename": "tz_before_2.jpg",
+      "kind": "image",
+      "bytes": 5308,
+      "geometry": {
+        "width": 320,
+        "height": 240,
+        "orientation": "landscape",
+        "aspect_ratio": 1.3333
+      },
+      "taken_local": "2026-07-19T23:20:00+02:00",
+      "taken_utc": "2026-07-19T21:20:00+00:00",
+      "timezone": {
+        "name": "Europe/Vienna",
+        "offset_minutes": 120,
+        "source": "exif_offset"
+      },
+      "day": "2026-07-19",
+      "calendar_date": "2026-07-19",
+      "event_id": "2026-07-19#4",
+      "location": {
+        "lat": 48.2082,
+        "lon": 16.3738,
+        "source": "exif",
+        "confidence": null,
+        "place": {
+          "id": 2,
+          "poi": null,
+          "city": "Vienna",
+          "region": "Vienna",
+          "country": "AT",
+          "lat": 48.2082,
+          "lon": 16.3738,
+          "source": "offline"
+        }
+      },
+      "near_home": false,
+      "quality": {
+        "overall": 0.5722381476388927,
+        "sharpness": 0.44066141702786543,
+        "exposure": 0.9886328125,
+        "contrast": 0.2291183211664533,
+        "face_count": null,
+        "face_max_frac": null,
+        "content_class": "other"
+      },
+      "cluster": null,
+      "selected": {
+        "event": {
+          "rank": 1,
+          "reason": "event sample"
+        },
+        "day": {
+          "rank": 4,
+          "reason": "day highlight"
+        }
+      },
+      "landmark_ids": [],
+      "thumbnail": "thumbs/b13ab5922844fe9e.jpg",
+      "preview": "previews/b13ab5922844fe9e.jpg"
+    },
+    "c5c849ad74ee2683": {
+      "asset_id": "c5c849ad74ee2683",
+      "content_hash": "c5c849ad74ee268342afbef88da514ed9f4f7e8945c5899c9425eff4c0faf719a2a6a2559ddb715579cae6935c1a4b6373fdd9583c52f5228a67aa4cb40468c8",
+      "filename": "tz_after_2.jpg",
+      "kind": "image",
+      "bytes": 4806,
+      "geometry": {
+        "width": 320,
+        "height": 240,
+        "orientation": "landscape",
+        "aspect_ratio": 1.3333
+      },
+      "taken_local": "2026-07-20T00:20:00+03:00",
+      "taken_utc": "2026-07-19T21:20:00+00:00",
+      "timezone": {
+        "name": "Europe/Istanbul",
+        "offset_minutes": 180,
+        "source": "exif_offset"
+      },
+      "day": "2026-07-19",
+      "calendar_date": "2026-07-20",
+      "event_id": "2026-07-19#5",
+      "location": {
+        "lat": 41.0082,
+        "lon": 28.9784,
+        "source": "exif",
+        "confidence": null,
+        "place": {
+          "id": 3,
+          "poi": null,
+          "city": "Eminoenue",
+          "region": "Istanbul",
+          "country": "TR",
+          "lat": 41.0082,
+          "lon": 28.9784,
+          "source": "offline"
+        }
+      },
+      "near_home": false,
+      "quality": {
+        "overall": 0.547061883996473,
+        "sharpness": 0.3934031448051518,
+        "exposure": 0.9902083333333334,
+        "contrast": 0.21824110627856233,
+        "face_count": null,
+        "face_max_frac": null,
+        "content_class": "other"
+      },
+      "cluster": {
+        "id": "1306642620475df6",
+        "kind": "similar",
+        "is_keeper": false
+      },
+      "selected": {},
+      "landmark_ids": [],
+      "thumbnail": "thumbs/c5c849ad74ee2683.jpg",
+      "preview": "previews/c5c849ad74ee2683.jpg"
+    },
+    "1306642620475df6": {
+      "asset_id": "1306642620475df6",
+      "content_hash": "1306642620475df69d12beb6f3c6ab81e1e7939416c6083e7bccd70077e701774684e2e72453f1882df9900a73fe3c80279b0e353143d1319a2dcb57c7babbd0",
+      "filename": "tz_after_3.jpg",
+      "kind": "image",
+      "bytes": 4860,
+      "geometry": {
+        "width": 320,
+        "height": 240,
+        "orientation": "landscape",
+        "aspect_ratio": 1.3333
+      },
+      "taken_local": "2026-07-20T00:30:00+03:00",
+      "taken_utc": "2026-07-19T21:30:00+00:00",
+      "timezone": {
+        "name": "Europe/Istanbul",
+        "offset_minutes": 180,
+        "source": "exif_offset"
+      },
+      "day": "2026-07-19",
+      "calendar_date": "2026-07-20",
+      "event_id": "2026-07-19#5",
+      "location": {
+        "lat": 41.0082,
+        "lon": 28.9784,
+        "source": "exif",
+        "confidence": null,
+        "place": {
+          "id": 3,
+          "poi": null,
+          "city": "Eminoenue",
+          "region": "Istanbul",
+          "country": "TR",
+          "lat": 41.0082,
+          "lon": 28.9784,
+          "source": "offline"
+        }
+      },
+      "near_home": false,
+      "quality": {
+        "overall": 0.5477636390413845,
+        "sharpness": 0.39422930160168446,
+        "exposure": 0.9907161458333333,
+        "contrast": 0.21893436089400345,
+        "face_count": null,
+        "face_max_frac": null,
+        "content_class": "other"
+      },
+      "cluster": {
+        "id": "1306642620475df6",
+        "kind": "similar",
+        "is_keeper": true
+      },
+      "selected": {
+        "cluster": {
+          "rank": 1,
+          "reason": "best in cluster"
+        },
+        "event": {
+          "rank": 1,
+          "reason": "event sample"
+        },
+        "day": {
+          "rank": 5,
+          "reason": "day highlight"
+        }
+      },
+      "landmark_ids": [],
+      "thumbnail": "thumbs/1306642620475df6.jpg",
+      "preview": "previews/1306642620475df6.jpg"
+    },
+    "f78e70b9d0d9972d": {
+      "asset_id": "f78e70b9d0d9972d",
+      "content_hash": "f78e70b9d0d9972d0d4fdf7c6c939db5552a87942f66fdb2ff0706d7692aa1e8555da9225f9e567f5345206bbaa4198a9a739fba42ce7dfa7ab6429bdd3ef88a",
+      "filename": "tz_before_3.jpg",
+      "kind": "image",
+      "bytes": 5137,
+      "geometry": {
+        "width": 320,
+        "height": 240,
+        "orientation": "landscape",
+        "aspect_ratio": 1.3333
+      },
+      "taken_local": "2026-07-19T23:30:00+02:00",
+      "taken_utc": "2026-07-19T21:30:00+00:00",
+      "timezone": {
+        "name": "Europe/Vienna",
+        "offset_minutes": 120,
+        "source": "exif_offset"
+      },
+      "day": "2026-07-19",
+      "calendar_date": "2026-07-19",
+      "event_id": "2026-07-19#6",
+      "location": {
+        "lat": 48.2082,
+        "lon": 16.3738,
+        "source": "exif",
+        "confidence": null,
+        "place": {
+          "id": 2,
+          "poi": null,
+          "city": "Vienna",
+          "region": "Vienna",
+          "country": "AT",
+          "lat": 48.2082,
+          "lon": 16.3738,
+          "source": "offline"
+        }
+      },
+      "near_home": false,
+      "quality": {
+        "overall": 0.5693493429901966,
+        "sharpness": 0.4349761149506215,
+        "exposure": 0.9892317708333334,
+        "contrast": 0.22787390469050192,
+        "face_count": null,
+        "face_max_frac": null,
+        "content_class": "other"
+      },
+      "cluster": null,
+      "selected": {
+        "event": {
+          "rank": 1,
+          "reason": "event sample"
+        },
+        "day": {
+          "rank": 6,
+          "reason": "day highlight"
+        }
+      },
+      "landmark_ids": [],
+      "thumbnail": "thumbs/f78e70b9d0d9972d.jpg",
+      "preview": "previews/f78e70b9d0d9972d.jpg"
+    }
+  },
+  "days": [
+    {
+      "date": "2026-07-18",
+      "timezone": "Europe/Vienna",
+      "events": [
+        {
+          "id": "2026-07-18#1",
+          "seq": 1,
+          "label": null,
+          "start_local": "2026-07-18T09:20:00+02:00",
+          "end_local": "2026-07-18T09:20:00+02:00",
+          "duration_seconds": 0,
+          "duration_minutes": 0.0,
+          "place": {
+            "id": 1,
+            "poi": null,
+            "city": "Salzburg",
+            "region": "Salzburg",
+            "country": "AT",
+            "lat": 47.8095,
+            "lon": 13.055,
+            "source": "offline"
+          },
+          "location": {
+            "centroid": [
+              47.8095,
+              13.055
+            ],
+            "first": [
+              47.8095,
+              13.055
+            ],
+            "last": [
+              47.8095,
+              13.055
+            ],
+            "radius_m": 0.0,
+            "gps_coverage": 1.0,
+            "path": null
+          },
+          "counts": {
+            "media": 1,
+            "images": 1,
+            "videos": 0
+          },
+          "landmarks": [],
+          "highlights": [
+            "9766d66bac42fad6"
+          ],
+          "assets": [
+            "9766d66bac42fad6"
+          ]
+        },
+        {
+          "id": "2026-07-18#2",
+          "seq": 2,
+          "label": null,
+          "start_local": "2026-07-18T11:45:00+02:00",
+          "end_local": "2026-07-18T11:45:00+02:00",
+          "duration_seconds": 0,
+          "duration_minutes": 0.0,
+          "place": {
+            "id": 1,
+            "poi": null,
+            "city": "Salzburg",
+            "region": "Salzburg",
+            "country": "AT",
+            "lat": 47.8095,
+            "lon": 13.055,
+            "source": "offline"
+          },
+          "location": {
+            "centroid": [
+              47.8095,
+              13.055
+            ],
+            "first": [
+              47.8095,
+              13.055
+            ],
+            "last": [
+              47.8095,
+              13.055
+            ],
+            "radius_m": 0.0,
+            "gps_coverage": 1.0,
+            "path": null
+          },
+          "counts": {
+            "media": 1,
+            "images": 1,
+            "videos": 0
+          },
+          "landmarks": [],
+          "highlights": [
+            "801ce8ed89f43820"
+          ],
+          "assets": [
+            "801ce8ed89f43820"
+          ]
+        },
+        {
+          "id": "2026-07-18#3",
+          "seq": 3,
+          "label": null,
+          "start_local": "2026-07-18T11:37:58+00:00",
+          "end_local": "2026-07-18T20:30:00+02:00",
+          "duration_seconds": 24722,
+          "duration_minutes": 412.0,
+          "place": {
+            "id": 1,
+            "poi": null,
+            "city": "Salzburg",
+            "region": "Salzburg",
+            "country": "AT",
+            "lat": 47.8095,
+            "lon": 13.055,
+            "source": "offline"
+          },
+          "location": {
+            "centroid": [
+              47.8095,
+              13.055
+            ],
+            "first": [
+              47.8095,
+              13.055
+            ],
+            "last": [
+              47.8095,
+              13.055
+            ],
+            "radius_m": 0.0,
+            "gps_coverage": 1.0,
+            "path": null
+          },
+          "counts": {
+            "media": 10,
+            "images": 9,
+            "videos": 1
+          },
+          "landmarks": [],
+          "highlights": [
+            "535b676bfeddce27"
+          ],
+          "assets": [
+            "f3864d98ae91b9e8",
+            "535b676bfeddce27",
+            "c089727e2194dce4",
+            "02a9b81b0763c828",
+            "59eff78caad7c74f",
+            "61f023f8173c87f1",
+            "9f64fe79090d86a3",
+            "7997adfd07def67e",
+            "ed245c29cf10e028",
+            "e669754c5e87e529"
+          ]
+        }
+      ],
+      "counts": {
+        "media": 12,
+        "images": 11,
+        "videos": 1,
+        "events": 3
+      },
+      "gps_coverage": 1.0,
+      "path": [
+        [
+          47.8095,
+          13.055
+        ],
+        [
+          47.8095,
+          13.055
+        ]
+      ],
+      "highlights": [
+        "9766d66bac42fad6",
+        "801ce8ed89f43820",
+        "535b676bfeddce27"
+      ]
+    },
+    {
+      "date": "2026-07-19",
+      "timezone": "Europe/Vienna",
+      "events": [
+        {
+          "id": "2026-07-19#1",
+          "seq": 1,
+          "label": null,
+          "start_local": "2026-07-19T15:15:00+02:00",
+          "end_local": "2026-07-19T15:15:00+02:00",
+          "duration_seconds": 0,
+          "duration_minutes": 0.0,
+          "place": {
+            "id": 2,
+            "poi": null,
+            "city": "Vienna",
+            "region": "Vienna",
+            "country": "AT",
+            "lat": 48.2082,
+            "lon": 16.3738,
+            "source": "offline"
+          },
+          "location": {
+            "centroid": [
+              48.2082,
+              16.3738
+            ],
+            "first": [
+              48.2082,
+              16.3738
+            ],
+            "last": [
+              48.2082,
+              16.3738
+            ],
+            "radius_m": 0.0,
+            "gps_coverage": 1.0,
+            "path": null
+          },
+          "counts": {
+            "media": 1,
+            "images": 1,
+            "videos": 0
+          },
+          "landmarks": [],
+          "highlights": [
+            "b4fcf14742c7f8e8"
+          ],
+          "assets": [
+            "b4fcf14742c7f8e8"
+          ]
+        },
+        {
+          "id": "2026-07-19#2",
+          "seq": 2,
+          "label": null,
+          "start_local": "2026-07-19T23:10:00+02:00",
+          "end_local": "2026-07-19T23:10:00+02:00",
+          "duration_seconds": 0,
+          "duration_minutes": 0.0,
+          "place": {
+            "id": 2,
+            "poi": null,
+            "city": "Vienna",
+            "region": "Vienna",
+            "country": "AT",
+            "lat": 48.2082,
+            "lon": 16.3738,
+            "source": "offline"
+          },
+          "location": {
+            "centroid": [
+              48.2082,
+              16.3738
+            ],
+            "first": [
+              48.2082,
+              16.3738
+            ],
+            "last": [
+              48.2082,
+              16.3738
+            ],
+            "radius_m": 0.0,
+            "gps_coverage": 1.0,
+            "path": null
+          },
+          "counts": {
+            "media": 1,
+            "images": 1,
+            "videos": 0
+          },
+          "landmarks": [],
+          "highlights": [
+            "47dffa4af88ebda9"
+          ],
+          "assets": [
+            "47dffa4af88ebda9"
+          ]
+        },
+        {
+          "id": "2026-07-19#3",
+          "seq": 3,
+          "label": null,
+          "start_local": "2026-07-20T00:10:00+03:00",
+          "end_local": "2026-07-20T00:10:00+03:00",
+          "duration_seconds": 0,
+          "duration_minutes": 0.0,
+          "place": {
+            "id": 3,
+            "poi": null,
+            "city": "Eminoenue",
+            "region": "Istanbul",
+            "country": "TR",
+            "lat": 41.0082,
+            "lon": 28.9784,
+            "source": "offline"
+          },
+          "location": {
+            "centroid": [
+              41.0082,
+              28.9784
+            ],
+            "first": [
+              41.0082,
+              28.9784
+            ],
+            "last": [
+              41.0082,
+              28.9784
+            ],
+            "radius_m": 0.0,
+            "gps_coverage": 1.0,
+            "path": null
+          },
+          "counts": {
+            "media": 1,
+            "images": 1,
+            "videos": 0
+          },
+          "landmarks": [],
+          "highlights": [
+            "5b95a4a67bee41ab"
+          ],
+          "assets": [
+            "5b95a4a67bee41ab"
+          ]
+        },
+        {
+          "id": "2026-07-19#4",
+          "seq": 4,
+          "label": null,
+          "start_local": "2026-07-19T23:20:00+02:00",
+          "end_local": "2026-07-19T23:20:00+02:00",
+          "duration_seconds": 0,
+          "duration_minutes": 0.0,
+          "place": {
+            "id": 2,
+            "poi": null,
+            "city": "Vienna",
+            "region": "Vienna",
+            "country": "AT",
+            "lat": 48.2082,
+            "lon": 16.3738,
+            "source": "offline"
+          },
+          "location": {
+            "centroid": [
+              48.2082,
+              16.3738
+            ],
+            "first": [
+              48.2082,
+              16.3738
+            ],
+            "last": [
+              48.2082,
+              16.3738
+            ],
+            "radius_m": 0.0,
+            "gps_coverage": 1.0,
+            "path": null
+          },
+          "counts": {
+            "media": 1,
+            "images": 1,
+            "videos": 0
+          },
+          "landmarks": [],
+          "highlights": [
+            "b13ab5922844fe9e"
+          ],
+          "assets": [
+            "b13ab5922844fe9e"
+          ]
+        },
+        {
+          "id": "2026-07-19#5",
+          "seq": 5,
+          "label": null,
+          "start_local": "2026-07-20T00:20:00+03:00",
+          "end_local": "2026-07-20T00:30:00+03:00",
+          "duration_seconds": 600,
+          "duration_minutes": 10.0,
+          "place": {
+            "id": 3,
+            "poi": null,
+            "city": "Eminoenue",
+            "region": "Istanbul",
+            "country": "TR",
+            "lat": 41.0082,
+            "lon": 28.9784,
+            "source": "offline"
+          },
+          "location": {
+            "centroid": [
+              41.0082,
+              28.9784
+            ],
+            "first": [
+              41.0082,
+              28.9784
+            ],
+            "last": [
+              41.0082,
+              28.9784
+            ],
+            "radius_m": 0.0,
+            "gps_coverage": 1.0,
+            "path": null
+          },
+          "counts": {
+            "media": 2,
+            "images": 2,
+            "videos": 0
+          },
+          "landmarks": [],
+          "highlights": [
+            "1306642620475df6"
+          ],
+          "assets": [
+            "c5c849ad74ee2683",
+            "1306642620475df6"
+          ]
+        },
+        {
+          "id": "2026-07-19#6",
+          "seq": 6,
+          "label": null,
+          "start_local": "2026-07-19T23:30:00+02:00",
+          "end_local": "2026-07-19T23:30:00+02:00",
+          "duration_seconds": 0,
+          "duration_minutes": 0.0,
+          "place": {
+            "id": 2,
+            "poi": null,
+            "city": "Vienna",
+            "region": "Vienna",
+            "country": "AT",
+            "lat": 48.2082,
+            "lon": 16.3738,
+            "source": "offline"
+          },
+          "location": {
+            "centroid": [
+              48.2082,
+              16.3738
+            ],
+            "first": [
+              48.2082,
+              16.3738
+            ],
+            "last": [
+              48.2082,
+              16.3738
+            ],
+            "radius_m": 0.0,
+            "gps_coverage": 1.0,
+            "path": null
+          },
+          "counts": {
+            "media": 1,
+            "images": 1,
+            "videos": 0
+          },
+          "landmarks": [],
+          "highlights": [
+            "f78e70b9d0d9972d"
+          ],
+          "assets": [
+            "f78e70b9d0d9972d"
+          ]
+        }
+      ],
+      "counts": {
+        "media": 7,
+        "images": 7,
+        "videos": 0,
+        "events": 6
+      },
+      "gps_coverage": 1.0,
+      "path": [
+        [
+          48.2082,
+          16.3738
+        ],
+        [
+          41.0082,
+          28.9784
+        ],
+        [
+          48.2082,
+          16.3738
+        ]
+      ],
+      "highlights": [
+        "b4fcf14742c7f8e8",
+        "47dffa4af88ebda9",
+        "5b95a4a67bee41ab",
+        "b13ab5922844fe9e",
+        "1306642620475df6",
+        "f78e70b9d0d9972d"
+      ]
+    }
+  ],
+  "trip_highlights": [
+    "535b676bfeddce27",
+    "b4fcf14742c7f8e8"
+  ]
+}

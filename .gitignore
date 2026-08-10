@@ -22,3 +22,6 @@ overrides.toml
 
 # Playwright MCP scratch output.
 .playwright-mcp/
+
+# macOS Finder metadata
+.DS_Store

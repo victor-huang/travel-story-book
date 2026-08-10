@@ -1,0 +1,15 @@
+# SwiftPM build products. `swift build` leaves ~334 MB here.
+.build/
+.swiftpm/
+Package.resolved
+
+# Xcode
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+
+# The shared scheme in StoryBookHost.xcodeproj/xcshareddata/ IS committed -- CI and the README
+# invoke it by name, so an unshared scheme would make the documented command fail for everyone.
