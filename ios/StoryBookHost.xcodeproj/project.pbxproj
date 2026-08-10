@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		1A000000000000000000001D /* PhotoExport in Frameworks */ = {isa = PBXBuildFile; productRef = 1A000000000000000000001C /* PhotoExport */; };
 		1A000000000000000000001F /* StoryKit in Frameworks */ = {isa = PBXBuildFile; productRef = 1A000000000000000000001E /* StoryKit */; };
+		1A0000000000000000000021 /* StoryApp in Frameworks */ = {isa = PBXBuildFile; productRef = 1A0000000000000000000020 /* StoryApp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -44,6 +45,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1A0000000000000000000021 /* StoryApp in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -97,6 +99,7 @@
 			);
 			name = HostApp;
 			packageProductDependencies = (
+				1A0000000000000000000020 /* StoryApp */,
 			);
 			productName = HostApp;
 			productReference = 1A0000000000000000000006 /* HostApp.app */;
@@ -381,6 +384,10 @@
 		1A000000000000000000001E /* StoryKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = StoryKit;
+		};
+		1A0000000000000000000020 /* StoryApp */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = StoryApp;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

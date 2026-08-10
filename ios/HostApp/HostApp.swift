@@ -1,20 +1,21 @@
+import StoryApp
 import SwiftUI
 
-/// A test host, and nothing else.
+/// Two jobs, both temporary.
 ///
-/// `PhotoExportTests` needs an application bundle to exist at all: PhotoKit authorization goes
-/// through TCC, and TCC attributes a request to a bundle identity. A bare SwiftPM test target
-/// running under `xctest` has none, so `PHPhotoLibrary.requestAuthorization` fails with
-/// "unable to construct an identity to kTCCServicePhotos" — not a missing grant, but nothing to
-/// grant *to*. That is why an Xcode project exists beside the package (see the tracker, D10).
+/// **A test host.** `PhotoExportTests` needs an application bundle to exist at all: PhotoKit
+/// authorization goes through TCC, and TCC attributes a request to a bundle identity. A bare
+/// SwiftPM test target has none, so `PHPhotoLibrary.requestAuthorization` fails with "unable to
+/// construct an identity to kTCCServicePhotos" — not a missing grant, but nothing to grant *to*.
+/// See the tracker, D10.
 ///
-/// The real app is `Sources/StoryApp`. Nothing product-facing belongs here.
+/// **A way to run M0.** It presents `ExportScreen` (I17) so the export path can be exercised by
+/// tapping rather than by a test. I23 builds the real shell and this goes away.
 @main
 struct HostApp: App {
     var body: some Scene {
         WindowGroup {
-            Text("StoryBook test host")
-                .padding()
+            ExportScreen()
         }
     }
 }
