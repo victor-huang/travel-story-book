@@ -248,7 +248,7 @@ on.** It is shippable alone for anyone with a laptop.
 | I13 | `ResourceSelection` — which resource to export | review | claude (2026-08-09) | I10 |
 | I14 | `HomeFilter` — exclusion before upload | review | claude (2026-08-09) | I10 |
 | I15 | `FolderWriter` — the source folder, and hand-off | review | claude (2026-08-09) | I11, I12, I14 |
-| I16 | **Parity harness** — the M0 gate | todo | — | I15 |
+| I16 | **Parity harness** — the M0 gate | wip | claude (2026-08-09) | I15 |
 
 I11 and I12 are where the project's risk is concentrated, and they are testable long before there
 is an app around them. Start there.
