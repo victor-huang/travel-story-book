@@ -242,7 +242,7 @@ on.** It is shippable alone for anyone with a laptop.
 
 | ID | Task | Status | Owner | Depends on |
 | --- | --- | --- | --- | --- |
-| I10 | `LibraryScope` — authorization and scope selection | wip | claude/I24 agent (2026-08-09) | Wave 0 |
+| I10 | `LibraryScope` — authorization and scope selection | done | claude/I24 agent (2026-08-09) | Wave 0 |
 | I11 | `StillExporter` — 1080px, properties copied | review | claude (2026-08-09) | I10, I13 |
 | I12 | `ClipExporter` — 1080p, metadata carried | review | claude (2026-08-09) | I10, I13 |
 | I13 | `ResourceSelection` — which resource to export | review | claude (2026-08-09) | I10 |
@@ -266,6 +266,22 @@ reduced to favourites comes back with gappy events and nothing to select from, a
 have done the tiring work *and* got a worse result. When in doubt, include it.
 **Done when:** each scope yields the expected `[PHAsset]` against the seeded library, and a
 thinned selection triggers the nudge while a lightly-pruned one does not.
+
+**Done 2026-08-09**, both halves against the criterion: 12 tests in CI (fetch options, and the
+cull check, which is arithmetic over two counts) and **6 on the iPhone 17 Pro simulator against
+real `PHAsset`s** — the D11 permission grant persisted from I05, so this needed no human click and
+took 1.8 s. Every scope has a control that must fail: a date range that finds the fixture is
+paired with one that finds none, so the predicate is shown to be able to exclude.
+
+**The cull threshold is still unset, and the code says so.** Open question 5 asks for it to be set
+by watching real selections; none have been watched. What the human did give is two anchors — 60
+of 800 nudges, 600 of 800 does not — so `CullCheck` carries those as constants, a placeholder
+threshold inside the band they admit, and a test asserting that **every** threshold in that band
+separates them. The band is the claim; the number is not, and replacing it with a measured value
+changes one line. Two further consequences of "never emit a measurement you did not take":
+`keptFraction` is `nil` rather than `0.0` when there was nothing to divide by, and a selection
+with no comparable range reads `.noEvidence` rather than `.fine` — a `.limited` grant sees only
+what it was shown, and must not be told its selection is healthy on the strength of that.
 
 ### I11 — `StillExporter`
 **Owns:** `ios/Sources/PhotoExport/StillExporter.swift` + tests
@@ -644,6 +660,7 @@ made.
 
 | Date | Who | Entry |
 | --- | --- | --- |
+| 2026-08-09 | claude | **I10 done.** 12 tests in CI plus 6 on the simulator against real `PHAsset`s, and the simulator half needed **no human click** — I05's grant persisted exactly as D11 predicted, so the run took 1.8 s. Worth recording because D11 reads like a standing cost and is in fact a one-off per simulator. The interesting part was refusing to invent the cull threshold: open question 5 says set it by watching real selections, so `CullCheck` encodes the human's two anchors (60/800 nudges, 600/800 does not), a placeholder inside the band they admit, and a test that **every** threshold in the band separates them. A future measured value keeps the suite green; a value outside the band fails and says which anchor it broke. Same discipline twice more: `keptFraction` is `nil` rather than `0.0` when there is nothing to divide by, and a selection with no comparable range is `.noEvidence` rather than `.fine`, so a `.limited` grant is never told its selection looks healthy on no evidence. |
 | 2026-08-09 | claude | **Two agents took I15 at once, and the tracker did not stop it.** I set `Status: wip` and then read the modules I15 composes before writing a line — in that window another agent wrote `FolderWriter.swift` and its tests without ever claiming the row. So the lock was held by an agent with no code and ignored by an agent with code. I stood down and moved to I10; the writer keeps it. **The claim is only a lock if it is made *and read* at the same instant, and the rule as written ("edit this file before writing any code") makes the read implicit.** The cheap fix is to re-read the row immediately before the first write, and treat a file that exists but is unclaimed as a claim. Also: neither of us could see the other, because an uncommitted claim is invisible outside its own tree — the row should be committed on its own, before the work, not with it. |
 | 2026-08-09 | claude | **A Wave 1 commit swept up a Wave 2 agent's uncommitted files.** `2937135` (I13/I11) committed `ios/Package.swift` — which I01 owns and I was mid-edit on under D13 — plus a scratch probe file under `ios/Tests/StoryAppTests/`, which that task does not own. Nothing was lost and the content was correct, so this is a near-miss rather than damage. But `git commit -a` in a tree where other agents are working stages *their* work under *your* message, and the tracker's file-ownership rule cannot see it. **Commit by path, never by `-a`.** |
 | 2026-08-09 | claude | **I24 done → review, and Wave 2 is mostly blocked.** Four of six tasks depend on a backend service that no task in any wave builds; recorded above rather than left as `todo`, since a task whose acceptance criterion is an assertion about a service nobody has written is not merely unstarted. I24 lost its `I23` dependency — a report bundle needs no signed-in user — and D13 adds the `StoryAppTests` target that every Wave 2 task's "+ tests" had nowhere to go into. **WKWebView runs hostless under `swift test`**, so unlike PhotoExport the book has real CI coverage. Three findings in the log below; the fourth is that the layout block at the top of this file assigns `ReportWebView.swift` to I25 and `AppShell`/`TripList` to I24, contradicting the task entries. The task entries are the detailed ones and I followed them. |
