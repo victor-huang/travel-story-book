@@ -362,16 +362,113 @@ iOS-exported fixtures join `tests/fixtures/media/` as a second producer of the s
 
 ---
 
+# Wave S — The service (M1's backend, blocks most of Wave 2)
+
+Added 2026-08-09. **This wave existed only as the words "service M1" in four `Depends on` cells**
+— a dependency pointing at nothing, which is why four Wave 2 tasks sat as `todo` for a day
+looking startable and were not. Its design is
+[`ios_backend_service.md`](./ios_backend_service.md); this is the decomposition.
+
+Nothing here is claimed, and **S01 gates the rest** — it decides where the service runs and in
+what, which every other entry assumes.
+
+| ID | Task | Status | Owner | Depends on |
+| --- | --- | --- | --- | --- |
+| S01 | Service skeleton, deployment shape, CI | todo | — | — |
+| S02 | Ingest — `POST /trips`, `assets:negotiate`, presigned `PUT` | todo | — | S01 |
+| S03 | Job queue — `POST /trips/{id}/build`, `GET /jobs/{id}` | todo | — | S01, S02 |
+| S04 | Storage layout and the retention sweeper | todo | — | S02 |
+| S05 | Delivery — report bundle and signed CDN URLs | todo | — | S03 |
+| S06 | Auth — Apple and Google, per-user isolation | todo | — | S01 |
+| S07 | Reel endpoints (M2) | todo | — | S03, S05 |
+
+Mapping back: **I20 needs S02, I21 needs S02, I22 needs S03, I23 needs S06, I33 needs S05, I30
+and I31 need S07.** Those cells still say "service M1" and should be reread as these.
+
+### S01 — Service skeleton, deployment shape, CI
+**Owns:** a new top-level directory (name TBD — *not* `src/story_book/`), its CI workflow
+Decides three things nothing else can proceed without: **what it runs on**, **what it is written
+in**, and **how a developer runs it locally**. A strong default rather than a decision already
+taken: **Python, because the service's whole job in M1 is to run `story-book build`** — the
+pipeline is Python, the CLI is the interface, and a service in another language would shell out
+to it anyway while losing the ability to read `stage_result` directly. Needs the human's
+ratification before code (see open question 13).
+**Done when:** a health endpoint is reachable locally and in CI, and `story-book --version` runs
+inside the same image.
+
+### S02 — Ingest
+**Owns:** the ingest routes and the object-store client
+`POST /trips` → `{trip_id}`; `POST /trips/{id}/assets:negotiate` with `[{hash, filename, size}]`
+→ only what the service lacks; then a presigned `PUT` per asset **straight to object storage**, so
+the API server never proxies 600 MB. **Never a zip** — no resume, no early start, and adding ten
+photos re-sends everything.
+**`filename` is preserved end to end**, because `overrides.toml` addresses by filename.
+**The upload granularity is one asset; the unit of work stays the trip.** How bytes are chunked
+must never decide what the pipeline treats as a unit — that is precisely the T58 bug.
+**Done when:** negotiating an unchanged trip a second time returns an empty `needed`, and the
+scaffolding uses `story-book init --trip-dir` rather than a hand-written config — loading the
+scaffolded overrides in the new context and asserting it is empty, because a file safe to read is
+not automatically safe to copy.
+
+### S03 — Job queue
+**Owns:** the queue, the worker, and the job routes
+`POST /trips/{id}/build` → `{job_id}`; `GET /jobs/{id}` → `{state, stage, done, total}`.
+**Progress is read from `stage_result`, never invented** — the pipeline already commits per item,
+so a killed worker resumes rather than restarts. **One worker per trip at a time:** `story.db` has
+a single-row `trip` table, so concurrency is serialised by the queue rather than defended against
+in code.
+**Done when:** a build reports monotonically advancing counts that match the DB, and killing the
+worker mid-build resumes without redoing completed stages.
+
+### S04 — Storage and the retention sweeper
+**Owns:** the storage layout and the scheduled sweep
+Everything under `--out` is derived and disposable **except `<out>/story/`**. Retention as decided:
+uploaded media deleted one month after the most recent generation, clock reset by any successful
+`build`, `report`, `package` or `reel`; renditions and metadata kept indefinitely.
+**The sweeper must not race a job.** The condition is *expired **and** no job queued or running
+for this trip*, and a job starting extends the deadline **before it reads a single file**.
+Deletion is idempotent; a trip whose media is already gone is not an error.
+**Done when:** a trip with a queued job survives a sweep that its date alone would have collected.
+
+### S05 — Delivery
+**Owns:** the report-bundle builder and the signed-URL issuer
+The report is a **directory** and its pages reach into four roots — `report/`, `thumbs/`,
+`previews/` and `.cache/video/` for poster frames (found by I24; open question 12). **Ship the
+report's reference closure and assert it resolves before delivering it**; a bundle assembled from
+the three obvious directories loses every poster and raises nothing.
+Progressive MP4 behind a CDN with short-lived signed URLs; never a public-read bucket. **The
+`+faststart` defect the design doc lists as a prerequisite is already fixed** (`9eb53ab`, and both
+mux paths in `export/subtitles.py` now set it) — that section of `ios_backend_service.md` is
+stale.
+**Done when:** a delivered bundle has zero unresolved references, and a signed URL expires.
+
+### S06 — Auth
+**Owns:** the auth routes and the per-user scoping of every other route
+Sign in with Apple and Google (D8). These are someone's family photographs: per-user auth on every
+route, unguessable object-store paths, **no cross-tenant reads**. Pairs with I23, which is the
+client half.
+**Done when:** two accounts cannot see each other's trips, asserted per route rather than once.
+**Blocked on open question 3** — in-app account deletion is an App Store requirement and
+contradicts indefinite metadata retention.
+
+### S07 — Reel endpoints (M2)
+**Owns:** `POST /trips/{id}/reel`, `GET /trips/{id}/reels/{reel_id}`
+Options through to `reel.json`, which stays **the honest record of what a render actually did**.
+The music track is an ordinary hash-addressed asset, so S02 already carries it.
+**Done when:** a re-cut at a different aspect returns a new `reel_id` rather than mutating one.
+
+---
+
 # Wave 2 — Upload, build, and the book (M1)
 
 | ID | Task | Status | Owner | Depends on |
 | --- | --- | --- | --- | --- |
-| I20 | `NegotiateClient` — hash negotiation | **blocked** | — | I02, service M1 |
-| I21 | `UploadQueue` — background, per-file retry | **blocked** | — | I20 |
-| I22 | `JobPoller` — build progress | **blocked** | — | I20 |
-| I23 | `Auth` + app shell + trip list | **blocked** | — | Wave 0, service M1 |
+| I20 | `NegotiateClient` — hash negotiation | **blocked** | — | I02, **S02** |
+| I21 | `UploadQueue` — background, per-file retry | **blocked** | — | I20, **S02** |
+| I22 | `JobPoller` — build progress | **blocked** | — | I20, **S03** |
+| I23 | `Auth` + app shell + trip list | **blocked** | — | Wave 0, **S06** |
 | I24 | Report webview | review | claude (2026-08-09) | I03 |
-| I25 | `AssetSchemeHandler` — images from the phone | **blocked** | — | I04, I24, XT-1 |
+| I25 | `AssetSchemeHandler` — images from the phone | wip | claude/I24 agent (2026-08-09) | I04, I24, XT-1 ✅ |
 
 **Four of the six are blocked, and not merely unstarted.** Recorded 2026-08-09:
 
@@ -386,10 +483,10 @@ iOS-exported fixtures join `tests/fixtures/media/` as a second producer of the s
   user: a report directory produced by `story-book report` exercises every claim the task makes,
   and offline is the acceptance criterion anyway. Waiting for auth would have blocked the one Wave 2
   task that is fully testable today.
-- **I25 waits on XT-1** — the report must be rendered with `media_rel="storyasset://"`, and
-  `src/story_book/export/report.py` belongs to the Python tracker. Request filed there; not
-  starting the Swift half until it resolves, because the handler's shape follows what the rendered
-  HTML actually asks for.
+- **I25's blocker is gone.** XT-1 resolved 2026-08-09: `render_report` now takes a `MediaPrefix`,
+  and `MediaPrefix.absolute("storyasset://")` is the app's case. Claimed the same day.
+- **"service M1" is now Wave S.** Four tasks depended on a string, which is why they read as
+  `todo` and were not startable. The `Depends on` cells above name real task ids.
 
 ### I20 — `NegotiateClient`
 **Owns:** `ios/Sources/StoryService/NegotiateClient.swift` + tests
@@ -479,10 +576,10 @@ tier 2 then tier 3 in tests that force each.
 
 | ID | Task | Status | Owner | Depends on |
 | --- | --- | --- | --- | --- |
-| I30 | Reel options — aspect, day range | todo | — | I22 |
-| I31 | Music import — Files, **not** Apple Music | todo | — | I20 |
+| I30 | Reel options — aspect, day range | **blocked** | — | I22, **S07** |
+| I31 | Music import — Files, **not** Apple Music | **blocked** | — | I20, **S07** |
 | I32 | Playback | todo | — | I30 |
-| I33 | `MediaCache` — posters and reels | todo | — | I23 |
+| I33 | `MediaCache` — posters and reels | **blocked** | — | I23, **S05** |
 | I34 | Share sheet | todo | — | I32 |
 
 ### I30 — Reel options
@@ -648,6 +745,7 @@ Unresolved. Each blocks the wave named, not the whole plan.
 | 8 | Config ownership: does the app expose thresholds, or does the service pin one config and keep the knobs on the laptop path? | I30 |
 | 9 | Does `ios/` stay in this repo past Wave 2? | — |
 | 10 | **How does `PhotoExportTests` run unattended?** `simctl privacy grant` is ignored on Xcode 26.3 / iOS 26 (D11), so today it needs one human click per simulator. XCUITest tapping SpringBoard's *Allow Full Access* is the known route; it needs a UI-test target. Until then the export path has **no CI coverage**. | CI for Wave 1 |
+| 13 | **What does the service run on, and in what?** S01 cannot start without it. Recommended: Python, because M1's whole job is to run `story-book build` and a service in another language would shell out to the CLI anyway while losing direct access to `stage_result`. Hosting is untouched by that and still open. | Wave S |
 | 12 | **What exactly is "the report bundle" the service delivers?** Found in I24: a rendered report reaches into four directories, and one is `.cache/video/` for video poster frames — hidden, and named for something disposable. Ship the report's *reference closure* and have the service assert it resolves before handing it over; a bundle missing posters renders blank cells and raises nothing. Also decide whether posters should move out of `.cache/` on the Python side. | service M1 |
 | ~~11~~ | ~~**Should the risky half of Wave 1 avoid PhotoKit entirely?**~~ **Answered 2026-08-09: neither — both.** See D12: exporters take an `ExportSource` that is a `PHAsset` or a file URL. Original text: Metadata surviving an ImageIO downscale (I11) and an AVFoundation export (I12) can be tested against plain file URLs — no library, no authorization, runs in CI. That would leave only `LibraryScope` (I10) and `ResourceSelection` (I13) needing a real `PHAsset`. | ~~I11, I12~~ |
 
