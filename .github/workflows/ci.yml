@@ -19,9 +19,15 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install exiftool ffmpeg
 
+      # fonts-noto-cjk is not optional here. Burned-in subtitles pick a font by what has to be
+      # drawn, and with no CJK face installed the burn-in is *correctly* skipped -- which failed
+      # 14 tests on Linux while macOS passed on its bundled Hiragino. The tested path is the one
+      # a traveller uses, so CI installs the font rather than skipping the feature.
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libimage-exiftool-perl ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libimage-exiftool-perl ffmpeg fonts-noto-cjk
 
       # Pinned exactly: setup-uv publishes no floating v8/v9 major tag, so `@v9` does not resolve.
       - uses: astral-sh/setup-uv@v9.0.0

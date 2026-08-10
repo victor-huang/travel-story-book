@@ -156,7 +156,35 @@ class TestCanRender:
     def test_reports_false_when_no_fonts_are_available(self, mocker):
         mocker.patch("story_book.export.fonts.FONT_CANDIDATES", ())
         mocker.patch("story_book.export.fonts.CJK_FONT_CANDIDATES", ())
+        # Discovery too, or this passes only on a machine with no CJK font installed -- which is
+        # the machine the whole feature is broken on, and CI now deliberately is not one.
+        mocker.patch("story_book.export.fonts.discovered_cjk_fonts", return_value=())
         assert not can_render("维也纳")
+
+
+class TestDiscoveredCjkFonts:
+    """Hardcoded absolute paths miss when a distribution moves its font files."""
+
+    def test_every_discovered_path_is_a_real_file(self):
+        from pathlib import Path
+
+        from story_book.export.fonts import discovered_cjk_fonts
+
+        assert all(Path(p).is_file() for p in discovered_cjk_fonts())
+
+    def test_it_survives_directories_that_do_not_exist(self, mocker):
+        from story_book.export.fonts import discovered_cjk_fonts
+
+        discovered_cjk_fonts.cache_clear()
+        mocker.patch("story_book.export.fonts.CJK_FONT_DIRS", ("/nowhere/at/all",))
+        assert discovered_cjk_fonts() == ()
+        discovered_cjk_fonts.cache_clear()
+
+    def test_a_hardcoded_font_still_wins_over_a_discovered_one(self):
+        """Discovery is a last resort; it must not change which font Latin text gets."""
+        from story_book.export.fonts import font_for
+
+        assert font_for("Mammoth", 24).getname() == font_for("Mammoth 2026", 24).getname()
 
 
 class TestSupports:

@@ -44,6 +44,17 @@ CJK_FONT_CANDIDATES: tuple[str, ...] = (
 )
 """Tried only when the Latin fonts cannot draw the text in hand -- see `font_for`."""
 
+CJK_FONT_DIRS: tuple[str, ...] = (
+    "/usr/share/fonts",
+    "/usr/local/share/fonts",
+    "/System/Library/Fonts",
+    "/Library/Fonts",
+)
+CJK_FONT_PATTERNS: tuple[str, ...] = ("NotoSansCJK*", "NotoSerifCJK*", "NotoSansSC*", "*CJK*")
+"""Searched when no hardcoded path hits. Distributions move these files between releases -- Debian
+alone has shipped them under `opentype/noto`, `truetype/noto` and `opentype/noto-cjk` -- and an
+absolute path that silently misses costs the whole feature, not a nicer font."""
+
 # Typographic characters a model's prose reliably produces, mapped to ASCII that any font has.
 # Applied only when the font actually lacks the character.
 PUNCTUATION: dict[str, str] = {
@@ -95,6 +106,22 @@ def coverage(font: ImageFont.FreeTypeFont, text: str) -> float:
     return sum(1 for c in chars if supports(font, c)) / len(chars)
 
 
+@lru_cache(maxsize=1)
+def discovered_cjk_fonts() -> tuple[str, ...]:
+    """CJK faces found by searching the system font directories, as a last resort.
+
+    Cached: this walks real directories, and `font_for` is called once per subtitle cue.
+    """
+    found: list[str] = []
+    for directory in CJK_FONT_DIRS:
+        root = Path(directory)
+        if not root.is_dir():
+            continue
+        for pattern in CJK_FONT_PATTERNS:
+            found.extend(str(p) for p in sorted(root.rglob(pattern)) if p.is_file())
+    return tuple(dict.fromkeys(found))
+
+
 def font_for(text: str, size: int) -> ImageFont.FreeTypeFont:
     """The first available font that can draw *every* character of `text`.
 
@@ -104,7 +131,7 @@ def font_for(text: str, size: int) -> ImageFont.FreeTypeFont:
     boxes. Latin fonts are tried first so English text keeps the same look it always had.
     """
     best: tuple[float, ImageFont.FreeTypeFont] | None = None
-    for path in (*FONT_CANDIDATES, *CJK_FONT_CANDIDATES):
+    for path in (*FONT_CANDIDATES, *CJK_FONT_CANDIDATES, *discovered_cjk_fonts()):
         font = _try_load(path, size)
         if font is None:
             continue
