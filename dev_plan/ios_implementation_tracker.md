@@ -375,7 +375,7 @@ what, which every other entry assumes.
 
 | ID | Task | Status | Owner | Depends on |
 | --- | --- | --- | --- | --- |
-| S01 | Service skeleton, deployment shape, CI | todo | — | — |
+| S01 | Service skeleton, deployment shape, CI | wip | claude/S01 agent (2026-08-10) | — |
 | S02 | Ingest — `POST /trips`, `assets:negotiate`, presigned `PUT` | todo | — | S01 |
 | S03 | Job queue — `POST /trips/{id}/build`, `GET /jobs/{id}` | todo | — | S01, S02 |
 | S04 | Storage layout and the retention sweeper | todo | — | S02 |
