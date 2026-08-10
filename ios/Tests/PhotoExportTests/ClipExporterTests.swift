@@ -164,6 +164,46 @@ struct ClipExporterTests {
         #expect((size ?? 0) > 1000)
     }
 
+    /// The export must not invent a capture time for a clip that has none.
+    ///
+    /// `AVAssetExportSession` stamps `mvhd` with the moment of export. Measured before the fix:
+    /// an untimed fixture came out claiming it was shot at 05:33:51, the pipeline believed it,
+    /// and `trip.json` gained a phantom third day. The header now carries the source's own value,
+    /// so QuickTime's `0` sentinel survives and the pipeline still reports the time as unknown.
+    @Test func anUntimedClipDoesNotGainACaptureTime() async throws {
+        let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let source = LibraryFixtures.url(forFixture: "clip_speech.mov")
+        let sourceTimes = try #require(try QuickTimeHeader.movieCreationTimes(of: source))
+        // The fixture is the control: it must genuinely be untimed, or this proves nothing.
+        #expect(sourceTimes.creation.allSatisfy { $0 == 0 })
+
+        let out = try await ClipExporter.export(
+            fileAt: source, toDirectory: dir, filename: "out.mov")
+
+        let exportedTimes = try #require(try QuickTimeHeader.movieCreationTimes(of: out.url))
+        #expect(
+            exportedTimes.creation.allSatisfy { $0 == 0 },
+            "the export invented a creation time")
+    }
+
+    /// The other direction of the same rule: a clip that *does* carry a header time keeps it.
+    @Test func aTimedClipKeepsItsHeaderCaptureTime() async throws {
+        let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let sourceTimes = try #require(
+            try QuickTimeHeader.movieCreationTimes(of: spatialFixture))
+        #expect(!sourceTimes.creation.allSatisfy { $0 == 0 })
+
+        let out = try await ClipExporter.export(
+            fileAt: spatialFixture, toDirectory: dir, filename: "out.mov")
+
+        let exportedTimes = try #require(try QuickTimeHeader.movieCreationTimes(of: out.url))
+        #expect(exportedTimes.creation == sourceTimes.creation)
+    }
+
     @Test func keepsTheOriginalFilename() async throws {
         let dir = try tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }

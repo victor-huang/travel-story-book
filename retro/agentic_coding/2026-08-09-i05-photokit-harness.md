@@ -184,3 +184,59 @@ is not in `media/`, and that the coordinates are deliberately not the capture lo
 
 **Lesson.** *Regenerable and non-regenerable artifacts must not share a directory when something
 rmtree's it.* Before putting a file somewhere, ask what already claims ownership of that path.
+
+---
+
+### An export invented a capture time, and every test passed
+
+**Cycle:** Wave 1 / I12, found by I15
+**Cost:** ~15 min; would have shipped a wrong `trip.json`
+**Category:** wrong-assumption
+
+**Symptom.** `story-book build` over a folder written by `FolderWriter` produced **three** days
+where the same media produced two. A clip whose original correctly yields `taken_local = None`
+came back as `2026-08-10T05:33:51` — the moment of export — with a phantom day built around it.
+
+**Root cause.** `AVAssetExportSession` stamps `mvhd`/`tkhd`/`mdhd` with the time of export, and
+those are what a reader reports as `CreateDate`. QuickTime's "unknown" sentinel is `0`, so a
+fixture that honestly said *I don't know when this was shot* came out asserting it was shot just
+now. The pipeline had no way to tell the difference and dutifully placed it on a day the
+traveller was never there.
+
+**Fix.** `QuickTimeHeader` copies the source's own header times over the export's, so `0` stays
+`0` and a real time survives. Days went 3 → 2. The same fix incidentally repaired something I had
+already written down as unavoidable: `CreateDate` now agrees with `Keys:CreationDate` instead of
+holding the export time.
+
+**Lesson.** *This is the project's most repeated failure wearing a new hat* — emitting a
+measurement nobody made. It is also the third time in this session that **reading real output
+found what a green suite could not**: 12 ClipExporter tests passed while the folder was wrong,
+because every one of them asked whether metadata *survived* and none asked whether metadata had
+been **invented**. A test suite that only checks for loss cannot see fabrication. Where a format
+has a "no reading" sentinel, assert that an absent value stays absent.
+
+---
+
+### I wrote code for a task I never claimed
+
+**Cycle:** Wave 1 / I15
+**Cost:** another agent's wasted read, and a tracker row that lied
+**Category:** near-miss
+
+**Symptom.** Another agent set `I15: wip`, went to read the modules it composes, and found
+`FolderWriter.swift` and its tests already written — by me, with the row never claimed. They stood
+down and moved to I10.
+
+**Root cause.** I finished I14 and went straight into I15 because it felt like a continuation of
+work already in progress. The tracker's one rule that prevents most damage — claim the row
+*before* writing code — was skipped precisely because there was no visible seam between the two
+tasks.
+
+**Fix.** Row corrected to name me. Adopting the other agent's suggestion: **commit the claim on
+its own, before the work.** An uncommitted claim is invisible outside its own tree, which is why
+neither of us could see the other.
+
+**Lesson.** *The claim is only a lock if it is made and read at the same instant, and committed.*
+Two of my earlier tasks had the same defect in a quieter form: I claimed I13 and I11 in one edit
+and only committed it alongside the finished code, so for the whole of that work the lock existed
+only on my disk.

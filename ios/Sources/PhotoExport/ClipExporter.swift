@@ -81,6 +81,15 @@ public enum ClipExporter {
 
         try await run(session, to: destinationURL)
 
+        // The export stamps mvhd/tkhd/mdhd with the moment of export. Copy the source's own
+        // header times back over them, so an untimed clip stays untimed instead of claiming it
+        // was shot just now — see QuickTimeHeader for the measurement that found this.
+        if let times = try? QuickTimeHeader.movieCreationTimes(of: sourceURL) {
+            try? QuickTimeHeader.setCreationTimes(
+                in: destinationURL, creation: times.creation,
+                modification: times.modification)
+        }
+
         // Report against what actually landed, not what was requested.
         let exported = AVURLAsset(url: destinationURL)
         let exportedAudio = try await exported.loadTracks(withMediaType: .audio)
