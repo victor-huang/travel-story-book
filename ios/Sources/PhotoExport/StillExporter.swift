@@ -129,38 +129,11 @@ public enum StillExporter {
                 maxPixel: maxPixel)
         case .asset(let asset):
             let (resource, resolved) = try ResourceSelection.resolve(for: asset)
-            let staged = try await stage(resource)
+            let staged = try await ResourceSelection.stageToTemporaryFile(resource)
             defer { try? FileManager.default.removeItem(at: staged) }
             return try export(
                 fileAt: staged, toDirectory: directory, filename: resolved.originalFilename,
                 maxPixel: maxPixel)
         }
-    }
-
-    /// Stream a resource to a temp file. Streaming rather than accumulating `Data` keeps a
-    /// 4000x3000 HEIC off the heap, and `PHAssetResourceManager` is what honours the
-    /// edited/RAW choice -- `requestImageDataAndOrientation` gives no say in which resource.
-    private static func stage(_ resource: PHAssetResource) async throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appending(path: "storybook-stage-\(UUID().uuidString)-\(resource.originalFilename)")
-        FileManager.default.createFile(atPath: url.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: url)
-        defer { try? handle.close() }
-
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            PHAssetResourceManager.default().requestData(
-                for: resource, options: ResourceSelection.readOptions()
-            ) { chunk in
-                try? handle.write(contentsOf: chunk)
-            } completionHandler: { error in
-                if let error {
-                    continuation.resume(
-                        throwing: ExportError.resourceReadFailed(error.localizedDescription))
-                } else {
-                    continuation.resume()
-                }
-            }
-        }
-        return url
     }
 }

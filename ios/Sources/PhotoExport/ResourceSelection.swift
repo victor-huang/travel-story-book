@@ -124,6 +124,43 @@ extension ResourceSelection {
         return (resource, resolved)
     }
 
+    /// `resolve(for:)` from an async context. `PHAssetResource.assetResources` is synchronous
+    /// and cheap, so this only exists to keep call sites uniform.
+    public static func resolveAsync(for asset: PHAsset) async throws -> (
+        resource: PHAssetResource, resolved: ResolvedResource
+    ) {
+        try resolve(for: asset)
+    }
+
+    /// Stream a resource to a temp file, returning its URL. Both exporters need this and it must
+    /// behave identically for each: streaming rather than accumulating `Data` keeps a
+    /// full-resolution asset off the heap, which is where an app gets jetsam-killed.
+    ///
+    /// The caller owns the file and must delete it.
+    public static func stageToTemporaryFile(_ resource: PHAssetResource) async throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "storybook-stage-\(UUID().uuidString)-\(resource.originalFilename)")
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+
+        try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<Void, Error>) in
+            PHAssetResourceManager.default().requestData(
+                for: resource, options: readOptions()
+            ) { chunk in
+                try? handle.write(contentsOf: chunk)
+            } completionHandler: { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume()
+                }
+            }
+        }
+        return url
+    }
+
     /// Options every read must use. **`isNetworkAccessAllowed` is not optional**: with
     /// "Optimize iPhone Storage" the original lives in iCloud and the local copy is a
     /// placeholder, so a read without it fails on exactly the assets a real library is full of.
