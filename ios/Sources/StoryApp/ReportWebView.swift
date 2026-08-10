@@ -176,13 +176,20 @@ public final class ReportLoader: NSObject {
     /// - Parameter openExternal: where a link that leaves the report goes. The report carries one
     ///   ("open this area in OpenStreetMap"); following it *inside* the webview would strand the
     ///   reader on a web page with no way back to a `file://` bundle.
+    /// - Parameter assetScheme: registers `AssetSchemeHandler` (I25) for `storyasset://` on
+    ///   `configuration` before the webview is created. `nil` when a caller already registered
+    ///   its own -- `WKWebViewConfiguration` traps if a scheme is registered twice.
     public init(
         bundle: ReportBundle,
         configuration: WKWebViewConfiguration = WKWebViewConfiguration(),
+        assetScheme: AssetSchemeHandler? = .init(),
         openExternal: @escaping @MainActor (URL) -> Void
     ) {
         self.bundle = bundle
         self.openExternal = openExternal
+        if let assetScheme {
+            configuration.setURLSchemeHandler(assetScheme, forURLScheme: AssetSchemeHandler.scheme)
+        }
         self.webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
         webView.navigationDelegate = self

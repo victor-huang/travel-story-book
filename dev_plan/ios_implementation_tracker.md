@@ -484,7 +484,7 @@ driven entirely by tapping.
 | I22 | `JobPoller` — build progress | **blocked** | — | I20, **S03** |
 | I23 | `Auth` + app shell + trip list | **blocked** | — | Wave 0, **S06** |
 | I24 | Report webview | review | claude (2026-08-09) | I03 |
-| I25 | `AssetSchemeHandler` — images from the phone | wip | claude/I24 agent (2026-08-09) | I04, I24, XT-1 ✅ |
+| I25 | `AssetSchemeHandler` — images from the phone | review | claude/I24 agent (2026-08-09) | I04, I24, XT-1 ✅ |
 
 **Four of the six are blocked, and not merely unstarted.** Recorded 2026-08-09:
 
@@ -586,9 +586,39 @@ posters and reel from the CDN.
 **Done when:** a report renders from the phone's originals with the network off, and degrades to
 tier 2 then tier 3 in tests that force each.
 
----
+**Delivered 2026-08-09 → review.** 18 tests, hostless in CI. Every tier is proven through decoded
+pixels in a real `WKWebView` with a real `WKURLSchemeHandler` registered — `naturalWidth > 0`,
+matching I24's own standard — including the control that a local hit wins even when a remote one
+would also answer, and that an unparsable request never reaches a resolver at all.
 
-# Wave 3 — The reel (M2) — **the priority after M1** (D7)
+Sizes mirror the server exactly rather than inventing new ones: `480`/`1600` are
+`config.py`'s `thumbnail_long_edge`/`preview_long_edge`, so a reader does not see a quality jump
+between tiers. Tier 3 (the placeholder) is synthesized with ImageIO, not shipped as an
+asset-catalog image — same reason `StillExporter`'s tests need no host app.
+
+**Tier 2 is not wired to anything real.** I33 (`MediaCache`) does not exist yet, so the default
+`remote` resolver is `{ _ in nil }` and every local miss falls straight to the placeholder until
+I33 lands and something constructs `AssetSchemeHandler(remote:)` with a real one. The seam is the
+resolver's signature, `(AssetRequest) async -> Data?`, which I33 only has to satisfy.
+
+**Tier 1's positive path — real bytes, dimensions reflecting the target size, a video asset being
+skipped in favour of tier 2 — has no host to run in.** `PhotoKitAssetSource` is proven *not to
+crash* against an unauthenticated/empty library on the macOS test host (the same code path a
+deleted or iCloud-only asset takes), but the real case needs a seeded simulator, and
+`StoryBookHost.xcodeproj` wires only the `PhotoExportTests` scheme (D10) — `StoryAppTests` is not
+in it. Recorded rather than silently skipped; same shape of gap as I05 before D9/D10 existed.
+
+**Crosses into I24's file.** Registering the scheme handler has to happen where the `WKWebView` is
+created, so `ReportLoader.init` gained an `assetScheme` parameter in `ReportWebView.swift`. Same
+agent owns both tasks here, so this was not a collision, but a future reviewer should know I25
+touched a file I24 owns.
+
+**A real, unrelated build break was hit and left alone.** Mid-session, `swift build` failed on
+macOS from I17's `ExportScreen.swift` (`.keyboardType` is UIKit-only, used unconditionally, and
+Package.swift lists `.macOS(.v14)` precisely so this has to compile there). Not my file — logged
+under Cross-task requests and left for I17's owner, who fixed it shortly after. The lesson isn't
+new but is worth repeating: a broken file in a shared target blocks *every* task's verification,
+not just its own.
 
 | ID | Task | Status | Owner | Depends on |
 | --- | --- | --- | --- | --- |
@@ -742,7 +772,7 @@ Need a change in a file you don't own? Add a row. The owning agent (or the human
 | From | To (task/file) | Request | Status |
 | --- | --- | --- | --- |
 | XT-1 / I25 | Python tracker → `src/story_book/export/report.py` | Make `MEDIA_REL_FROM_INDEX` / `MEDIA_REL_FROM_DAY` overridable so the report can render with a `storyasset://` prefix. Filed 2026-08-09, **resolved the same day** with the human's authorisation: `MediaPrefix` on `render_report`. | resolved |
-| I25 | I17 / `ios/Sources/StoryApp/ExportScreen.swift` | **Blocks every `swift build`/`swift test` on macOS, for every task.** `.keyboardType(.numbersAndPunctuation)` at `ExportScreen.swift:84` is a UIKit-only SwiftUI modifier used unconditionally. Package.swift lists `.macOS(.v14)` specifically so the suite runs hostless in CI (`ios.yml`'s `swift build` step); this file does not compile there. Unchanged across two retries a minute apart, so not mid-edit. My own files compiled and the `StoryApp` module emitted before the build reached this one. Not fixed here — not my file. | open |
+| I25 | I17 / `ios/Sources/StoryApp/ExportScreen.swift` | `.keyboardType(.numbersAndPunctuation)` at `ExportScreen.swift:84` is a UIKit-only SwiftUI modifier used unconditionally, breaking the macOS build `ios.yml` needs. Filed 2026-08-09; fixed by I17's own agent shortly after — `swift build` is clean again. | resolved |
 
 ---
 
@@ -775,6 +805,7 @@ made.
 
 | Date | Who | Entry |
 | --- | --- | --- |
+| 2026-08-10 | claude | **I25 done → review**, and both blockers from the plan session cleared first. XT-1 resolved on the Python side (`MediaPrefix` on `render_report`, byte-identical default, 1772 tests green) and Wave S decomposed "service M1" into seven owned tasks, which is what turned I25 from `blocked` back into something claimable. 18 tests, every tier proven through decoded pixels in a real `WKWebView` with a real `WKURLSchemeHandler`, sizes mirroring `config.py`'s `thumbnail_long_edge`/`preview_long_edge` exactly so a reader sees no quality jump between tiers. Two honest gaps left in the task entry rather than hidden: tier 2 has nothing real behind it until I33 exists, and tier 1's positive path needs a seeded simulator `StoryAppTests` has no host for yet. Mid-session, `swift build` broke on macOS from I17's file (`.keyboardType` used unconditionally) — not mine to fix, logged and left, and the owning agent fixed it before I needed to escalate further. |
 | 2026-08-09 | claude | **I10 done.** 12 tests in CI plus 6 on the simulator against real `PHAsset`s, and the simulator half needed **no human click** — I05's grant persisted exactly as D11 predicted, so the run took 1.8 s. Worth recording because D11 reads like a standing cost and is in fact a one-off per simulator. The interesting part was refusing to invent the cull threshold: open question 5 says set it by watching real selections, so `CullCheck` encodes the human's two anchors (60/800 nudges, 600/800 does not), a placeholder inside the band they admit, and a test that **every** threshold in the band separates them. A future measured value keeps the suite green; a value outside the band fails and says which anchor it broke. Same discipline twice more: `keptFraction` is `nil` rather than `0.0` when there is nothing to divide by, and a selection with no comparable range is `.noEvidence` rather than `.fine`, so a `.limited` grant is never told its selection looks healthy on no evidence. |
 | 2026-08-09 | claude | **Two agents took I15 at once, and the tracker did not stop it.** I set `Status: wip` and then read the modules I15 composes before writing a line — in that window another agent wrote `FolderWriter.swift` and its tests without ever claiming the row. So the lock was held by an agent with no code and ignored by an agent with code. I stood down and moved to I10; the writer keeps it. **The claim is only a lock if it is made *and read* at the same instant, and the rule as written ("edit this file before writing any code") makes the read implicit.** The cheap fix is to re-read the row immediately before the first write, and treat a file that exists but is unclaimed as a claim. Also: neither of us could see the other, because an uncommitted claim is invisible outside its own tree — the row should be committed on its own, before the work, not with it. |
 | 2026-08-09 | claude | **A Wave 1 commit swept up a Wave 2 agent's uncommitted files.** `2937135` (I13/I11) committed `ios/Package.swift` — which I01 owns and I was mid-edit on under D13 — plus a scratch probe file under `ios/Tests/StoryAppTests/`, which that task does not own. Nothing was lost and the content was correct, so this is a near-miss rather than damage. But `git commit -a` in a tree where other agents are working stages *their* work under *your* message, and the tracker's file-ownership rule cannot see it. **Commit by path, never by `-a`.** |
