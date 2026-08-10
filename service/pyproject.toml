@@ -9,11 +9,15 @@ license = { text = "MIT" }
 # dependency rather than vendoring or reimplementing anything. `clip` is deliberately absent: it
 # pulls torch and multiplies the image size, and its absence degrades the pipeline rather than
 # breaking it -- which /ready reports rather than hides. Whether the deployed image should carry it
-# is a cost question for the human (open question 17).
+# is a cost question for the human (open question 18 -- the comment said 17, which is the index).
 dependencies = [
     "travel-story-book[exif,geo,images,video]",
     "fastapi>=0.115",
     "uvicorn>=0.34",
+    # S3 is the object store (open question 15, answered). boto3 rather than a hand-rolled
+    # signer: presigned PUT signatures are SigV4, and getting one subtly wrong fails at the
+    # client with a message that blames the client.
+    "boto3>=1.35",
 ]
 
 [project.optional-dependencies]
@@ -23,6 +27,10 @@ dev = [
     # FastAPI's TestClient is httpx-backed. Tests drive the real ASGI app rather than calling
     # endpoint functions directly, so a routing or status-code mistake is visible.
     "httpx>=0.28",
+    # A real S3 API surface. `moto[server]` in particular, because a presigned URL is only proven
+    # by a genuine HTTP PUT to it from outside botocore -- which is what the client does.
+    # Never a real bucket, and never in CI (open question 15).
+    "moto[s3,server]>=5.0",
 ]
 
 [tool.uv.sources]

@@ -4,19 +4,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-import pytest
 from fastapi.testclient import TestClient
 from storybook_service.app import create_app
 from storybook_service.capability import Check, Report
 from storybook_service.settings import Settings
-
-
-@pytest.fixture(autouse=True)
-def _no_env_bleed(monkeypatch):
-    """A developer's own STORY_SERVICE_* variables must not decide what these tests measure."""
-    monkeypatch.delenv("STORY_SERVICE_STORY_BOOK_BIN", raising=False)
-    monkeypatch.delenv("STORY_SERVICE_DATA_ROOT", raising=False)
-    monkeypatch.delenv("STORY_SERVICE_PROBE_TIMEOUT_S", raising=False)
 
 
 def _report(*, ready: bool) -> Report:
@@ -78,6 +69,17 @@ class TestReady:
         with TestClient(create_app()) as client:
             check = client.get("/ready").json()["checks"][0]
         assert set(check) == {"name", "ok", "detail", "required", "affects"}
+
+
+class TestUnauthenticated:
+    def test_startup_says_out_loud_that_nobody_is_authenticated(self, caplog):
+        """A gap that is only in a docstring is a gap that ships.
+
+        S06 owns the fix; until then every start of this service says so.
+        """
+        with caplog.at_level("WARNING"), TestClient(create_app()):
+            pass
+        assert any("authentication is not implemented" in r.message for r in caplog.records)
 
 
 class TestRealDependencies:

@@ -376,7 +376,7 @@ what, which every other entry assumes.
 | ID | Task | Status | Owner | Depends on |
 | --- | --- | --- | --- | --- |
 | S01 | Service skeleton, deployment shape, CI | review | claude/S01 agent (2026-08-10) | — |
-| S02 | Ingest — `POST /trips`, `assets:negotiate`, presigned `PUT` | wip | claude/S02 agent (2026-08-10) | S01 |
+| S02 | Ingest — `POST /trips`, `assets:negotiate`, presigned `PUT` | review | claude/S02 agent (2026-08-10) | S01 |
 | S03 | Job queue — `POST /trips/{id}/build`, `GET /jobs/{id}` | todo | — | S01, S02 |
 | S04 | Storage layout and the retention sweeper | todo | — | S02 |
 | S05 | Delivery — report bundle and signed CDN URLs | todo | — | S03 |
@@ -462,6 +462,63 @@ scaffolding uses `story-book init --trip-dir` rather than a hand-written config 
 scaffolded overrides in the new context and asserting it is empty, because a file safe to read is
 not automatically safe to copy.
 
+**Delivered 2026-08-10 → review. 100 new tests (service suite 19 → 119); the root suite is still
+1772.** Both halves of the criterion pass against a real S3 API on localhost (`moto server`, never a
+real bucket): a second negotiate of an unchanged trip returns `needed: []`, and `source:prepare`
+scaffolds with `story-book init --trip-dir` and then loads the scaffolded `overrides.toml` **in that
+trip's own context** and asserts it is empty. `story-book build` runs to completion on the
+materialised folder and `trip.json` contains all three assets — the count is the control, because a
+build over an empty folder also exits 0.
+
+**The wire contract, for I20 to be checked against.** `POST /trips` → `{trip_id, name, created_at}`;
+`POST /trips/{id}/assets:negotiate` with `{assets:[{hash, filename, size}]}` →
+`{needed:[{hash, filename, stored_filename, filename_adjusted, size, method, put_url, headers,
+expires_at, replaces_mismatched_object}], have:[{hash, size}], upload:{…}}`; then `PUT` to `put_url`
+reproducing `headers` (`Content-Length` is inside the signature). `hash` is **128 lowercase hex
+characters** and an `asset_id` prefix is rejected with a 422 rather than silently matching nothing.
+Also `GET /trips`, `GET /trips/{id}`, and `POST /trips/{id}/source:prepare`.
+
+**Two deviations from `ios_backend_service.md`, both deliberate.**
+
+1. **`POST /trips` does not scaffold a config, and `source:prepare` is a new route.** `story-book
+   init` *profiles* the source folder, and at trip-creation time that folder is empty — it succeeds,
+   warns "no importable media found", and writes a config in which nothing was measured. Since
+   `init` then refuses to overwrite its own file, that guess would be permanent. So scaffolding waits
+   for the media, which means it needs a moment after the uploads and before the build. It is
+   idempotent, so S03 may call it as build step zero and this route becomes an alias.
+2. **No multipart upload.** A single presigned `PUT` carries 5 GB and a 1080p export is tens of MB,
+   so multipart buys resume *within* one file, not capability. The response says
+   `multipart: false` with that reasoning in it rather than leaving I21 to infer it.
+
+**Three findings worth carrying.**
+
+- **`moto` verifies nothing.** An unsigned PUT, a tampered signature and an hour-expired URL all
+  returned `200` against `moto server`. So the suite proves the round trip and the URL's *shape*;
+  signature, expiry and the signed `Content-Length` are properties of S3 and are **not** measured
+  here. A test asserting "a wrong-length PUT is refused" would have passed for the wrong reason and
+  told a reader something untrue — it is not in the suite, and the docstrings say why.
+- **The service cannot verify that the bytes under a hash hash to it.** It never reads them, which
+  is what "never proxy the media" costs. `have` therefore means only "an object of the declared
+  length is at that key", and the negotiate response says so in `upload.presence_not_verified`. The
+  one contradiction available *is* used: a stored length that disagrees with the declaration is
+  treated as **missing**, so the asset re-uploads rather than being believed. This is also the
+  strongest argument on question 4 — see below.
+- **Filename collisions silently lose a photograph.** Two cameras both produce `IMG_0001.JPG`, and
+  writing each asset to `<source>/<filename>` overwrites one with no error. `assign_stored_names`
+  renames **every** member of a colliding group, never just the later arrival, so the answer is a
+  pure function of the `{hash: filename}` set rather than of arrival order — and a later negotiate
+  therefore renames an asset already on disk, which `materialise_source` reconciles by removing the
+  file left under the old name and reporting it in `removed`. A test caught exactly this: the first
+  version renamed only the batch it was handed.
+
+**What is not built here:** no queue and no worker (S03), no auth (S06), no retention sweep (S04).
+`principal.py` reads an `X-Story-Identity` header and believes it; the service logs a warning saying
+so at every start, and a test asserts the warning. Every index read is already scoped by `owner_id`
+**in SQL** — `Index.get_trip` cannot be asked without one — so S06 replaces one function body and
+touches no query. Per-route isolation is asserted per route, and both scoping and presence were
+**shown to fail**: dropping `owner_id` from the two `WHERE` clauses fails 5 tests, and making `head`
+always return `None` fails 3, including the acceptance criterion.
+
 ### S03 — Job queue
 **Owns:** the queue, the worker, and the job routes
 `POST /trips/{id}/build` → `{job_id}`; `GET /jobs/{id}` → `{state, stage, done, total}`.
@@ -530,8 +587,8 @@ driven entirely by tapping.
 
 | ID | Task | Status | Owner | Depends on |
 | --- | --- | --- | --- | --- |
-| I20 | `NegotiateClient` — hash negotiation | **blocked** | — | I02, **S02** |
-| I21 | `UploadQueue` — background, per-file retry | **blocked** | — | I20, **S02** |
+| I20 | `NegotiateClient` — hash negotiation | todo | — | I02, **S02** |
+| I21 | `UploadQueue` — background, per-file retry | todo | — | I20, **S02** |
 | I22 | `JobPoller` — build progress | **blocked** | — | I20, **S03** |
 | I23 | `Auth` + app shell + trip list | **blocked** | — | Wave 0, **S06** |
 | I24 | Report webview | review | claude (2026-08-09) | I03 |
@@ -554,6 +611,12 @@ driven entirely by tapping.
   and `MediaPrefix.absolute("storyasset://")` is the app's case. Claimed the same day.
 - **"service M1" is now Wave S.** Four tasks depended on a string, which is why they read as
   `todo` and were not startable. The `Depends on` cells above name real task ids.
+- **I20 and I21 stopped being blocked on 2026-08-10**, when S02 landed the ingest routes and the
+  presigned `PUT`. Their contract is written out in the S02 entry and in `service/README.md`; the
+  service half is exercised over HTTP against a real S3 API, so a Swift client can be checked
+  against a running service rather than against prose. I21's "resume without re-sending completed
+  assets" is satisfied at asset granularity: there is no multipart, deliberately, and the service
+  says `multipart: false` in the negotiate response rather than leaving the client to discover it.
 
 ### I20 — `NegotiateClient`
 **Owns:** `ios/Sources/StoryService/NegotiateClient.swift` + tests
@@ -836,7 +899,7 @@ Unresolved. Each blocks the wave named, not the whole plan.
 | 1 | ~~Does `swift-crypto` expose BLAKE2b, or is it vendored Swift vs. libb2 interop?~~ **Answered 2026-08-09:** neither CryptoKit nor swift-crypto exposes BLAKE2b; a vendored pure-Swift RFC 7693 implementation ships in `ContentHash.swift` (~600 MB/s after de-allocating the hot loop, digest verified against `hashlib` and the RFC vectors). | ~~I02~~ |
 | 2 | ~~Device or seeded simulator for the export suite?~~ **Answered 2026-08-09:** seeded simulator — see D9. | ~~I05~~ |
 | 3 | **In-app account deletion is an App Store requirement (5.1.1(v)) and contradicts keeping `story.db`, `trip.json` and previews indefinitely.** Reconcile before submission. | Ship |
-| 4 | Does the service store a source tree per trip or per user? Hash-addressed storage makes cross-trip dedup free but complicates deletion — a shared asset cannot be removed with one trip. Same decision as "does the app hold a local trip list". | I20, I23 |
+| 4 | Does the service store a source tree per trip or per user? Hash-addressed storage makes cross-trip dedup free but complicates deletion — a shared asset cannot be removed with one trip. Same decision as "does the app hold a local trip list". <br><br>**S02 needs a ratification, not a new answer.** Both layouts are implemented in `naming.asset_key` behind one setting, and the running default is **per user** — `assets/u/{owner}/{aa}/{bb}/{hash}`. Three things S02 measured that bear on the choice. (a) Per-user keeps the dedup the design doc actually promises: "the same photo in two trips uploads once" is *one user's* two trips, and a test asserts it. What it gives up is cross-**user** dedup, which for family photographs is close to never. (b) Deletion stays a prefix delete, so question 3 remains answerable without reference counting that nothing here has. (c) The decisive one: **the service never reads the uploaded bytes**, so it cannot confirm that the object under a hash hashes to it — under a global layout, one account could `PUT` chosen bytes at another account's asset key and that account's next negotiate would answer `have`. Per-user makes that self-inflicted instead of cross-tenant. Reversing later is a de-duplicating copy; reversing the other direction needs the references global storage deliberately forgets. | ~~I20~~, I23 |
 | 5 | Where is the cull threshold? "60 of 800 in-range" clearly warrants the nudge and "600 of 800" clearly does not. Set it by watching real selections, not by guessing. | I10 |
 | 6 | Is the alternates strip built from dedup clusters alone, or also from CLIP neighbours? The two solve different problems at different thresholds, and the strip wants "another frame of this moment", not "something that looks similar". | I42 |
 | 7 | Does curation re-run happen automatically on edit, or on an explicit rebuild tap? | I44 |
@@ -849,6 +912,7 @@ Unresolved. Each blocks the wave named, not the whole plan.
 | 16 | **What is the queue, and does the worker run the same image?** S03 needs "one worker per trip at a time" and progress read from `stage_result`, so the worker wants the same filesystem the build wrote to. That is a hosting property, not a library choice. | S03 |
 | ~~17~~ | **ANSWERED 2026-08-10 by the human.** There is a relational index alongside the per-trip SQLite files: a **`user`** identified by an email address *or* a phone number, authenticated through **Google first and Apple later** (which reorders D8's "Apple and Google"), and a **one-to-many `user` → `trip`** relation so one account holds many trips. `story.db` stays exactly what it is — one file per trip, `CHECK (id = 1)` intact — and the index holds what it structurally cannot: users, identities, the trip list, jobs and reels. This unblocks S02, S03 and S06, and it is now the thing Q3 (account deletion) and Q4 (per-trip vs per-user storage) are answered against. **Still open within it:** which engine holds the index, and whether a trip's media is addressed per-user or globally by content hash — Q4. <br><br>*Original question:* S02, S03, S06 |
 | 18 | **Does the deployed image carry the `clip` extra?** Torch multiplies the image size and the cost; without it `EmbeddingStage` is unavailable and dedup loses its semantic half, which is a visibly worse result rather than a failure. `service/`'s dependencies exclude it today and `/ready` reports its absence by name, so nothing silently claims embeddings ran. | S03 |
+| 19 | **Which engine holds the relational index?** Question 17 settled *what* it holds — users, identities, the trip list, jobs, reels — and left the engine open; S02 needed it and did not choose. `index.py` is a five-method interface (`ensure_user`, `create_trip`, `get_trip`, `list_trips`, `record_assets`, `trip_assets`), `index_sqlite.py` is the one implementation, and `index.for_dsn` refuses a `postgresql://` DSN **by name** rather than falling back — a silent fallback to SQLite on a production host would look like a working deployment. <br><br>**Postgres on RDS:** managed backups and point-in-time recovery, concurrent writers, survives the instance; costs a second piece of infrastructure and a network hop for every request, and it is the only always-on cost in a design where a dormant trip is otherwise nearly free. **SQLite on an EBS volume:** zero infrastructure, no hop, and consistent with `story.db` already being SQLite; but backups are yours, a single writer means the queue's serialisation matters more, and it pins the API and the worker to one instance forever — which the EC2 answer to question 14 accepts *today* and may not accept later. The deciding question is whether a second instance is ever wanted; if yes, this is Postgres now rather than a migration later. **A human must ratify before S03**, which adds jobs to this interface and will read them from a worker process. | S02 ✅, S03, S06 |
 | 12 | **What exactly is "the report bundle" the service delivers?** Found in I24: a rendered report reaches into four directories, and one is `.cache/video/` for video poster frames — hidden, and named for something disposable. Ship the report's *reference closure* and have the service assert it resolves before handing it over; a bundle missing posters renders blank cells and raises nothing. Also decide whether posters should move out of `.cache/` on the Python side. | service M1 |
 | ~~11~~ | ~~**Should the risky half of Wave 1 avoid PhotoKit entirely?**~~ **Answered 2026-08-09: neither — both.** See D12: exporters take an `ExportSource` that is a `PHAsset` or a file URL. Original text: Metadata surviving an ImageIO downscale (I11) and an AVFoundation export (I12) can be tested against plain file URLs — no library, no authorization, runs in CI. That would leave only `LibraryScope` (I10) and `ResourceSelection` (I13) needing a real `PHAsset`. | ~~I11, I12~~ |
 
@@ -861,6 +925,7 @@ made.
 
 | Date | Who | Entry |
 | --- | --- | --- |
+| 2026-08-10 | claude | **S02 done → review. 100 new tests, and the surprise was that the fake proves less than it looks.** Ingest is `POST /trips`, `assets:negotiate`, a presigned S3 `PUT` per asset, and `source:prepare`, all driven over HTTP against `moto server` — and **moto verifies no signature, no expiry and no signed `Content-Length`**: an unsigned PUT, a tampered signature and an hour-expired URL each returned `200`. So the obvious test — "a wrong-length upload is refused" — would have passed for entirely the wrong reason and put a false claim in the suite. It is not there; the suite asserts the round trip and the URL's *shape*, and enforcement is named as a property of S3 rather than a measurement. Second finding, from asking what `have` actually means: **the service never reads the uploaded bytes, so it cannot confirm they hash to their key.** `have` is therefore only "an object of the declared length is at that key", the response says so, and a length that disagrees is treated as *missing* rather than trusted — which is also the decisive argument on question 4, since under a global content-addressed layout one account could PUT chosen bytes at another's key and that account's next negotiate would answer `have`. Per-user keys are the running default for that reason and need ratifying, not re-deciding. Third: **`story-book init` cannot run at `POST /trips`** — it profiles the source folder, and an empty folder yields a config in which nothing was measured, which `init` then refuses to overwrite, so the guess would be permanent. Scaffolding moved to `source:prepare` and refuses while any declared asset is still missing. A test caught a real bug: a second camera's `IMG_0001.JPG` must rename **both** copies, not just the later arrival, or the stored filename depends on arrival order — and since one copy is already on disk, materialisation now reconciles the folder and reports what it removed. Deliberately not decided: **which engine holds the index** (new question 19, a five-method interface with one SQLite implementation and a DSN that refuses Postgres by name rather than falling back). No queue, no auth — `principal.py` believes an `X-Story-Identity` header and the service logs a warning saying so at every start. |
 | 2026-08-10 | claude | **S01 done → review, and the interesting part is what it refused to build.** `service/` is a Python 3.12 / FastAPI skeleton with two endpoints, its own uv project (an editable path dependency on the root, so the Python tracker's `pyproject.toml` is untouched and root `uv run pytest` still collects only `tests/`), a Dockerfile carrying the CLI, exiftool, ffmpeg and `fonts-noto-cjk`, and `service.yml`. 19 tests; the root suite is still 1772. **No object-store client and no queue**, because hosting is undecided and S02–S07 would each inherit the guess — four candidates are tabulated in the S01 entry and five open questions (14–18) replace what would have been silent choices. The surprise was **question 17: `story.db` is one file per trip with `CHECK (id = 1)`, so it cannot hold users, the trip list, jobs or reels, and no design doc names anything that can** — that is a hole rather than an ambiguity, and both question 3 (account deletion) and question 4 (per-trip vs per-user storage) are answered against whatever fills it. Second surprise, from actually running the thing: `./.venv/bin/uvicorn` starts fine and answers `/health` with `200` while `story-book` is not on `PATH` at all, which `/ready` reported as `503` with the errno text. A liveness endpoint would have called that healthy — the same shape as P06's nine JPEGs under `.mov` names. **The image itself is unverified here: this machine has no Docker**, so the container half of the criterion is claimed by CI's `image` job, not by me. Also corrected the design doc's status header, which still said "not scheduled, and no code depends on it". |
 | 2026-08-10 | claude | **I25 done → review**, and both blockers from the plan session cleared first. XT-1 resolved on the Python side (`MediaPrefix` on `render_report`, byte-identical default, 1772 tests green) and Wave S decomposed "service M1" into seven owned tasks, which is what turned I25 from `blocked` back into something claimable. 18 tests, every tier proven through decoded pixels in a real `WKWebView` with a real `WKURLSchemeHandler`, sizes mirroring `config.py`'s `thumbnail_long_edge`/`preview_long_edge` exactly so a reader sees no quality jump between tiers. Two honest gaps left in the task entry rather than hidden: tier 2 has nothing real behind it until I33 exists, and tier 1's positive path needs a seeded simulator `StoryAppTests` has no host for yet. Mid-session, `swift build` broke on macOS from I17's file (`.keyboardType` used unconditionally) — not mine to fix, logged and left, and the owning agent fixed it before I needed to escalate further. |
 | 2026-08-09 | claude | **I10 done.** 12 tests in CI plus 6 on the simulator against real `PHAsset`s, and the simulator half needed **no human click** — I05's grant persisted exactly as D11 predicted, so the run took 1.8 s. Worth recording because D11 reads like a standing cost and is in fact a one-off per simulator. The interesting part was refusing to invent the cull threshold: open question 5 says set it by watching real selections, so `CullCheck` encodes the human's two anchors (60/800 nudges, 600/800 does not), a placeholder inside the band they admit, and a test that **every** threshold in the band separates them. A future measured value keeps the suite green; a value outside the band fails and says which anchor it broke. Same discipline twice more: `keptFraction` is `nil` rather than `0.0` when there is nothing to divide by, and a selection with no comparable range is `.noEvidence` rather than `.fine`, so a `.limited` grant is never told its selection looks healthy on no evidence. |

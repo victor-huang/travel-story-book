@@ -30,13 +30,51 @@ class Settings:
     # A dependency probe that hangs must fail rather than hold the readiness endpoint open.
     probe_timeout_s: float = 10.0
 
+    # --- S02: the object store -------------------------------------------------------------
+    # The bucket does not exist yet (open question 15), so there is no default and an unset bucket
+    # is a configuration error reported at the boundary rather than an AWS error at signing time.
+    s3_bucket: str = ""
+    s3_region: str = ""
+    # Local development points this at MinIO or `moto server`. Unset in production, where the
+    # region alone resolves the endpoint and an IAM instance role supplies the credentials --
+    # there are deliberately no key fields here.
+    s3_endpoint_url: str | None = None
+    s3_asset_prefix: str = "assets"
+
+    # `user` or `content`. See `naming.asset_key` for what each forecloses -- this is open
+    # question 4 and it is not settled here.
+    asset_scope: str = "user"
+
+    # A presigned PUT is a bearer credential for one key. Long enough for a large clip on hotel
+    # wifi, short enough that a leaked URL is not a standing grant.
+    presign_ttl_s: int = 3600
+
+    # --- S02: the relational index ---------------------------------------------------------
+    # Which engine holds the index is undecided (open question 19). The DSN is the seam: sqlite is
+    # implemented for local development and `index.for_dsn` refuses anything else by name rather
+    # than falling back to a guess.
+    index_dsn: str = ""
+
+    def resolved_index_dsn(self) -> str:
+        if self.index_dsn:
+            return self.index_dsn
+        return f"sqlite:///{self.data_root / 'index.db'}"
+
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> Settings:
         source = os.environ if env is None else env
+        endpoint = source.get(f"{ENV_PREFIX}S3_ENDPOINT_URL", "")
         return cls(
             story_book_bin=source.get(f"{ENV_PREFIX}STORY_BOOK_BIN", cls.story_book_bin),
             data_root=Path(source.get(f"{ENV_PREFIX}DATA_ROOT", str(cls.data_root))),
             probe_timeout_s=float(
                 source.get(f"{ENV_PREFIX}PROBE_TIMEOUT_S", str(cls.probe_timeout_s))
             ),
+            s3_bucket=source.get(f"{ENV_PREFIX}S3_BUCKET", cls.s3_bucket),
+            s3_region=source.get(f"{ENV_PREFIX}S3_REGION", cls.s3_region),
+            s3_endpoint_url=endpoint or None,
+            s3_asset_prefix=source.get(f"{ENV_PREFIX}S3_ASSET_PREFIX", cls.s3_asset_prefix),
+            asset_scope=source.get(f"{ENV_PREFIX}ASSET_SCOPE", cls.asset_scope),
+            presign_ttl_s=int(source.get(f"{ENV_PREFIX}PRESIGN_TTL_S", str(cls.presign_ttl_s))),
+            index_dsn=source.get(f"{ENV_PREFIX}INDEX_DSN", cls.index_dsn),
         )
