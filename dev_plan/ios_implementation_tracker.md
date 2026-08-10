@@ -375,7 +375,7 @@ what, which every other entry assumes.
 
 | ID | Task | Status | Owner | Depends on |
 | --- | --- | --- | --- | --- |
-| S01 | Service skeleton, deployment shape, CI | wip | claude/S01 agent (2026-08-10) | — |
+| S01 | Service skeleton, deployment shape, CI | review | claude/S01 agent (2026-08-10) | — |
 | S02 | Ingest — `POST /trips`, `assets:negotiate`, presigned `PUT` | todo | — | S01 |
 | S03 | Job queue — `POST /trips/{id}/build`, `GET /jobs/{id}` | todo | — | S01, S02 |
 | S04 | Storage layout and the retention sweeper | todo | — | S02 |
@@ -396,6 +396,57 @@ to it anyway while losing the ability to read `stage_result` directly. Needs the
 ratification before code (see open question 13).
 **Done when:** a health endpoint is reachable locally and in CI, and `story-book --version` runs
 inside the same image.
+
+**Delivered 2026-08-10 → review. 19 tests. Three things were decided, four were deliberately not,
+and the split is the point of the task.**
+
+Decided, and each confined so that reversing it is cheap:
+
+- **Python 3.12, FastAPI, uvicorn, in a new top-level `service/`.** The doc's recommended default,
+  taken *as a proposal* rather than as a ratified decision — see question 13, still open. Reversing
+  it deletes one directory and one workflow.
+- **`service/` is its own uv project** with an editable path dependency on the repository root, so
+  `pyproject.toml` — owned by the Python tracker — is untouched, and `uv run pytest` at the root
+  still collects only `tests/`. The service suite runs from `service/`; `ci.yml`'s `ruff check .`
+  already lints it, so `service.yml` deliberately does not lint again.
+- **One container image holds the API and the CLI.** That is what makes hosting deferrable: the same
+  image runs under compose on a VM, on Fly machines, on ECS or on Cloud Run.
+
+Not decided, because S02–S07 would inherit the guess: **hosting target** (question 14), **object
+store and presigned-URL provider** (15), **queue substrate** (16), **where the multi-trip index
+lives** (17), and **whether the image carries `clip`** (18). There is no object-store client and no
+queue in this directory as a result. Question 4 — source tree per trip or per user — is also
+untouched, and it constrains 15 and 17 rather than the other way round.
+
+**Hosting options, for question 14.** The pipeline's shape does eliminate one family: a build is
+minutes to hours and wants a real filesystem with tens of GB on it, so request-scoped serverless
+runtimes are out on their own terms, not by preference.
+
+| Option | Fits because | Costs |
+| --- | --- | --- |
+| One VM, docker compose, local disk + S3-compatible store | Simplest thing that runs `story-book build` unmodified: POSIX filesystem, hours-long jobs, ffmpeg, a big scratch disk | Ops and backups are yours; one machine |
+| Fly.io machines + volume + Tigris/S3 | Long-lived processes and persistent volumes are first-class, container-native, cheap | The volume is per-machine, so worker placement becomes a constraint |
+| AWS ECS/Fargate + S3 + SQS + CloudFront | Presigned `PUT`, CDN and IAM are native; nothing to patch | Fargate ephemeral storage caps out; one-worker-per-trip scheduling is yours; dearest of the four |
+| Cloud Run + GCS + Cloud Tasks | Same shape on GCP, scales to zero | Request-scoped CPU and a 60-minute ceiling — a multi-hour build does not fit, so the worker needs Cloud Run Jobs or GKE and the API and worker stop being one deployment |
+
+**`/ready` reports what the deployment can actually do, and it is not decoration.** The pipeline
+degrades rather than aborting when an optional dependency is missing, so a `clip`-less image returns
+a perfectly valid `trip.json` with no CLIP clustering in it. The endpoint therefore separates the
+three dependencies a build cannot survive (`story-book` on `PATH`, `exiftool`, `ffmpeg`) from the
+four that only narrow the result, names the consequence of each absence *in the words of the stage
+that stops working* (`Stage.description`, read rather than paraphrased), and carries `measured_at`
+because the probe runs once at startup — a cached reading must not read like a fresh one.
+
+**It caught something on its first real run.** Launching `./.venv/bin/uvicorn` instead of
+`uv run uvicorn` starts the service fine and answers `/health` with `200`, while `story-book` is not
+on `PATH` at all — the one thing the service exists to run. `/ready` returned `503` with
+`No such file or directory: 'story-book'`. A liveness-only health endpoint would have called that
+deployment healthy.
+
+**The image is unverified locally: this machine has no Docker.** `service.yml`'s `image` job builds
+it, runs `story-book --version` inside it, and asserts `/ready` returns `200` *and* a body saying
+`ready: true` — a 200 with `ready: false` would be a status code the endpoint had not earned. Until
+that job runs, the container half of the acceptance criterion is claimed by CI and not by me.
 
 ### S02 — Ingest
 **Owns:** the ingest routes and the object-store client
@@ -792,7 +843,12 @@ Unresolved. Each blocks the wave named, not the whole plan.
 | 8 | Config ownership: does the app expose thresholds, or does the service pin one config and keep the knobs on the laptop path? | I30 |
 | 9 | Does `ios/` stay in this repo past Wave 2? | — |
 | 10 | **How does `PhotoExportTests` run unattended?** `simctl privacy grant` is ignored on Xcode 26.3 / iOS 26 (D11), so today it needs one human click per simulator. XCUITest tapping SpringBoard's *Allow Full Access* is the known route; it needs a UI-test target. Until then the export path has **no CI coverage**. | CI for Wave 1 |
-| 13 | **What does the service run on, and in what?** S01 cannot start without it. Recommended: Python, because M1's whole job is to run `story-book build` and a service in another language would shell out to the CLI anyway while losing direct access to `stage_result`. Hosting is untouched by that and still open. | Wave S |
+| 13 | **What does the service run on, and in what?** S01 cannot start without it. Recommended: Python, because M1's whole job is to run `story-book build` and a service in another language would shell out to the CLI anyway while losing direct access to `stage_result`. Hosting is untouched by that and still open. **Half-answered 2026-08-10 by S01, as a proposal rather than a ratification:** Python 3.12 + FastAPI + uvicorn in `service/`, shipped as one container image that also contains the CLI. Confined to one new directory so that reversing it costs a `git rm`. **Still needs the human's word**, and the hosting half is now question 14. | Wave S |
+| 14 | **Where does the service run?** Four candidates with trade-offs are tabulated in the S01 entry; the pipeline's own shape already eliminates request-scoped serverless (hours-long jobs, a real filesystem, ffmpeg). S01 deliberately stopped at "a container image", which every candidate accepts. | S02, S03, S04, S05 |
+| 15 | **Which object store, and whose presigned `PUT`?** S3, R2, Tigris and GCS all satisfy S02's "never proxy 600 MB", and they differ in the signing API, the multipart shape for clips, and how a bucket is kept off public read. Follows from 14, and interacts with question 4. | S02 |
+| 16 | **What is the queue, and does the worker run the same image?** S03 needs "one worker per trip at a time" and progress read from `stage_result`, so the worker wants the same filesystem the build wrote to. That is a hosting property, not a library choice. | S03 |
+| 17 | **Where does the multi-trip index live?** `story.db` is one SQLite file *per trip* with a single-row `trip` table enforced by `CHECK (id = 1)`, so it cannot hold users, the trip list, jobs or reels. D8 says "the service indexes trips and reels" and **no design doc says in what** — this is a hole rather than an ambiguity. Candidates: Postgres, or one more SQLite file that the hosting choice must then keep on durable storage. Question 3 (account deletion) and question 4 (per-trip vs per-user storage) are both answered against whatever this is. | S02, S03, S06 |
+| 18 | **Does the deployed image carry the `clip` extra?** Torch multiplies the image size and the cost; without it `EmbeddingStage` is unavailable and dedup loses its semantic half, which is a visibly worse result rather than a failure. `service/`'s dependencies exclude it today and `/ready` reports its absence by name, so nothing silently claims embeddings ran. | S03 |
 | 12 | **What exactly is "the report bundle" the service delivers?** Found in I24: a rendered report reaches into four directories, and one is `.cache/video/` for video poster frames — hidden, and named for something disposable. Ship the report's *reference closure* and have the service assert it resolves before handing it over; a bundle missing posters renders blank cells and raises nothing. Also decide whether posters should move out of `.cache/` on the Python side. | service M1 |
 | ~~11~~ | ~~**Should the risky half of Wave 1 avoid PhotoKit entirely?**~~ **Answered 2026-08-09: neither — both.** See D12: exporters take an `ExportSource` that is a `PHAsset` or a file URL. Original text: Metadata surviving an ImageIO downscale (I11) and an AVFoundation export (I12) can be tested against plain file URLs — no library, no authorization, runs in CI. That would leave only `LibraryScope` (I10) and `ResourceSelection` (I13) needing a real `PHAsset`. | ~~I11, I12~~ |
 
@@ -805,6 +861,7 @@ made.
 
 | Date | Who | Entry |
 | --- | --- | --- |
+| 2026-08-10 | claude | **S01 done → review, and the interesting part is what it refused to build.** `service/` is a Python 3.12 / FastAPI skeleton with two endpoints, its own uv project (an editable path dependency on the root, so the Python tracker's `pyproject.toml` is untouched and root `uv run pytest` still collects only `tests/`), a Dockerfile carrying the CLI, exiftool, ffmpeg and `fonts-noto-cjk`, and `service.yml`. 19 tests; the root suite is still 1772. **No object-store client and no queue**, because hosting is undecided and S02–S07 would each inherit the guess — four candidates are tabulated in the S01 entry and five open questions (14–18) replace what would have been silent choices. The surprise was **question 17: `story.db` is one file per trip with `CHECK (id = 1)`, so it cannot hold users, the trip list, jobs or reels, and no design doc names anything that can** — that is a hole rather than an ambiguity, and both question 3 (account deletion) and question 4 (per-trip vs per-user storage) are answered against whatever fills it. Second surprise, from actually running the thing: `./.venv/bin/uvicorn` starts fine and answers `/health` with `200` while `story-book` is not on `PATH` at all, which `/ready` reported as `503` with the errno text. A liveness endpoint would have called that healthy — the same shape as P06's nine JPEGs under `.mov` names. **The image itself is unverified here: this machine has no Docker**, so the container half of the criterion is claimed by CI's `image` job, not by me. Also corrected the design doc's status header, which still said "not scheduled, and no code depends on it". |
 | 2026-08-10 | claude | **I25 done → review**, and both blockers from the plan session cleared first. XT-1 resolved on the Python side (`MediaPrefix` on `render_report`, byte-identical default, 1772 tests green) and Wave S decomposed "service M1" into seven owned tasks, which is what turned I25 from `blocked` back into something claimable. 18 tests, every tier proven through decoded pixels in a real `WKWebView` with a real `WKURLSchemeHandler`, sizes mirroring `config.py`'s `thumbnail_long_edge`/`preview_long_edge` exactly so a reader sees no quality jump between tiers. Two honest gaps left in the task entry rather than hidden: tier 2 has nothing real behind it until I33 exists, and tier 1's positive path needs a seeded simulator `StoryAppTests` has no host for yet. Mid-session, `swift build` broke on macOS from I17's file (`.keyboardType` used unconditionally) — not mine to fix, logged and left, and the owning agent fixed it before I needed to escalate further. |
 | 2026-08-09 | claude | **I10 done.** 12 tests in CI plus 6 on the simulator against real `PHAsset`s, and the simulator half needed **no human click** — I05's grant persisted exactly as D11 predicted, so the run took 1.8 s. Worth recording because D11 reads like a standing cost and is in fact a one-off per simulator. The interesting part was refusing to invent the cull threshold: open question 5 says set it by watching real selections, so `CullCheck` encodes the human's two anchors (60/800 nudges, 600/800 does not), a placeholder inside the band they admit, and a test that **every** threshold in the band separates them. A future measured value keeps the suite green; a value outside the band fails and says which anchor it broke. Same discipline twice more: `keptFraction` is `nil` rather than `0.0` when there is nothing to divide by, and a selection with no comparable range is `.noEvidence` rather than `.fine`, so a `.limited` grant is never told its selection looks healthy on no evidence. |
 | 2026-08-09 | claude | **Two agents took I15 at once, and the tracker did not stop it.** I set `Status: wip` and then read the modules I15 composes before writing a line — in that window another agent wrote `FolderWriter.swift` and its tests without ever claiming the row. So the lock was held by an agent with no code and ignored by an agent with code. I stood down and moved to I10; the writer keeps it. **The claim is only a lock if it is made *and read* at the same instant, and the rule as written ("edit this file before writing any code") makes the read implicit.** The cheap fix is to re-read the row immediately before the first write, and treat a file that exists but is unclaimed as a claim. Also: neither of us could see the other, because an uncommitted claim is invisible outside its own tree — the row should be committed on its own, before the work, not with it. |

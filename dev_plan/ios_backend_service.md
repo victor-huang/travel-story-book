@@ -1,8 +1,11 @@
 # iOS backend service — ingest, build, and deliver a reel to a phone
 
-> **Status: draft, optional, not scheduled.** Nothing here is claimed in
-> [`implementation_tracker.md`](./implementation_tracker.md), and no code depends on it.
-> Created 2026-08-09.
+> **Status: scheduled as Wave S, and code exists.** Created 2026-08-09 as a draft that nothing
+> depended on; decomposed into S01–S07 in
+> [`ios_implementation_tracker.md`](./ios_implementation_tracker.md) on 2026-08-09, and S01 landed
+> the skeleton under `service/` on 2026-08-10. **Hosting, object storage, the queue substrate and
+> the multi-trip index are still undecided** — see that tracker's open questions 13–18. This doc
+> remains the source of truth for design; it is not yet a description of anything running.
 >
 > Companions: [`ios_client_app.md`](./ios_client_app.md) (the app half — export, curation,
 > playback), [`reel_video_montage.md`](./reel_video_montage.md) (the reel itself) and

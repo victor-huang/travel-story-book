@@ -1,0 +1,84 @@
+name: Service
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "service/**"
+      - "src/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".dockerignore"
+      - ".github/workflows/service.yml"
+  pull_request:
+    paths:
+      - "service/**"
+      - "src/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".dockerignore"
+      - ".github/workflows/service.yml"
+
+# Linting is deliberately absent: `ci.yml` runs `ruff check .` over the whole repository, which
+# already covers `service/`. A second copy would be one copy eventually wrong.
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # The same two binaries and the same font as `ci.yml`, for the same reasons -- the dependency
+      # probe reports on the environment it is running in, so an environment missing them would
+      # make the required-dependency tests fail rather than prove anything about the image.
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libimage-exiftool-perl ffmpeg fonts-noto-cjk
+
+      # Pinned exactly: setup-uv publishes no floating v9 major tag.
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+
+      - run: uv python install 3.12
+
+      - name: Test
+        working-directory: service
+        run: uv sync --extra dev && uv run pytest
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # S01's acceptance criterion, both halves, against the artifact that gets deployed rather
+      # than against a virtualenv that happens to resemble it.
+      - name: Build the image
+        run: docker build -f service/Dockerfile -t storybook-service:ci .
+
+      - name: story-book runs inside the image
+        run: |
+          version=$(docker run --rm storybook-service:ci story-book --version)
+          echo "$version"
+          case "$version" in
+            "story-book "*) ;;
+            *) echo "unexpected --version output"; exit 1 ;;
+          esac
+
+      - name: The health endpoint is reachable, and readiness is measured
+        run: |
+          docker run -d --name svc -p 8000:8000 storybook-service:ci
+          for _ in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8000/health && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8000/health
+          # /ready must be 200 *and* say so: a 200 with `"ready": false` would mean the endpoint
+          # returned a status code it had not earned.
+          body=$(curl -fsS http://127.0.0.1:8000/ready)
+          echo "$body"
+          echo "$body" | python3 -c 'import json,sys; r=json.load(sys.stdin); sys.exit(0 if r["ready"] else 1)'
+
+      - name: Container log
+        if: always()
+        run: docker logs svc || true
