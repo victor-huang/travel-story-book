@@ -646,9 +646,9 @@ driven entirely by tapping.
 
 | ID | Task | Status | Owner | Depends on |
 | --- | --- | --- | --- | --- |
-| I20 | `NegotiateClient` — hash negotiation | todo | — | I02, **S02** |
-| I21 | `UploadQueue` — background, per-file retry | todo | — | I20, **S02** |
-| I22 | `JobPoller` — build progress | todo | — | I20, **S03** |
+| I20 | `NegotiateClient` — hash negotiation | wip | claude/I20-22 agent (2026-08-10) | I02, **S02** |
+| I21 | `UploadQueue` — background, per-file retry | wip | claude/I20-22 agent (2026-08-10) | I20, **S02** |
+| I22 | `JobPoller` — build progress | wip | claude/I20-22 agent (2026-08-10) | I20, **S03** |
 | I23 | `Auth` + app shell + trip list | **blocked** | — | Wave 0, **S06** |
 | I24 | Report webview | review | claude (2026-08-09) | I03 |
 | I25 | `AssetSchemeHandler` — images from the phone | review | claude/I24 agent (2026-08-09) | I04, I24, XT-1 ✅ |
