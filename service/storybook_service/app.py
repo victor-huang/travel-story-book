@@ -22,6 +22,7 @@ from fastapi import FastAPI, Response
 
 from storybook_service import index as index_module
 from storybook_service.capability import Report, probe
+from storybook_service.delivery import router as delivery_router
 from storybook_service.ingest import router as ingest_router
 from storybook_service.jobs import router as jobs_router
 from storybook_service.objectstore import ObjectStoreError, S3ObjectStore
@@ -104,6 +105,7 @@ def create_app(
     app.state.object_store = object_store
     app.include_router(ingest_router)
     app.include_router(jobs_router)
+    app.include_router(delivery_router)
 
     @app.get("/health")
     def health() -> dict[str, str]:

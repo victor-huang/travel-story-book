@@ -89,6 +89,48 @@ at the job's start by calling each stage's own `available()` and quoting its rea
 no `clip` (question 18 is still open), so a real job reports `embeddings` and `content_class`
 unavailable with *"CLIP unavailable: missing torch, open_clip"* — a narrower result, said out loud.
 
+## What S05 added: delivery
+
+`story-book build` always writes the report the laptop workflow has always produced — plain
+relative paths into `thumbs/`, `previews/` and `.cache/video/`, unchanged. **S05 does not touch
+that.** It re-renders the same `trip.json` a second way, for the wire: every media reference
+becomes a `storyasset://` URL (`export/report.py`'s `MediaPrefix`, D4/I25), so the zip
+`GET /jobs/{job_id}/report` hands out is html/css/vendored-Leaflet only — no thumbnails, no
+previews, no `.cache/`. The app resolves each `storyasset://` reference itself: the phone's own
+`PHAsset` first, then `GET /trips/{trip_id}/media/{relpath}`, which redirects to a signed S3 `GET`
+for exactly the path `trip.json` names as that asset's `thumbnail` or `preview` — never a path a
+client merely asks for.
+
+**Why this shape and not "ship all four directories in one zip".** The design doc and I24's own
+comment describe that shape, and it is what a plain relative-path report would need. But the
+client that actually runs (`AssetSchemeHandler.swift`, I25) registers the scheme handler
+unconditionally and says outright that "the downloaded bundle carries no `thumbs/` or `previews/`
+directory at all" — so the bundle this service must produce is the one I25 assumes, not the one
+I24's docstring still describes. Both are read in `delivery.py`'s module docstring, including a
+gap the mismatch exposed: a video poster lives at `.cache/video/<hash>_poster.jpg`, and under
+`storyasset://` that parses to host `.cache`, which `AssetRequestParsing.parse` does not
+recognise. Today's client would fail every video poster with `unrecognizedRequest`; this service
+cannot fix that without touching `ios/**`, so it is reported rather than hidden — `media_summary`
+on the bundle response is a real count of assets with a thumbnail/preview, not a claim that every
+poster will render.
+
+**Signed S3, not a real CDN.** Question 15 answered the object store, not a CDN — none is
+provisioned, and blocking on one would block the loop D14 says is the priority. `presign_get` on
+`ObjectStore` (extended in `objectstore.py`, additively, the same way S03 extended `index.py`) is
+the seam: a CDN in front of the same bucket is a DNS and cache-control change, not an API change.
+Every delivery URL expires (`STORY_SERVICE_DELIVERY_PRESIGN_TTL_S`, default 900s); re-requesting
+either route is cheap and idempotent — the zip is rendered once per job and never rewritten, and
+`ensure_uploaded` skips the `PUT` once a `HEAD` agrees on size.
+
+**Scoped by the same ownership check as everything else.** `GET /jobs/{job_id}/report` goes
+through `Index.get_job`'s owner-scoped join; `GET /trips/{trip_id}/media/{relpath}` through
+`Index.get_trip`'s. Neither can be asked without naming whose it is, for the same reason as S02
+and S03: a route that forgot to filter cannot exist here, because there is no way to ask without
+the filter built in.
+
+**Deferred, deliberately:** reel delivery (S07, which depends on this task) and a poster fetched
+before the client even asks (I33's `MediaCache` calls this on a cache miss, not eagerly).
+
 ## Run it locally
 
 ```bash
@@ -138,6 +180,13 @@ GET  /jobs/{job_id}                                             -> 200 {state, s
                                                                         stage_index, stages_total,
                                                                         stages: [...], degraded,
                                                                         unavailable_stages, error}
+GET  /jobs/{job_id}/report                                      -> 200 {bundle: {download_url,
+                                                                        expires_at, size_bytes,
+                                                                        media_rel, ...},
+                                                                        media_summary, degraded,
+                                                                        unavailable_stages}
+                                                                 -> 409 while queued or running
+GET  /trips/{trip_id}/media/{relpath}                           -> 302 to a signed GET
 ```
 
 `POST .../build` takes **no body fields** — not the `{config, overrides}` the design doc shows. The

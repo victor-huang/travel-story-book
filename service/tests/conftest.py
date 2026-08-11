@@ -36,6 +36,8 @@ def _no_env_bleed(monkeypatch):
         "ASSET_SCOPE",
         "PRESIGN_TTL_S",
         "INDEX_DSN",
+        "S3_DELIVERY_PREFIX",
+        "DELIVERY_PRESIGN_TTL_S",
     ):
         monkeypatch.delenv(f"STORY_SERVICE_{suffix}", raising=False)
 

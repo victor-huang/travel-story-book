@@ -49,6 +49,16 @@ class Settings:
     # wifi, short enough that a leaked URL is not a standing grant.
     presign_ttl_s: int = 3600
 
+    # --- S05: delivery -----------------------------------------------------------------------
+    # Where a rendered report bundle and the derived images it points at are staged, once
+    # uploaded for delivery. Namespaced apart from `s3_asset_prefix` on purpose: these are
+    # pipeline output, not the traveller's own bytes, and deleting a trip's delivery cache must
+    # never touch the uploaded originals.
+    s3_delivery_prefix: str = "delivery"
+    # Shorter than an upload grant: a report bundle or a thumbnail is small, so the cost of a
+    # client re-requesting an expired URL is one cheap round trip, not a re-upload.
+    delivery_presign_ttl_s: int = 900
+
     # --- S02: the relational index ---------------------------------------------------------
     # Which engine holds the index is undecided (open question 19). The DSN is the seam: sqlite is
     # implemented for local development and `index.for_dsn` refuses anything else by name rather
@@ -100,6 +110,12 @@ class Settings:
             s3_asset_prefix=source.get(f"{ENV_PREFIX}S3_ASSET_PREFIX", cls.s3_asset_prefix),
             asset_scope=source.get(f"{ENV_PREFIX}ASSET_SCOPE", cls.asset_scope),
             presign_ttl_s=int(source.get(f"{ENV_PREFIX}PRESIGN_TTL_S", str(cls.presign_ttl_s))),
+            s3_delivery_prefix=source.get(
+                f"{ENV_PREFIX}S3_DELIVERY_PREFIX", cls.s3_delivery_prefix
+            ),
+            delivery_presign_ttl_s=int(
+                source.get(f"{ENV_PREFIX}DELIVERY_PRESIGN_TTL_S", str(cls.delivery_presign_ttl_s))
+            ),
             index_dsn=source.get(f"{ENV_PREFIX}INDEX_DSN", cls.index_dsn),
             worker_inline=_flag(source.get(f"{ENV_PREFIX}WORKER_INLINE"), cls.worker_inline),
             worker_poll_s=float(source.get(f"{ENV_PREFIX}WORKER_POLL_S", str(cls.worker_poll_s))),

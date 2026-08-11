@@ -6,6 +6,11 @@ presigned `PUT` and this module's upload path issues a URL and nothing else. `ge
 for the opposite direction, where the *service* is the client: a build needs the bytes on a real
 filesystem, and that transfer is server-to-store, not phone-to-server.
 
+**S05 adds the other download direction**, on this module's own shape: `put_file` uploads a
+derived artifact the pipeline already wrote (a rendered report bundle, a poster frame) and
+`presign_get` hands out a signed `GET` for it, exactly as `presign_put` hands out a signed `PUT`
+for an upload. Additive only -- nothing above this comment changed.
+
 What this module can and cannot promise, stated here because the tests cannot say it:
 
 - A presigned URL is signed for one bucket, one key, one method and one content length, and S3
@@ -57,12 +62,45 @@ class PresignedUpload:
     """
 
 
+@dataclass(frozen=True, slots=True)
+class PresignedDownload:
+    """A signed `GET`, S05's half of this module.
+
+    `presign_put` grants a phone permission to write one object; this grants permission to read
+    one -- the report bundle and the derived images (thumbnails, previews, video posters) the
+    report points at. Same reasoning as the upload side: never a public-read bucket, and a URL
+    that expires is cheaper to reason about than one that does not.
+    """
+
+    key: str
+    url: str
+    expires_at: datetime
+
+
 class ObjectStore(Protocol):
     def head(self, key: str) -> ObjectInfo | None: ...
 
     def presign_put(self, key: str, *, size: int) -> PresignedUpload: ...
 
     def get_to_file(self, key: str, destination: Path) -> int: ...
+
+    def put_file(self, key: str, source: Path) -> None:
+        """Upload one local file. The server is the client here, not the phone.
+
+        S05 uploads derived artifacts the pipeline already wrote to local disk -- a rendered
+        report bundle, a poster frame -- so they can be handed out as a signed `GET` instead of
+        proxied through this process on every request.
+        """
+
+    def presign_get(
+        self, key: str, *, filename: str | None = None, ttl_s: int | None = None
+    ) -> PresignedDownload:
+        """A signed `GET` for an object this service already knows is there.
+
+        `filename` sets `Content-Disposition` so a downloaded report bundle is named `report.zip`
+        rather than the opaque key it lives under. `ttl_s` overrides the store's default when a
+        caller wants a shorter-lived grant than a presigned upload needs.
+        """
 
 
 class S3ObjectStore:
@@ -138,3 +176,22 @@ class S3ObjectStore:
             raise ObjectStoreError(f"GET {key}: {exc}") from exc
         staging.replace(destination)
         return destination.stat().st_size
+
+    def put_file(self, key: str, source: Path) -> None:
+        try:
+            self._client.upload_file(str(source), self.bucket, key)
+        except ClientError as exc:
+            raise ObjectStoreError(f"PUT {key}: {exc}") from exc
+
+    def presign_get(
+        self, key: str, *, filename: str | None = None, ttl_s: int | None = None
+    ) -> PresignedDownload:
+        params: dict[str, str] = {"Bucket": self.bucket, "Key": key}
+        if filename:
+            params["ResponseContentDisposition"] = f'attachment; filename="{filename}"'
+        issued_at = datetime.now(UTC)
+        ttl = self.ttl_s if ttl_s is None else ttl_s
+        url = self._client.generate_presigned_url(
+            "get_object", Params=params, ExpiresIn=ttl, HttpMethod="GET"
+        )
+        return PresignedDownload(key=key, url=url, expires_at=issued_at + timedelta(seconds=ttl))
