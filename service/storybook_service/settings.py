@@ -55,6 +55,30 @@ class Settings:
     # than falling back to a guess.
     index_dsn: str = ""
 
+    # --- S03: the queue and the worker -----------------------------------------------------
+    # The worker runs in a thread of the API process by default. Not because that is the best
+    # deployment -- `python -m storybook_service.worker` beside the API is tidier, and the claim
+    # transaction makes both correct -- but because the failure mode of the other default is silent:
+    # a queued job that nothing ever picks up, on a service whose /health says ok.
+    worker_inline: bool = True
+    worker_poll_s: float = 1.0
+
+    # How often a running job says it is still alive, and how long a silence has to last before
+    # another worker may resume it. The build is minutes to hours, so both are generous; the timeout
+    # must stay well above the interval or a slow write requeues a healthy job.
+    job_heartbeat_s: float = 10.0
+    job_heartbeat_timeout_s: float = 300.0
+
+    # A retry is a resume -- the pipeline caches per item and nothing here wipes `--out`. The limit
+    # exists so that a build which is interrupted every single time eventually says so instead of
+    # cycling forever.
+    job_max_attempts: int = 3
+
+    # Off by default: the pipeline completes with zero network calls either way, and the offline
+    # geocoder is what a hosted deployment should be using. On for tests, which must make no
+    # network call at all.
+    build_no_cloud: bool = False
+
     def resolved_index_dsn(self) -> str:
         if self.index_dsn:
             return self.index_dsn
@@ -77,4 +101,27 @@ class Settings:
             asset_scope=source.get(f"{ENV_PREFIX}ASSET_SCOPE", cls.asset_scope),
             presign_ttl_s=int(source.get(f"{ENV_PREFIX}PRESIGN_TTL_S", str(cls.presign_ttl_s))),
             index_dsn=source.get(f"{ENV_PREFIX}INDEX_DSN", cls.index_dsn),
+            worker_inline=_flag(source.get(f"{ENV_PREFIX}WORKER_INLINE"), cls.worker_inline),
+            worker_poll_s=float(source.get(f"{ENV_PREFIX}WORKER_POLL_S", str(cls.worker_poll_s))),
+            job_heartbeat_s=float(
+                source.get(f"{ENV_PREFIX}JOB_HEARTBEAT_S", str(cls.job_heartbeat_s))
+            ),
+            job_heartbeat_timeout_s=float(
+                source.get(f"{ENV_PREFIX}JOB_HEARTBEAT_TIMEOUT_S", str(cls.job_heartbeat_timeout_s))
+            ),
+            job_max_attempts=int(
+                source.get(f"{ENV_PREFIX}JOB_MAX_ATTEMPTS", str(cls.job_max_attempts))
+            ),
+            build_no_cloud=_flag(source.get(f"{ENV_PREFIX}BUILD_NO_CLOUD"), cls.build_no_cloud),
         )
+
+
+def _flag(raw: str | None, default: bool) -> bool:
+    """`0`, `false`, `no` and `off` are false; anything else set is true.
+
+    Spelled out because `bool("0")` is `True`, and a deployment that meant to switch the inline
+    worker off would have got one anyway.
+    """
+    if raw is None or raw == "":
+        return default
+    return raw.strip().lower() not in ("0", "false", "no", "off")

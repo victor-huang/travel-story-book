@@ -42,6 +42,53 @@ Not settled, and both need a human:
   layout one account could PUT chosen bytes at another's key. Per-user keeps cross-*trip* dedup —
   which is the case the design doc actually promises — and gives up only cross-*user* dedup.
 
+## What S03 added: the queue, the worker, and honest progress
+
+`POST /trips/{id}/build` queues one job; a worker claims it, fetches the uploaded media, scaffolds
+the config and runs **`story-book build`** as a subprocess. `GET /jobs/{id}` reports where it is.
+
+- **The queue is a table in the index**, claimed in one transaction. No broker: the index is already
+  durable, the worker needs the same filesystem the build writes to, and on one EC2 instance
+  (question 14) a broker buys distribution this deployment cannot use. **This is a proposal awaiting
+  ratification (question 16), and it expires when a second instance exists.**
+- **"One worker per trip at a time" is a partial unique index**, not a check in a route: a trip may
+  have at most one job that is `queued` or `running`. A second build request returns that job with
+  `created: false`.
+- **The worker runs in a thread of the API process by default** (`STORY_SERVICE_WORKER_INLINE=0` to
+  turn it off) and `python -m storybook_service.worker` runs it beside the API instead. The claim
+  transaction makes both correct. Inline is the default because the other default fails silently: a
+  queued job nothing ever picks up, on a service whose `/health` says `ok`.
+- **A retry is a resume.** Nothing deletes or rewrites `--out`. Exit `130` (the CLI's interrupted
+  code) requeues rather than fails, and a worker that stops heartbeating has its job requeued after
+  `JOB_HEARTBEAT_TIMEOUT_S` — the pipeline commits per item, so the next attempt carries on.
+- **A failed job never reads like a finished one.** Exit non-zero, or exit 0 with no `trip.json`,
+  is `failed` with the build's own last words in `error`.
+
+### Progress is read, never invented
+
+`GET /jobs/{id}` publishes `{state, stage, done, total}` — the contract I22 asks for — plus a
+per-stage breakdown. Every count is a row count in the trip's `story.db`, taken with the pipeline's
+own accessors (`completed_hashes`, `stage_failures`, `count_media`) on a **read-only** connection.
+
+**There is no percentage, no ETA and no smoothing**, and that is deliberate: eighteen stages cost
+wildly different amounts per item, so one number over all of them would be a fabricated measurement.
+`stage_index` / `stages_total` is the honest way to show overall position. `total` is `null` where
+nothing has been measured — never a substituted `0`, which reads as "nothing to do".
+
+Two denominators are subtler than they look, and both have a test:
+
+- `EmbeddingStage.select()` filters out what it has already embedded, so `len(select())` *shrinks*
+  as it progresses. The published total is `select() ∪ already-completed`, which cannot walk down
+  towards `done`.
+- Before `scan` commits, the media table is empty and every per-item stage selects nothing. The
+  first version of this reported five of eighteen stages **complete** one second into a build. An
+  empty library is not evidence that a stage has nothing to do.
+
+`degraded` and `unavailable_stages` answer "was this build as good as this pipeline gets?", measured
+at the job's start by calling each stage's own `available()` and quoting its reason. This image has
+no `clip` (question 18 is still open), so a real job reports `embeddings` and `content_class`
+unavailable with *"CLIP unavailable: missing torch, open_clip"* — a narrower result, said out loud.
+
 ## Run it locally
 
 ```bash
@@ -84,7 +131,22 @@ POST /trips/{trip_id}/assets:negotiate {assets:[{hash,filename,size}]}
                                                                 -> 200 {needed: [...], have: [...]}
 PUT  <put_url>                         the bytes, to S3         -> not this service
 POST /trips/{trip_id}/source:prepare                            -> 200 {fetched, missing, config}
+POST /trips/{trip_id}/build            {}                       -> 202 {job_id, state, created}
+                                                                -> 200 when one is already active
+GET  /trips/{trip_id}/jobs                                      -> 200 {jobs: [...]} newest first
+GET  /jobs/{job_id}                                             -> 200 {state, stage, done, total,
+                                                                        stage_index, stages_total,
+                                                                        stages: [...], degraded,
+                                                                        unavailable_stages, error}
 ```
+
+`POST .../build` takes **no body fields** — not the `{config, overrides}` the design doc shows. The
+config a build uses is the one `story-book init` *measured* from the uploaded media; accepting one
+from the client would replace measurements with a cached guess, permanently, because `init` will not
+overwrite its own file. Config ownership is open question 8.
+
+`state` is `queued | running | succeeded | failed`. `stage` is `null` while queued, `source:prepare`
+while the media is being fetched, and otherwise the first pipeline stage with outstanding work.
 
 `hash` is 128 lowercase hex characters — `hashlib.blake2b()`'s default 64-byte digest. An `asset_id`
 prefix is **rejected**, not silently unmatched: accepting one would report every asset as needed

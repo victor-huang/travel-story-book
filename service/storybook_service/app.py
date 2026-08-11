@@ -23,9 +23,11 @@ from fastapi import FastAPI, Response
 from storybook_service import index as index_module
 from storybook_service.capability import Report, probe
 from storybook_service.ingest import router as ingest_router
+from storybook_service.jobs import router as jobs_router
 from storybook_service.objectstore import ObjectStoreError, S3ObjectStore
 from storybook_service.principal import DEV_IDENTITY_HEADER
 from storybook_service.settings import Settings
+from storybook_service.worker import start_inline_worker, stop_inline_worker
 
 SERVICE_NAME = "storybook-service"
 
@@ -67,9 +69,18 @@ async def lifespan(app: FastAPI):
             # trip list all still answer, and the ingest routes say 503 with what to set. The
             # bucket does not exist yet (open question 15), so this is today's normal state.
             app.state.object_store = None
+    # The worker runs here by default (S03, question 16). A separate `python -m
+    # storybook_service.worker` process is supported and equivalent -- the claim is one transaction
+    # either way -- but the default has to be the one whose failure is loud: a service with no
+    # worker answers /health with 200 and never builds anything.
+    app.state.worker = None
+    if settings.worker_inline:
+        start_inline_worker(app.state)
+
     try:
         yield
     finally:
+        stop_inline_worker(app.state)
         if owns_index:
             app.state.index.close()
 
@@ -92,6 +103,7 @@ def create_app(
     app.state.index = index
     app.state.object_store = object_store
     app.include_router(ingest_router)
+    app.include_router(jobs_router)
 
     @app.get("/health")
     def health() -> dict[str, str]:
