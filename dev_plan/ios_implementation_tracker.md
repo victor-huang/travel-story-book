@@ -380,7 +380,7 @@ what, which every other entry assumes.
 | S02 | Ingest — `POST /trips`, `assets:negotiate`, presigned `PUT` | review | claude/S02 agent (2026-08-10) | S01 |
 | S03 | Job queue — `POST /trips/{id}/build`, `GET /jobs/{id}` | review | claude/S03 agent (2026-08-10) | S01, S02 |
 | S04 | Storage layout and the retention sweeper | todo | — | S02 |
-| S05 | Delivery — report bundle and signed CDN URLs | todo | — | S03 |
+| S05 | Delivery — report bundle and signed CDN URLs | wip | claude/S05 agent (2026-08-11) | S03 |
 | S06 | Auth — Apple and Google, per-user isolation | todo | — | S01 |
 | S07 | Reel endpoints (M2) | todo | — | S03, S05 |
 
