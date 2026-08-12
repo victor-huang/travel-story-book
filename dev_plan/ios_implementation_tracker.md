@@ -670,6 +670,7 @@ driven entirely by tapping.
 | I23 | `Auth` + app shell + trip list | **blocked** | — | Wave 0, **S06** |
 | I24 | Report webview | review | claude (2026-08-09) | I03 |
 | I25 | `AssetSchemeHandler` — images from the phone | review | claude/I24 agent (2026-08-09) | I04, I24, XT-1 ✅ |
+| I26 | **Loop screen** — export, upload, build, view, on the phone, over the stub identity | wip | claude/I26 agent (2026-08-11) | I17, I20, I21, I22, I24, I25, S05 |
 
 **Four of the six are blocked, and not merely unstarted.** Recorded 2026-08-09:
 
@@ -824,6 +825,27 @@ not just its own.
 | I32 | Playback | todo | — | I30 |
 | I33 | `MediaCache` — posters and reels | **blocked** | — | I23, **S05** |
 | I34 | Share sheet | todo | — | I32 |
+
+### I26 — Loop screen *(added 2026-08-11, D14's loop closed on-device)*
+**Owns:** `ios/Sources/StoryApp/LoopScreen.swift`, `ios/HostApp/HostApp.swift`, `ios/HostApp/Info.plist` (new — local-network + ATS exception), `ios/StoryBookHost.xcodeproj` (Info.plist wiring only)
+**Why this exists.** Every piece D14 named — export (I17), negotiate/upload (I20/I21), poll (I22),
+render (I24/I25), deliver (S05) — is built and independently tested, but nothing on the phone chains
+them. `HostApp` presents `ExportScreen` and stops there. This screen is the chain: pick media, export,
+create a trip, negotiate + upload, start a build, poll to completion, fetch the report bundle, unzip
+it, hand the local directory to `ReportWebView`.
+**Auth for this task is the stub, on purpose.** `UnverifiedIdentityHeader` — S06 does not exist yet
+and D14 explicitly defers it, with the one condition that it "must land before anything is exposed
+beyond localhost." **Confirmed with the human 2026-08-11: a same-Wi-Fi test is in scope.** The service
+binds to the Mac's LAN IP rather than `127.0.0.1` for this test; nothing here should make that
+binding, or the ATS exception it requires, look like a production setting — comment both as
+temporary and point at S06.
+**Deliberately thin, same rule as I17.** This screen owns no business logic — it sequences calls into
+already-tested modules and shows their real state (queue position, stage name, `degraded`, in progress
+counts with no invented percentage). If a decision needs making that those modules do not already
+make, it belongs in one of them, not here.
+**Done when:** on a physical iPhone, over the same Wi-Fi as the Mac, tapping through from "pick media"
+to "see the rendered report" completes without touching Xcode, and a re-run after the app is killed
+mid-upload resumes rather than restarting.
 
 ### I30 — Reel options
 **Owns:** `ios/Sources/StoryApp/ReelOptions.swift` + tests
