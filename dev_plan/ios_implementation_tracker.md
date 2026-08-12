@@ -383,7 +383,7 @@ what, which every other entry assumes.
 | S04 | Storage layout and the retention sweeper | todo | — | S02 |
 | S05 | Delivery — report bundle and signed CDN URLs | review | claude/S05 agent (2026-08-11) | S03 |
 | S06 | Auth — Apple and Google, per-user isolation | todo | — | S01 |
-| S07 | Reel endpoints (M2) | todo | — | S03, S05 |
+| S07 | Reel endpoints (M2) | wip | claude/S07 agent (2026-08-12) | S03, S05 |
 
 Mapping back: **I20 needs S02, I21 needs S02, I22 needs S03, I23 needs S06, I33 needs S05, I30
 and I31 need S07.** Those cells still say "service M1" and should be reread as these.
