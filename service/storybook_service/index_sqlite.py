@@ -86,7 +86,14 @@ CREATE TABLE IF NOT EXISTS job (
     worker_id     TEXT NOT NULL DEFAULT '',
     error         TEXT NOT NULL DEFAULT '',
     exit_code     INTEGER,
-    capability    TEXT NOT NULL DEFAULT ''
+    capability    TEXT NOT NULL DEFAULT '',
+    -- S07: `options` is the client's own request (a build's is always ''; a reel's carries
+    -- aspect/day-range/music/name/subtitles, since unlike a build there can be many reels for one
+    -- trip and each needs its own). `progress` is the worker's own measurement, written once
+    -- before the expensive part starts -- a reel touches no database, so build's live story.db
+    -- read has nothing to read for it, and this is where "never invented" progress has to live.
+    options       TEXT NOT NULL DEFAULT '',
+    progress      TEXT NOT NULL DEFAULT ''
 );
 
 -- **"One worker per trip at a time", enforced by the schema.** The design doc asks for the queue to
@@ -247,7 +254,7 @@ class SqliteIndex:
     JOB_COLUMNS = (
         "j.id, j.trip_id, t.owner_id, j.kind, j.state, j.phase, j.attempts, j.created_at, "
         "j.started_at, j.finished_at, j.heartbeat_at, j.worker_id, j.error, j.exit_code, "
-        "j.capability"
+        "j.capability, j.options, j.progress"
     )
 
     @staticmethod
@@ -268,6 +275,8 @@ class SqliteIndex:
             error=row["error"],
             exit_code=row["exit_code"],
             capability=row["capability"],
+            options=row["options"],
+            progress=row["progress"],
         )
 
     def _active_job_for_trip(self, trip_id: str) -> Job | None:
@@ -279,7 +288,7 @@ class SqliteIndex:
         return None if row is None else self._job(row)
 
     def enqueue_job(
-        self, *, owner_id: str, trip_id: str, kind: str, job_id: str
+        self, *, owner_id: str, trip_id: str, kind: str, job_id: str, options: str = ""
     ) -> tuple[Job, bool]:
         if kind not in JOB_KINDS:
             raise IndexError_(f"job kind must be one of {JOB_KINDS}; got {kind!r}")
@@ -289,9 +298,9 @@ class SqliteIndex:
         try:
             with self._conn:
                 self._conn.execute(
-                    "INSERT INTO job (id, trip_id, kind, state, created_at) "
-                    "VALUES (?, ?, ?, 'queued', ?)",
-                    (job_id, trip_id, kind, _now()),
+                    "INSERT INTO job (id, trip_id, kind, state, created_at, options) "
+                    "VALUES (?, ?, ?, 'queued', ?, ?)",
+                    (job_id, trip_id, kind, _now(), options),
                 )
         except sqlite3.IntegrityError:
             # The partial unique index fired: another request queued one between the SELECT above
@@ -374,6 +383,10 @@ class SqliteIndex:
     def record_job_capability(self, *, job_id: str, capability: str) -> None:
         with self._conn:
             self._conn.execute("UPDATE job SET capability = ? WHERE id = ?", (capability, job_id))
+
+    def record_job_progress(self, *, job_id: str, progress: str) -> None:
+        with self._conn:
+            self._conn.execute("UPDATE job SET progress = ? WHERE id = ?", (progress, job_id))
 
     def finish_job(
         self,

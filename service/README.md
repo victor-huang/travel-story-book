@@ -128,8 +128,40 @@ through `Index.get_job`'s owner-scoped join; `GET /trips/{trip_id}/media/{relpat
 and S03: a route that forgot to filter cannot exist here, because there is no way to ask without
 the filter built in.
 
-**Deferred, deliberately:** reel delivery (S07, which depends on this task) and a poster fetched
-before the client even asks (I33's `MediaCache` calls this on a cache miss, not eagerly).
+**Deferred, deliberately:** a poster fetched before the client even asks (I33's `MediaCache` calls
+this on a cache miss, not eagerly). Reel delivery landed in S07, below.
+
+## What S07 added: a reel is a second job kind, not a second queue
+
+`POST /trips/{id}/reel` takes `{aspect?, music_hash?, day?, date_from?, date_to?, places?, name?,
+subtitles?, burn_in?, clip_audio?}` and queues it exactly like a build — same `job` table, same
+`enqueue_job`/`claim_next_job`, same "one active job per trip" partial unique index (a build and a
+reel for one trip still cannot run at once, because both write under one `--out`). `Job.kind` is
+now `"build"` or `"reel"`; two additive columns carry what a build never needed: `options` (the
+client's request, verbatim — there can be many reels per trip, D5, so each needs its own record
+rather than one config the trip measures once) and `progress` (the worker's own segment-plan
+measurement, written once before rendering starts).
+
+**`GET /jobs/{id}` reports a reel the same shape it reports a build**, with one real difference:
+while a build runs, `stage`/`done`/`total` are read live out of `story.db` (`progress.py`); a reel
+touches no database, so `reel_jobs.py` computes the exact segment plan `story-book reel` will
+render (pure — no filesystem, no ffmpeg, per `export/reel.py`'s own docstring) and counts how many
+of that plan's own `.cache/segments/*.mp4` files exist on disk. Never a fabricated percentage,
+same as the build path.
+
+**`GET /jobs/{id}/reel`** — not `GET /trips/{id}/reels/{reel_id}` as the design doc names it, because
+there is no `reel_id` anywhere in this design; a reel is addressed by its `job_id`, the same way a
+report is addressed by the build's. `404` if the job is a build, `409` while queued or running,
+else `200 {video: {download_url, expires_at, size_bytes}, immutable: true, reel_json: {...}}` — a
+signed S3 `GET` through the same `presign_get` seam S05 built, keyed by `job_id` so a re-cut is a
+new key, never a rewrite (D5: no ETag, no revalidation needed). `reel_json` ships inline rather
+than behind a second signed URL, since checking it against the request is the whole point.
+
+**Music is an ordinary asset, not a new upload path.** A track is negotiated and `PUT` through the
+same `assets:negotiate` route as any photograph; `POST /trips/{id}/reel`'s `music_hash` is checked
+against the trip's declared assets before a job is even queued (`422`, not a worker-side failure
+three steps into a render), and the worker resolves it from the same `paths.source` directory the
+build's own asset materialisation already fetched into.
 
 ## Run it locally
 
@@ -187,6 +219,16 @@ GET  /jobs/{job_id}/report                                      -> 200 {bundle: 
                                                                         unavailable_stages}
                                                                  -> 409 while queued or running
 GET  /trips/{trip_id}/media/{relpath}                           -> 302 to a signed GET
+POST /trips/{trip_id}/reel             {aspect?, music_hash?,    -> 202 {job_id, kind: "reel",
+                                         day?, date_from?,               state, created}
+                                         date_to?, places?,      -> 200 when one is already active
+                                         name?, subtitles?,       -> 422 bad aspect / undeclared
+                                         burn_in?, clip_audio?}          music_hash
+GET  /jobs/{job_id}/reel                                        -> 200 {video: {download_url,
+                                                                        expires_at, size_bytes},
+                                                                        immutable: true, reel_json}
+                                                                 -> 404 if the job is a build
+                                                                 -> 409 while queued or running
 ```
 
 `POST .../build` takes **no body fields** — not the `{config, overrides}` the design doc shows. The
@@ -210,6 +252,12 @@ bytes hash to it, and the response says so in `upload.presence_not_verified`.
 
 `source:prepare` is an addition to the endpoint list in the design doc. It is idempotent, and S03 may
 fold it into `build`; see the tracker's S02 entry for why it is a route rather than a hidden step.
+
+`POST .../reel` is a **second job kind**, not a second queue — see "What S07 added" above.
+`music_hash` must already be a declared asset of the trip (negotiated and uploaded the same way as
+any photograph); an undeclared one is `422` before a job is queued, not a worker failure discovered
+later. A re-cut is always a new `job_id`: `GET /jobs/{job_id}/reel` never changes what it returns
+for a given `job_id` once the job has succeeded (D5), so a client may cache it by `job_id` alone.
 
 **Launch through `uv run`, not `./.venv/bin/uvicorn`.** Invoking the binary by path does not put
 `.venv/bin` on `PATH`, so the service starts fine, answers `/health` with `200`, and cannot find the

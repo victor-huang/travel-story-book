@@ -32,8 +32,12 @@ from typing import Protocol, runtime_checkable
 
 IDENTITY_KINDS = ("email", "phone", "google", "apple")
 
-JOB_KINDS = ("build",)
-"""`reel` joins this in S07. One kind today, named rather than implied."""
+JOB_KINDS = ("build", "reel")
+"""S07 adds `reel`. Both write under one trip's `--out`, so `enqueue_job`'s "one active job per
+trip" partial unique index serialises them exactly as it already serialised concurrent builds --
+a reel and a build for the same trip are not a shape the pipeline supports running at once
+either, and a second request while one is queued or running gets that job back rather than a
+race."""
 
 JOB_STATES = ("queued", "running", "succeeded", "failed")
 """Four states, and the distinction between the last two is not cosmetic.
@@ -42,11 +46,12 @@ A build that exited non-zero, or exited zero and wrote no `trip.json`, is `faile
 It must never read like a job that finished, however much of the work it happened to complete.
 """
 
-JOB_PHASES = ("", "prepare", "build")
+JOB_PHASES = ("", "prepare", "build", "render")
 """Which half of the job is running. Empty until a worker claims it.
 
 `prepare` fetches the uploaded media onto the filesystem and scaffolds the config; `build` is the
-CLI. Both report real counts, from different sources -- see `progress.py`.
+`story-book build` CLI; `render` (S07) is `story-book reel`. All three report real counts, from
+different sources -- see `progress.py` and `reel_jobs.py`.
 """
 
 
@@ -129,14 +134,26 @@ class Job:
     (no `clip`, say) is declared in the words of the stage that stopped working rather than
     inferred from an absence.
     """
+    options: str
+    """JSON: the client's own request, verbatim. Empty for a build, which takes none (S03's own
+    `BuildRequest` is deliberately empty). A reel is the first job kind with parameters worth
+    remembering -- there can be many reels for one trip (D5), each with its own aspect, day range,
+    music and name -- so unlike a build's config this is not measured from the media; it is what
+    was asked for, and it is what the worker replays into `story-book reel`'s own argv."""
+    progress: str
+    """JSON: real progress the worker measured for *this* job, written once before the expensive
+    part starts and read on every poll. Distinct from `capability`, which is a one-time
+    availability probe -- this is a moving count. Empty until a worker records it. S03's build
+    progress needs no such column because it is read live out of `story.db`; a reel touches no
+    database, so this is where "real, not invented" progress has to live for it."""
 
 
 @runtime_checkable
 class Index(Protocol):
-    """Everything S02 and S03 need from a database, and nothing more.
+    """Everything S02, S03 and S07 need from a database, and nothing more.
 
-    S07 adds reels. They belong on this interface too; they are absent because nothing needs them
-    yet and an unused method is an untested one.
+    A reel needed no new methods, only two additive fields on `Job` (`options`, `progress`) and a
+    `kind` this interface already carried a slot for -- the six-method seam S02 wrote held.
     """
 
     def ensure_user(self, *, kind: str, value: str) -> User:
@@ -165,7 +182,7 @@ class Index(Protocol):
     # --- S03: jobs -------------------------------------------------------------------------
 
     def enqueue_job(
-        self, *, owner_id: str, trip_id: str, kind: str, job_id: str
+        self, *, owner_id: str, trip_id: str, kind: str, job_id: str, options: str = ""
     ) -> tuple[Job, bool]:
         """Queue a job for this trip, or hand back the one already queued or running.
 
@@ -173,7 +190,8 @@ class Index(Protocol):
         enforced by the store rather than by a caller checking first: `story.db` has a single-row
         `trip` table, so two concurrent builds of one trip are not a shape the pipeline supports.
         A second request is therefore idempotent rather than an error -- the client that lost its
-        `job_id` gets it back.
+        `job_id` gets it back. `options` is opaque JSON the caller supplies and the worker later
+        reads back; a build passes `""`.
         """
 
     def get_job(self, *, owner_id: str, job_id: str) -> Job | None:
@@ -195,6 +213,9 @@ class Index(Protocol):
     def heartbeat_job(self, *, job_id: str, phase: str, at: datetime) -> None: ...
 
     def record_job_capability(self, *, job_id: str, capability: str) -> None: ...
+
+    def record_job_progress(self, *, job_id: str, progress: str) -> None:
+        """Store the worker's own progress measurement for this job. See `Job.progress`."""
 
     def finish_job(
         self,

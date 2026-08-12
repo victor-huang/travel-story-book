@@ -1,12 +1,19 @@
-"""The job routes: queue a build, and report on one honestly.
+"""The job routes: queue a build or a reel, and report on either honestly.
 
 The wire contract, which `JobPoller` (I22) is the consumer of:
 
     POST /trips/{trip_id}/build     {}   -> 202 {job_id, state, created: true, ...}
                                          -> 200 {job_id, state, created: false, ...} when this
                                             trip already has a job queued or running
+    POST /trips/{trip_id}/reel      {...options...} -> 202/200, same shape as build
     GET  /trips/{trip_id}/jobs           -> 200 {jobs: [...]}   newest first
-    GET  /jobs/{job_id}                  -> 200 {state, stage, done, total, ...}
+    GET  /jobs/{job_id}                  -> 200 {state, stage, done, total, kind, ...}
+
+S07 adds the second route. It reuses the queue, the worker, the state machine and this same
+`GET /jobs/{job_id}` wholesale -- a reel is a second job **kind**, not a second mechanism. The one
+real difference is what `stage`/`done`/`total` are read from while `state == "running"`: a build's
+come from `story.db`, live (`progress.py`); a reel touches no database, so its own segment plan
+and cache-file counts are what `reel_jobs.py` reads instead. Both publish the same four fields.
 
 `{state, stage, done, total}` is exactly what the tracker's I22 entry asks for, and everything else
 in the body is there because one of these four cannot carry it:
@@ -34,12 +41,15 @@ import json
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
+from story_book.export.reel import ReelError, parse_aspect
 from storybook_service.index import Index, Job
 from storybook_service.index_sqlite import new_id
+from storybook_service.naming import NamingError, validate_hash
 from storybook_service.principal import Principal, resolve_principal
 from storybook_service.progress import BuildProgress, read_build_progress
+from storybook_service.reel_jobs import reel_render_progress
 from storybook_service.settings import Settings
 from storybook_service.source import trip_paths
 
@@ -56,6 +66,55 @@ class BuildRequest(BaseModel):
     phone last cached, permanently, since `init` will not overwrite its own file. Overrides belong
     to I43, and there is no route that writes them yet.
     """
+
+
+class ReelRequest(BaseModel):
+    """What I30 (`ReelOptions.swift`) offers, unlike a build's empty request -- there can be many
+    reels for one trip (D5, a re-cut is a new job, never a mutation), so each needs its own record
+    of what was asked for rather than one config the trip measures once.
+
+    `music_hash` names an asset the client already negotiated and uploaded through the ordinary
+    ingest routes (S02) -- **there is no separate upload path for music**, per the task: a track
+    is just another hash-addressed asset of this trip. It must already be declared on this trip or
+    the request is refused before a job is even queued, rather than failing later inside the
+    worker where the only reader is a log.
+    """
+
+    aspect: str | None = Field(default=None, description='e.g. "16:9" or "9:16"; default 16:9')
+    music_hash: str | None = Field(
+        default=None, description="hash of an already-negotiated, already-uploaded asset"
+    )
+    day: str | None = Field(default=None, description="YYYY-MM-DD; render one day only")
+    date_from: str | None = Field(default=None, description="YYYY-MM-DD, inclusive")
+    date_to: str | None = Field(default=None, description="YYYY-MM-DD, inclusive")
+    places: list[str] = Field(default_factory=list, description="composes with the day range")
+    name: str | None = Field(default=None, description="becomes the filename slug and title card")
+    subtitles: list[str] = Field(default_factory=list, description='e.g. ["zh", "en"]')
+    burn_in: str | None = Field(
+        default=None, description="also write a burned-in copy in this language"
+    )
+    clip_audio: bool | None = Field(default=None, description="play clips' own sound; default true")
+
+    @field_validator("music_hash")
+    @classmethod
+    def _music_hash(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        try:
+            return validate_hash(value)
+        except NamingError as exc:
+            raise ValueError(str(exc)) from exc
+
+    @field_validator("aspect")
+    @classmethod
+    def _aspect(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        try:
+            parse_aspect(value)
+        except ReelError as exc:
+            raise ValueError(str(exc)) from exc
+        return value
 
 
 def _settings(request: Request) -> Settings:
@@ -148,6 +207,28 @@ def _job_json(index: Index, job: Job, settings: Settings) -> dict[str, Any]:
         }
         return body
 
+    if job.kind == "reel":
+        # A reel touches no database, so there is nothing for `read_build_progress` below to read
+        # that means anything about *this* job -- it would show the prior build's own, already
+        # finished, stage_result rows, which is a real fact about the wrong thing. `reel_jobs.py`
+        # reads this job's own segment-cache files instead.
+        rendered = reel_render_progress(job.progress)
+        body |= {
+            "stage": rendered["stage"],
+            "done": rendered["done"],
+            "total": rendered["total"],
+            "stage_index": None,
+            "stages_total": None,
+            "progress_basis": (
+                "count of this reel's own rendered-segment cache files against the exact segment "
+                "plan computed before rendering started -- the same plan story-book reel itself "
+                "renders. No percentage: segments cost wildly different amounts (a title card is "
+                "seconds, a long clip excerpt is not)."
+            ),
+            "progress_detail": rendered["detail"] or None,
+        }
+        return body
+
     paths = trip_paths(settings, job.trip_id)
     progress: BuildProgress = read_build_progress(
         out_dir=paths.out,
@@ -218,6 +299,75 @@ def start_build(
             if created
             else "this trip already has a job queued or running; that job is returned rather than "
             "a second one started, because one story.db cannot be built twice at once"
+        ),
+    }
+
+
+@router.post("/trips/{trip_id}/reel")
+def start_reel(
+    trip_id: str,
+    body: ReelRequest,
+    principal: PrincipalDep,
+    index: IndexDep,
+    settings: SettingsDep,
+    response: Response,
+) -> dict[str, Any]:
+    """Queue a reel render of this trip (S07), from a build that must already have succeeded.
+
+    Unlike `POST /trips/{id}/build`, this route's request is not empty and is kept: `Job.options`
+    carries it verbatim, so the worker replays exactly what was asked for and `GET /jobs/{id}/reel`
+    (delivery) can report it back unchanged. **A re-cut is a new job, never a mutation** (D5) --
+    every call here that is not deduplicated by the "one active job per trip" rule below produces
+    a fresh `job_id`, and any number of finished reels can coexist for one trip.
+
+    `music_hash`, if given, must already be a declared asset of this trip -- refused here with a
+    422 rather than discovered by the worker three steps into a render, where the only reader of
+    the failure is a log file.
+    """
+    trip = index.get_trip(owner_id=principal.user_id, trip_id=trip_id)
+    if trip is None:
+        raise HTTPException(status_code=404, detail=f"no trip {trip_id!r}")
+
+    if body.music_hash is not None:
+        known = {asset.media_hash for asset in index.trip_assets(trip_id=trip.id)}
+        if body.music_hash not in known:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"music_hash {body.music_hash!r} is not a declared asset of this trip. "
+                    "Negotiate and upload it first, the same as any photograph or clip -- there "
+                    "is no separate upload path for music."
+                ),
+            )
+
+    options = {
+        "aspect": body.aspect,
+        "music_hash": body.music_hash,
+        "day": body.day,
+        "date_from": body.date_from,
+        "date_to": body.date_to,
+        "places": body.places,
+        "name": body.name,
+        "subtitles": body.subtitles,
+        "burn_in": body.burn_in,
+        "clip_audio": body.clip_audio,
+    }
+    job, created = index.enqueue_job(
+        owner_id=principal.user_id,
+        trip_id=trip.id,
+        kind="reel",
+        job_id=new_id(),
+        options=json.dumps(options),
+    )
+    response.status_code = 202 if created else 200
+    return {
+        **_job_json(index, job, settings),
+        "created": created,
+        "detail": (
+            "queued"
+            if created
+            else "this trip already has a job queued or running (a build or a reel); that job is "
+            "returned rather than a second one started, since both write under one --out"
         ),
     }
 

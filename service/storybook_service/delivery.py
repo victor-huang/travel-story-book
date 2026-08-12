@@ -66,6 +66,7 @@ from story_book.export.report import MediaPrefix, render_report
 from storybook_service.index import Index, Job
 from storybook_service.objectstore import ObjectStore, ObjectStoreError
 from storybook_service.principal import Principal, resolve_principal
+from storybook_service.reel_jobs import reel_output_paths
 from storybook_service.settings import Settings
 from storybook_service.source import TripPaths, trip_paths
 
@@ -385,3 +386,86 @@ def get_media(
     except ObjectStoreError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return RedirectResponse(url=download.url, status_code=302)
+
+
+@router.get("/jobs/{job_id}/reel")
+def get_reel_download(
+    job_id: str,
+    principal: PrincipalDep,
+    index: IndexDep,
+    settings: SettingsDep,
+    store: StoreDep,
+) -> dict[str, Any]:
+    """S07: the finished video and the honest record of what rendered it, for one succeeded reel
+    job. Same shape as `GET /jobs/{job_id}/report` (S05) -- a signed `GET`, never a public-read
+    bucket, scoped by the same owner-checked join every other route here uses.
+
+    **Immutable per D5, so there is nothing to invalidate.** The key is namespaced by `job_id`;
+    a re-cut is a different job, a different key, a different signed URL -- never a rewrite of
+    this one. No ETag, no revalidation: I33's cache may key on `job_id` alone and never re-check.
+    """
+    job = _require_job(index, principal, job_id)
+    if job.kind != "reel":
+        raise HTTPException(
+            status_code=404, detail=f"job {job_id} is a {job.kind!r} job, not a reel"
+        )
+    if job.state != "succeeded":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"job {job_id} is {job.state!r}, not succeeded; there is no reel yet. "
+                f"Poll GET /jobs/{job_id} until state is succeeded."
+            ),
+        )
+
+    try:
+        options = json.loads(job.options) if job.options else {}
+    except json.JSONDecodeError:  # pragma: no cover - written by this codebase only
+        options = {}
+    paths = trip_paths(settings, job.trip_id)
+    video_path, manifest_path = reel_output_paths(paths, options)
+    if not video_path.is_file() or not manifest_path.is_file():
+        # The worker itself refuses to call a reel job "succeeded" without both files (P06's
+        # lesson, applied at write time); this is the same check applied again at read time,
+        # because a job row and a filesystem can still disagree if something moved between them.
+        missing = video_path if not video_path.is_file() else manifest_path
+        raise HTTPException(
+            status_code=500,
+            detail=f"job {job_id} is succeeded but {missing} is missing on disk",
+        )
+    manifest = json.loads(manifest_path.read_text())
+
+    key = delivery_asset_key(
+        prefix=settings.s3_delivery_prefix,
+        owner_id=job.owner_id,
+        trip_id=job.trip_id,
+        relpath=f"jobs/{job_id}/{video_path.name}",
+    )
+    try:
+        ensure_uploaded(store, key, video_path)
+        download = store.presign_get(
+            key, filename=video_path.name, ttl_s=settings.delivery_presign_ttl_s
+        )
+    except ObjectStoreError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return {
+        "job_id": job.id,
+        "trip_id": job.trip_id,
+        "state": job.state,
+        "video": {
+            "format": "mp4",
+            "download_url": download.url,
+            "expires_at": download.expires_at.isoformat(),
+            "size_bytes": video_path.stat().st_size,
+        },
+        "immutable": True,
+        "immutable_detail": (
+            "a re-cut is a new job with a new job_id (D5), never a mutation of this one; no ETag "
+            "or revalidation is needed on the client side."
+        ),
+        # reel.json is "the honest record of what a render actually did" (the tracker's frozen
+        # list); shipped whole rather than as a second signed URL, since I30's own acceptance
+        # criterion is that every option it sent is reflected in it.
+        "reel_json": manifest,
+    }

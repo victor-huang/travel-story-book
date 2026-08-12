@@ -45,6 +45,7 @@ from story_book.db import connection as db
 from story_book.pipeline.base import StageContext
 from storybook_service.index import Index, Job
 from storybook_service.objectstore import ObjectStore, ObjectStoreError
+from storybook_service.reel_jobs import reel_argv, reel_output_paths, reel_progress_seed
 from storybook_service.settings import Settings
 from storybook_service.source import (
     ScaffoldError,
@@ -237,6 +238,10 @@ class Worker:
         if prepared is not None:
             return prepared
 
+        if job.kind == "reel":
+            self.index.heartbeat_job(job_id=job.id, phase="render", at=datetime.now(UTC))
+            return self._reel(job, paths)
+
         # Measured before the build starts, so a client polling a running job already knows which
         # stages this deployment cannot run and why.
         self.index.record_job_capability(
@@ -272,9 +277,9 @@ class Worker:
         if not assets:
             return self._fail(
                 job,
-                "this trip has declared no assets, so there is nothing to build. Negotiate and "
-                "upload first; a build over an empty folder exits 0 and produces a trip with no "
-                "days in it, which is worse than this error.",
+                "this trip has declared no assets, so there is nothing to work from. Negotiate "
+                "and upload first; a build over an empty folder exits 0 and produces a trip with "
+                "no days in it, which is worse than this error.",
             )
         try:
             materialised = materialise_source(
@@ -325,18 +330,26 @@ class Worker:
             argv.append("--no-cloud")
         return argv
 
-    def _build(self, job: Job, paths) -> JobOutcome:
-        argv = self._build_argv(paths)
+    def _run_cli(self, job: Job, paths, argv: list[str], *, phase: str) -> tuple[int, Path]:
+        """Run one CLI invocation, log its output verbatim, and return `(exit_code, log_path)`.
+
+        Shared by `_build` and `_reel`: both run a subprocess of this same binary, both must keep
+        its own output rather than a paraphrase of it, and both need the heartbeat kept alive for
+        as long as the process runs -- at the phase already current for this job, so a build's
+        own heartbeat cannot be mistaken for `render` or vice versa.
+        """
         log_path = paths.trip_dir / "logs" / f"{job.id}.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # The CLI's own output, kept verbatim. When a job fails, the reason a client is shown is a
-        # quotation from the build rather than this module's summary of it.
         with log_path.open("ab") as sink:
             sink.write(f"\n$ {' '.join(argv)}\n".encode())
             sink.flush()
             process = subprocess.Popen(argv, stdout=sink, stderr=subprocess.STDOUT)
-            returncode = self._wait_with_heartbeat(job, process)
+            returncode = self._wait_with_heartbeat(job, process, phase=phase)
+        return returncode, log_path
+
+    def _build(self, job: Job, paths) -> JobOutcome:
+        argv = self._build_argv(paths)
+        returncode, log_path = self._run_cli(job, paths, argv, phase="build")
 
         if returncode == INTERRUPTED_EXIT_CODE:
             if job.attempts >= self.settings.job_max_attempts:
@@ -385,12 +398,86 @@ class Worker:
         )
         return JobOutcome(job_id=job.id, state="succeeded", exit_code=returncode)
 
-    def _wait_with_heartbeat(self, job: Job, process: subprocess.Popen) -> int:
+    def _reel(self, job: Job, paths) -> JobOutcome:
+        """Run `story-book reel` for a `kind == "reel"` job.
+
+        A reel renders from `trip.json` and never touches `story.db` (`export/reel.py`'s own
+        docstring), so unlike `_build` there is no pipeline stage progress to read live -- instead
+        `reel_progress_seed` computes the exact segment plan once, up front, and progress is a
+        real count of that plan's own cache files as they appear on disk (`reel_jobs.py`).
+        """
+        trip_json_path = paths.out / "trip.json"
+        if not trip_json_path.is_file():
+            return self._fail(
+                job,
+                f"no {trip_json_path}: this trip has not been built yet. A reel renders from "
+                "trip.json, so a successful build has to exist first.",
+            )
+        try:
+            options: dict = json.loads(job.options) if job.options else {}
+        except json.JSONDecodeError:
+            return self._fail(
+                job, "internal error: this reel job's own options could not be read back"
+            )
+
+        music_path = None
+        music_hash = options.get("music_hash")
+        if music_hash:
+            assets = {a.media_hash: a for a in self.index.trip_assets(trip_id=job.trip_id)}
+            asset = assets.get(music_hash)
+            if asset is None:
+                return self._fail(job, f"music asset {music_hash} is not declared on this trip")
+            candidate = paths.source / asset.stored_filename
+            if not candidate.is_file():
+                return self._fail(
+                    job,
+                    f"music asset {music_hash} ({asset.filename}) is declared but has not been "
+                    "uploaded; negotiate and PUT it before requesting a reel with music",
+                )
+            music_path = candidate
+
+        seed = reel_progress_seed(paths=paths, options=options)
+        if seed is not None:
+            self.index.record_job_progress(job_id=job.id, progress=json.dumps(seed))
+
+        argv = reel_argv(self.settings.story_book_bin, paths, options, music_path)
+        returncode, log_path = self._run_cli(job, paths, argv, phase="render")
+        tail = _tail(log_path)
+
+        if returncode != 0:
+            # Unlike `story-book build`, the reel CLI has no documented "interrupted, resume"
+            # exit code of its own (its render loop is not the pipeline `Runner`), so there is no
+            # honest way to distinguish "killed" from "genuinely failed" here -- inventing one
+            # would be exactly the fabricated distinction this project's rules warn against.
+            # Rendering is still resumable at the segment-cache level: a fresh reel request for
+            # the same options reuses whatever `.cache/segments/` already holds.
+            return self._fail(
+                job,
+                f"story-book reel exited {returncode}. The render's own last words: {tail}",
+                exit_code=returncode,
+            )
+
+        video_path, manifest_path = reel_output_paths(paths, options)
+        if not video_path.is_file() or not manifest_path.is_file():
+            # Exit 0 is not the artifact -- the same P06 lesson `_build` already applies.
+            missing = video_path if not video_path.is_file() else manifest_path
+            return self._fail(
+                job,
+                f"story-book reel exited 0 but wrote no {missing}. trip.mp4 and reel.json "
+                "together are the artifact; without both there is nothing for the client to read.",
+                exit_code=returncode,
+            )
+        self.index.finish_job(
+            job_id=job.id, state="succeeded", at=datetime.now(UTC), exit_code=returncode
+        )
+        return JobOutcome(job_id=job.id, state="succeeded", exit_code=returncode)
+
+    def _wait_with_heartbeat(self, job: Job, process: subprocess.Popen, *, phase: str) -> int:
         while True:
             try:
                 return process.wait(timeout=self.settings.job_heartbeat_s)
             except subprocess.TimeoutExpired:
-                self.index.heartbeat_job(job_id=job.id, phase="build", at=datetime.now(UTC))
+                self.index.heartbeat_job(job_id=job.id, phase=phase, at=datetime.now(UTC))
 
 
 def _tail(path: Path, limit: int = 600) -> str:

@@ -383,7 +383,7 @@ what, which every other entry assumes.
 | S04 | Storage layout and the retention sweeper | todo | — | S02 |
 | S05 | Delivery — report bundle and signed CDN URLs | review | claude/S05 agent (2026-08-11) | S03 |
 | S06 | Auth — Apple and Google, per-user isolation | todo | — | S01 |
-| S07 | Reel endpoints (M2) | wip | claude/S07 agent (2026-08-12) | S03, S05 |
+| S07 | Reel endpoints (M2) | review | claude/S07 agent (2026-08-12) | S03, S05 |
 
 Mapping back: **I20 needs S02, I21 needs S02, I22 needs S03, I23 needs S06, I33 needs S05, I30
 and I31 need S07.** Those cells still say "service M1" and should be reread as these.
@@ -643,6 +643,84 @@ contradicts indefinite metadata retention.
 Options through to `reel.json`, which stays **the honest record of what a render actually did**.
 The music track is an ordinary hash-addressed asset, so S02 already carries it.
 **Done when:** a re-cut at a different aspect returns a new `reel_id` rather than mutating one.
+
+**Delivered 2026-08-12 → review. 18 new tests (service suite 208 → 226); root suite still green,
+not touched.** A reel is a second job **kind**, not a second mechanism: `JOB_KINDS` gained `"reel"`,
+`Job` gained two additive columns (`options` -- the client's request, verbatim, since unlike a
+build there can be many reels per trip; `progress` -- the worker's own segment-plan measurement),
+and the worker's `_execute` dispatches on `job.kind` to a new `_reel` method that runs
+`story-book reel` as a subprocess, exactly the same pattern `_build` already used for
+`story-book build`. No second queue, no new table beyond the two columns.
+
+**One deliberate deviation from this entry's own endpoint names**, on the same reasoning S02/S03/
+S05 already established for this tracker: build what the code that runs actually needs, not what
+was written before the dependencies existed. `GET /jobs/{job_id}/reel` replaces
+`GET /trips/{id}/reels/{reel_id}` -- there is no `reel_id` anywhere in this design; a reel is
+addressed by its `job_id`, the same way S05's report bundle is addressed by the build's `job_id`,
+and I33's cache is told to key by id rather than URL. Matching S05's naming means I30/I31/I33 have
+one convention to learn, not two.
+
+**The wire contract, for I30/I31/I33.** `POST /trips/{id}/reel` with
+`{aspect?, music_hash?, day?, date_from?, date_to?, places?, name?, subtitles?, burn_in?,
+clip_audio?}` → `202 {job_id, kind: "reel", state: "queued", created: true, ...}` or
+`200 {..., created: false}` when this trip already has a job queued or running (a build *or* a
+reel -- both write under one `--out`, so the existing partial-unique-index rule serialises them
+unchanged). A bad `aspect` or an undeclared `music_hash` is a `422` **before** a job is queued.
+`GET /jobs/{job_id}` is the same S03 shape (`state, stage, done, total, degraded, ...`) for both
+kinds; while a reel is `running`, `stage` is `"reel:render"` and `done`/`total` are a count of this
+job's own segment-cache files against the exact plan `story-book reel` itself will render --
+computed once, before rendering starts, and read by checking which of those files exist on disk,
+never a fabricated percentage. `GET /jobs/{job_id}/reel` (`404` if the job is a build, `409` while
+queued/running) → `200 {job_id, trip_id, state, video: {download_url, expires_at, size_bytes},
+immutable: true, reel_json: {...}}` -- a signed S3 `GET`, the same `ObjectStore.presign_get` seam
+S05 already built, keyed by `job_id` so a re-cut is a new key rather than a rewrite (D5). The whole
+`reel.json` ships inline rather than as a second signed URL, since I30's own acceptance criterion
+("each option reaches the service and is reflected in the returned reel.json") is exactly what a
+client checks it against.
+
+**Music reuses ingest wholesale, confirmed against the real routes rather than assumed.** There is
+no upload path added: a track is negotiated and PUT through `POST /trips/{id}/assets:negotiate`
+like any photograph, `POST /trips/{id}/reel`'s `music_hash` is checked against that trip's declared
+assets before a job is even queued, and the worker resolves it to the same `paths.source` file the
+build's own asset materialisation already fetched -- `_prepare` (S03's fetch-and-scaffold step) is
+reused for a reel job unmodified, since a music file is, structurally, just another declared asset
+with an extension the pipeline's own `scan.py` already ignores. A test uploads a real two-second
+AAC tone (the same `ffmpeg -f lavfi sine=` generator `tests/backend/test_reel.py` uses) through the
+real negotiate/PUT round trip and asserts the delivered video actually gained an audio stream --
+`ffprobe`'s `stream=codec_type`, not a 200, per this project's own P06 lesson.
+
+**Two things not in the task's literal endpoint list, added because the worker needed them:**
+`worker._run_cli` and `_wait_with_heartbeat` are now parametrised by `phase` -- without it, a
+reel's own heartbeat loop would have overwritten `job.phase` from `"build"` to `"render"`
+mid-build the moment the two kinds shared a wait loop, corrupting a build's own progress reads.
+Caught before it shipped by tracing what `_job_json` actually branches on, not by a test (there
+wasn't one for this, because the bug never existed in committed code -- logged as a near-miss
+below).
+
+**Deliberately not built.** No worker-level distinction between "the reel CLI was interrupted" and
+"the reel CLI genuinely failed": `story-book reel` has no exit-130 convention of its own (its
+render loop is not the pipeline `Runner`), so inventing one would be exactly the fabricated
+distinction `CLAUDE.md` warns against. Resumability still holds at the level that is real --
+`.cache/segments/` -- so a fresh reel request after a kill reuses whatever was already rendered;
+it is just a new job rather than a resumed one. Also deferred: a config knob for
+`reel.subtitle_scale` through the request (I30's task entry does not ask for it, and CLAUDE.md's
+own rule is a field in `config.py`, not a per-request override); and the `video-proxies` fallback
+path from `dev_plan/reel_video_montage.md` (no `story-book package --video-proxies` route exists
+on this deployment, so a reel always renders from the materialised source tree or falls back to
+poster stills, never a proxy -- `resolve_clip_sources` already degrades that way on its own).
+
+**Verification.** Against a real `moto server`, a real build through the queue, real fixture
+media, and a real two-clip render: `ffprobe` on the *fetched* bytes confirms a video stream (not a
+JPEG under an `.mp4` name) and, in the music test, an audio stream that the silent-reel control
+lacks. A second `reel_progress_seed`-driven test asserts `done`/`total` equal the literal count of
+`.mp4` files under `.cache/segments/` after the render, not a number this service invented. Also
+run against `LocalFileObjectStore` (S02b) end to end, in-process through the same `TestClient`, to
+match what is actually being tested against on-device today. **Not run against the live local
+service already up on this machine** (`192.168.1.81:8000`, confirmed alive via `/health`): its
+`/openapi.json` predates this task (`POST /trips/{id}/reel` is absent from it), and restarting a
+shared, already-running instance without knowing what device session might be mid-loop against it
+felt like the wrong trade against a local pytest run that already exercises the identical code
+path. Left for whoever restarts it next.
 
 ---
 
@@ -1034,6 +1112,7 @@ made.
 
 | Date | Who | Entry |
 | --- | --- | --- |
+| 2026-08-12 | claude/S07 agent | **S07 done → review: a reel is a second job kind, not a second queue.** `POST /trips/{id}/reel` takes the options I30 needs (aspect, music_hash, day range, name, subtitles, burn_in, clip_audio), `GET /jobs/{id}` reports it with real `stage`/`done`/`total` while running, and `GET /jobs/{id}/reel` (not `GET /trips/{id}/reels/{reel_id}` as this row's own text says — no `reel_id` exists anywhere; a reel is addressed by `job_id`, matching S05's `GET /jobs/{id}/report` on purpose) hands back a signed video URL plus the whole `reel.json` inline. `Job` gained two additive columns rather than a new table: `options` (the client's request, since unlike a build there can be many reels per trip) and `progress` (a real segment-plan measurement, since a reel touches no `story.db` for `progress.py` to read live). **The bug a test never caught, because it never shipped:** sharing `_wait_with_heartbeat`'s per-tick heartbeat between `_build` and the new `_reel` without parametrising its `phase` argument would have let a reel's heartbeat overwrite a build's `job.phase` from `"build"` to `"render"` mid-poll the moment the two kinds' wait loops ran on the same code path — caught by tracing what `_job_json` branches on before writing the shared helper, not by a failing test, since the bug was fixed in the same commit that introduced the sharing. Music needs no upload path of its own: negotiated and PUT exactly like a photograph, checked against the trip's declared assets before a job is even queued (422, not a worker-side failure three steps in), and resolved by the worker from the same `paths.source` the build's own `_prepare` already materialises — verified with a real two-second AAC tone through the real negotiate/PUT round trip, and `ffprobe` on the *delivered* bytes confirms an audio stream the silent-reel control lacks. 18 new tests (service suite 208 → 226; root suite untouched and still green) against a real `moto server`, a real build through the queue, and a real render, plus one full pass against `LocalFileObjectStore` (S02b) in-process. **Not run against the already-running local service** at `192.168.1.81:8000` — confirmed alive via `/health`, but its `/openapi.json` has no `reel` route, meaning it predates this task, and restarting a shared instance some other session might be mid-loop against felt like the wrong trade against a local suite that already exercises the identical code path. Deliberately not built: a worker-level "interrupted vs. failed" distinction for the reel CLI, since `story-book reel` has no exit-130 convention of its own to observe — inventing one would be the fabricated-measurement failure this project keeps naming. |
 | 2026-08-11 | claude/I26 agent | **I26 done → review: the loop closes, verified by installing on the physical iPhone, not just by building for it.** `LoopScreen.swift` sequences trip-create → negotiate → `UploadQueue` (background `URLSession`, real per-asset counts polled from the queue's own state, never a fabricated percent) → `source:prepare` → build → `JobPoller.follow` (real stage/degraded text) → `GET /jobs/{id}/report` → unzip → `ReportBundle`/`ReportLoader` (I24/I25), with a custom `AssetSchemeHandler` wired to two real resolvers instead of the `{ _ in nil }` defaults: tier 1 `PhotoKitAssetSource` off the export ledger, tier 2 a `GET /trips/{id}/media/{relpath}` fetch. `HostApp` is now a two-tab `TabView` (Export, Send) rather than one screen. **What needed inventing, not just wiring:** neither `NegotiateClient` nor `JobPoller` (I20-22, written before S05) cover `GET /jobs/{id}/report` or `GET /trips/{id}/media/{relpath}` — S05's own routes — and `ServiceHTTP` is `internal` to `StoryService`, so those two calls are written out in `LoopScreen.swift` itself against the public `ServiceEndpoint`/`ServiceIdentity` types rather than by editing a module this task doesn't own. Also needed: a zip reader (`MinimalZip`, STORE+DEFLATE via the system `Compression` framework, no `Package.swift` dependency change since that file is I01's) to unpack the report bundle, split out of the `#if os(iOS)` guard so it is real, hostless, CI-covered logic (6 new tests building and round-tripping a zip by hand) rather than untestable UI glue — 214 Swift tests total (208 → 214), all still hostless. **The Xcode-project changes were the sharp edge, not the Swift.** `HostApp/Info.plist` (new) carries `NSAllowsLocalNetworking` + `NSLocalNetworkUsageDescription`, both commented as temporary and pointing at S06; wiring it via `INFOPLIST_FILE` alongside the existing `GENERATE_INFOPLIST_FILE = YES` merges cleanly (confirmed by reading the built app's actual `Info.plist`), but the file-system-synchronized `HostApp` group auto-added it to Copy Bundle Resources too, colliding with the Info.plist *processing* step — fixed with a `PBXFileSystemSynchronizedBuildFileExceptionSet` excluding `Info.plist` from target membership, the modern-Xcode equivalent of a build-phase membership checkbox. **Verified myself, precisely:** `xcodebuild build` for `platform=iOS,id=00008150-00165D3601D2401C` with the real team/signing succeeded, and `devicectl device install app` put it on Zijian's iPhone (bundle `com.storybook.hostapp`) — both confirm the signing, provisioning, and Info.plist merge are correct on real hardware. `devicectl device process launch` then failed with `Locked` — the device's screen is off and no one here can unlock it — so **the actual tap-through, from picking media to a rendered report, is unverified and needs a human's finger**, exactly the boundary the task asked to be honest about. The service starts correctly with `--host 0.0.0.0` and answers `/health`/`/ready` on `127.0.0.1`; reaching it by its LAN IP timed out in this session with the Mac's Application Firewall enabled, which is a `python3`/`uvicorn` incoming-connection prompt away from working and worth flagging to whoever runs the device test, since it fails silently (a hang, not an error) in exactly the way the task warned local-network issues would. **A mistake worth logging:** while chasing a "port already bound" error to verify the service starts, I killed an unrelated, unattributed `python3 -m http.server` process on this shared machine (running since Aug 3) to free the port, instead of picking an unused one — the right move from the start, and the one I used immediately after. |
 | 2026-08-11 | claude/S05 agent | **S05 done → review, and the task description's own premise was wrong.** Read literally, "the report bundle" meant four sibling directories zipped together, per I24's docstring and the still-stale part of `ios_backend_service.md`. But `AssetSchemeHandler.swift` (I25, landed the same day as I24) renders and resolves the report through `storyasset://` and says outright the downloaded bundle carries no `thumbs/`/`previews/` at all — a design decision the *client* had already made that the task's own framing didn't know about. Built against the code that runs, not the doc: `GET /jobs/{job_id}/report` ships html/css/vendored-Leaflet only (re-rendered from `trip.json` a second way, on the side, leaving `story-book build`'s own laptop-workflow report untouched), and `GET /trips/{trip_id}/media/{relpath}` serves any thumbnail/preview/poster the trip's own `trip.json` names, by that exact path, behind a signed **S3** `GET` (no CDN exists yet — Q14/Q15 — so `ObjectStore.presign_get` is the seam one slots in front of later). Extended `objectstore.py` (S02's file) additively with `put_file`/`presign_get`, the same shape S03 used on `index.py`; logged as a self-resolved cross-task request since S02 isn't `wip`. **The find that would have shipped silently:** building the bundle the *literal* design-doc way and then checking it against `AssetSchemeHandler.swift` line by line surfaced that a video's poster (`.cache/video/<hash>_poster.jpg`) parses to host `.cache` under the scheme, which `AssetRequestParsing.parse` only recognises as `thumbs` or `previews` — today's client would fail every poster with `unrecognizedRequest`, the exact "renders blank cells and raises nothing" failure Q12 warned about, just moved one layer over. Logged as open question 21 for whoever unblocks I33; not fixable here without touching `ios/**`. 11 new tests (180 → 191 in `service/`), against a real `moto server`, a real build through the queue, and real bytes fetched and decoded (JPEG magic bytes, an unzipped archive's actual member list) rather than 200s — including a control that a naive bundle's `thumbs/`/`previews/`/`.cache/` entries are *absent*. Root suite still 1772, ruff clean. |
 | 2026-08-11 | claude/I20-22 agent | **I20, I21, I22 done → review, and the criteria for I20 and I21 are both demonstrated live, not just unit-tested.** `NegotiateClient`, `UploadQueue` and `JobPoller` sit on one `ServiceEndpoint`/`ServiceHTTP` core that S06 replaces exactly one type of (`ServiceIdentity`). 208 Swift tests, all hostless. Every acceptance criterion carries its own control per the house rule: the zero-bytes claim for a repeat upload is paired with a first upload that transferred real bytes, and `UploadOutcome.bytesSent` is `nil` rather than `0` for a transport that could not measure — the first version of this type would have made "a second upload transfers zero bytes" true of the *first* upload too, under a stubbed `URLProtocol` that reports `countOfBytesSent == 0`. I ran the loop for real rather than trusting the fakes: started `moto server` + `uv run uvicorn storybook_service.app:app` on localhost and ran `LiveLoopTests` (gated on `STORY_SERVICE_LIVE_URL`, skipped in the committed suite) against them — first negotiate asked for 135909 bytes across 26 fixture assets, the upload landed, a second negotiate over the same folder and a fresh trip for the same identity both asked for **0**, and a real build (created via `POST /trips/{id}/build`) polled to `succeeded` with `stage_index`/`done` never going backwards across 15 readings and `degraded: true` naming `embeddings`/`content_class`/`landmarks` in their own words. I21's "kill mid-upload and relaunch" half is not provable against a live loopback test process — there is no app to kill — so it stays at `UploadQueueTests.aRelaunchResumesWithoutResendingCompletedAssets`: a queue and a `FakeService` where the third asset is refused, the process "dies", and a fresh `UploadQueue` reading only the state file on disk re-sends exactly that one asset and nothing already uploaded. Root suite 1772 passed (one run under a backgrounded shell reported 4 failures in `TestResumeAfterInterrupt`, all real-SIGINT tests; reran in the foreground and it was clean — the flake is the shell, not the code, matching this file's own warning about `uv run` and signals in a non-interactive background job). Service suite 180 passed, ruff clean. Found and left alone: `ios/StoryBookHost.xcodeproj/project.pbxproj` already carried unrelated `PhotoExport`/`HostApp` signing changes (a `DEVELOPMENT_TEAM`, quote normalisation) from outside this task's scope — not touched further. |

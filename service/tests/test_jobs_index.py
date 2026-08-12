@@ -92,8 +92,13 @@ class TestEnqueue:
         assert not created
 
     def test_an_unknown_kind_is_refused(self, index, trip):
+        # "reel" was this test's example of an unknown kind before S07 added it -- a stale example
+        # would have kept passing for the wrong reason (JOB_KINDS grew, the test did not notice),
+        # exactly the "test that keeps passing after the thing it tests has changed" trap.
         with pytest.raises(IndexError_, match="job kind"):
-            index.enqueue_job(owner_id=trip.owner_id, trip_id=trip.id, kind="reel", job_id=new_id())
+            index.enqueue_job(
+                owner_id=trip.owner_id, trip_id=trip.id, kind="narrate", job_id=new_id()
+            )
 
 
 class TestClaim:
