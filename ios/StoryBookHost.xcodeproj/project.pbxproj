@@ -27,13 +27,26 @@
 		1A0000000000000000000007 /* PhotoExportTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PhotoExportTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		1A0000000000000000000022 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 1A0000000000000000000004 /* HostApp */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		1A0000000000000000000008 /* HostApp */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				1A0000000000000000000022 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
+			);
 			path = HostApp;
 			sourceTree = "<group>";
 		};
-		1A0000000000000000000009 /* PhotoExportTests */ = {
+		1A0000000000000000000009 /* Tests/PhotoExportTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Tests/PhotoExportTests;
 			sourceTree = "<group>";
@@ -65,7 +78,7 @@
 			isa = PBXGroup;
 			children = (
 				1A0000000000000000000008 /* HostApp */,
-				1A0000000000000000000009 /* PhotoExportTests */,
+				1A0000000000000000000009 /* Tests/PhotoExportTests */,
 				1A0000000000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -119,7 +132,7 @@
 				1A0000000000000000000019 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				1A0000000000000000000009 /* PhotoExportTests */,
+				1A0000000000000000000009 /* Tests/PhotoExportTests */,
 			);
 			name = PhotoExportTests;
 			packageProductDependencies = (
@@ -267,7 +280,9 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 3VYXW8BCGY;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = HostApp/Info.plist;
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "The test host seeds the photo library with committed test fixtures.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "The test host reads the photo library to verify that export preserves capture metadata.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -276,7 +291,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.storybook.hostapp";
+				PRODUCT_BUNDLE_IDENTIFIER = com.storybook.hostapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -289,7 +304,9 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 3VYXW8BCGY;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = HostApp/Info.plist;
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "The test host seeds the photo library with committed test fixtures.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "The test host reads the photo library to verify that export preserves capture metadata.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -298,7 +315,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.storybook.hostapp";
+				PRODUCT_BUNDLE_IDENTIFIER = com.storybook.hostapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -313,7 +330,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.storybook.PhotoExportTests";
+				PRODUCT_BUNDLE_IDENTIFIER = com.storybook.PhotoExportTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -329,7 +346,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.storybook.PhotoExportTests";
+				PRODUCT_BUNDLE_IDENTIFIER = com.storybook.PhotoExportTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";

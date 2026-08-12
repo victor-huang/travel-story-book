@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	I26, TEMPORARY. HostApp talks to the story-book service over plain HTTP on the same Wi-Fi as
+	a Mac running it locally (dev_plan/ios_implementation_tracker.md, I26). ATS blocks plain HTTP
+	by default; NSAllowsLocalNetworking exempts only RFC 1918 / .local / loopback destinations,
+	not the internet, so it is narrower than NSAllowsArbitraryLoads.
+
+	DELETE both keys once S06 (real auth) lands and the app talks to a deployed HTTPS service --
+	D14 and I26's task entry both say this exception must not survive past the same-Wi-Fi test.
+	-->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<!--
+	Required since iOS 14 for the app's *first* request to any LAN peer -- without this key the
+	OS silently drops the request with no error the app can observe (I26's task entry, point 3).
+	-->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Talks to the story-book service running on your Mac, over the same Wi-Fi, to upload photos and fetch the finished trip report.</string>
+</dict>
+</plist>
