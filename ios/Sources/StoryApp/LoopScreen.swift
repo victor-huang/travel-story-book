@@ -203,6 +203,9 @@ enum MinimalZip {
                 model.restore()
                 model.refreshFolders()
             }
+            .onChange(of: model.selectedFolder) { _, newFolder in
+                model.folderSelectionChanged(to: newFolder)
+            }
         }
 
         private var serviceSection: some View {
@@ -400,12 +403,23 @@ enum MinimalZip {
         var errorMessage: String?
         var serviceReachable: Bool?
 
-        /// Persisted so a relaunch resumes rather than restarts (the I26 acceptance criterion).
-        /// `tripID` lets a re-run negotiate into the same trip instead of creating a second one;
-        /// `jobID` lets it re-attach to a build already running on the service instead of starting
-        /// a new one. Neither is guessed — both come from a response this screen already received.
+        /// Persisted **per exported folder**, so a relaunch resumes rather than restarts (the I26
+        /// acceptance criterion) without also gluing a *different* folder onto whichever trip was
+        /// last active. `tripID` lets a re-run negotiate into the same trip instead of creating a
+        /// second one; `jobID` lets it re-attach to a build already running instead of starting a
+        /// new one. Both come from a response this screen already received, never guessed.
+        ///
+        /// Found the hard way: keying these globally meant picking a *different* folder after a
+        /// successful run silently reused the previous folder's trip and, worse, its already-
+        /// finished job — so "send" fetched the old report again and looked like nothing happened.
         private var tripID: String?
         private var jobID: String?
+        private var runsByFolder: [String: RunRecord] = [:]
+
+        private struct RunRecord: Codable {
+            var tripID: String
+            var jobID: String?
+        }
 
         var isRunning: Bool {
             switch phase {
@@ -426,28 +440,52 @@ enum MinimalZip {
             static let baseURL = "loop.baseURL"
             static let identity = "loop.identity"
             static let folder = "loop.folderPath"
-            static let tripID = "loop.tripID"
-            static let jobID = "loop.jobID"
+            static let runsByFolder = "loop.runsByFolder"
         }
 
         func restore() {
             let defaults = UserDefaults.standard
             baseURLText = defaults.string(forKey: Keys.baseURL) ?? ""
             identityText = defaults.string(forKey: Keys.identity) ?? ""
-            tripID = defaults.string(forKey: Keys.tripID)
-            jobID = defaults.string(forKey: Keys.jobID)
+            if let data = defaults.data(forKey: Keys.runsByFolder),
+                let decoded = try? JSONDecoder().decode([String: RunRecord].self, from: data)
+            {
+                runsByFolder = decoded
+            }
             if let path = defaults.string(forKey: Keys.folder) {
                 selectedFolder = URL(fileURLWithPath: path)
             }
+            loadRun(for: selectedFolder)
         }
 
         func persist() {
             let defaults = UserDefaults.standard
             defaults.set(baseURLText, forKey: Keys.baseURL)
             defaults.set(identityText, forKey: Keys.identity)
-            defaults.set(tripID, forKey: Keys.tripID)
-            defaults.set(jobID, forKey: Keys.jobID)
             defaults.set(selectedFolder?.path, forKey: Keys.folder)
+        }
+
+        /// Called on every folder selection, by the user or by `restore()`: `tripID`/`jobID` must
+        /// always mean "this folder's run," never whatever the previous selection left behind.
+        func folderSelectionChanged(to folder: URL?) {
+            loadRun(for: folder)
+        }
+
+        private func loadRun(for folder: URL?) {
+            guard let folder, let record = runsByFolder[folder.path] else {
+                tripID = nil
+                jobID = nil
+                return
+            }
+            tripID = record.tripID
+            jobID = record.jobID
+        }
+
+        private func saveRun(folder: URL, tripID: String, jobID: String?) {
+            runsByFolder[folder.path] = RunRecord(tripID: tripID, jobID: jobID)
+            if let data = try? JSONEncoder().encode(runsByFolder) {
+                UserDefaults.standard.set(data, forKey: Keys.runsByFolder)
+            }
         }
 
         func refreshFolders() {
@@ -524,7 +562,8 @@ enum MinimalZip {
                     folder: folder)
                 try await client.negotiate.prepareSource(tripID: resolvedTripID)
 
-                let resolvedJobID = try await resolveJob(client: client, tripID: resolvedTripID)
+                let resolvedJobID = try await resolveJob(
+                    client: client, tripID: resolvedTripID, folder: folder)
                 let finalStatus = try await poll(client: client, jobID: resolvedJobID)
                 guard finalStatus.state == .succeeded else {
                     throw LoopError.transport(
@@ -547,7 +586,7 @@ enum MinimalZip {
             phase = .creatingTrip
             let trip = try await client.negotiate.createTrip(name: folder.lastPathComponent)
             tripID = trip.id
-            persist()
+            saveRun(folder: folder, tripID: trip.id, jobID: jobID)
             return trip.id
         }
 
@@ -597,16 +636,29 @@ enum MinimalZip {
             }
         }
 
-        private func resolveJob(client: StoryServiceClient, tripID: String) async throws -> String {
+        private func resolveJob(
+            client: StoryServiceClient, tripID: String, folder: URL
+        ) async throws -> String {
             if let jobID {
-                // A build already followed to some point; ask where it stands rather than assume.
-                _ = try await client.jobs.job(id: jobID)
-                return jobID
+                // A build already followed to some point -- ask where it actually stands rather
+                // than assume "recorded" means "still relevant." A job that has already reached
+                // `succeeded` or `failed` is history: reusing its id here would skip the build
+                // entirely and hand back the *old* report, which is exactly the bug where sending
+                // a different folder silently kept showing the previous run's result. Only a
+                // state this client cannot yet classify (`state == nil`) is treated as possibly
+                // still active, matching `JobStatus.state`'s own documented caution about unknown
+                // states -- the risk of one extra `job()` call is smaller than the risk of
+                // launching a second build for a job that is, in fact, still running.
+                let status = try await client.jobs.job(id: jobID)
+                let definitelyFinished = status.state == .succeeded || status.state == .failed
+                if !definitelyFinished {
+                    return jobID
+                }
             }
             phase = .startingBuild
             let start = try await client.jobs.startBuild(tripID: tripID)
             jobID = start.job.jobID
-            persist()
+            saveRun(folder: folder, tripID: tripID, jobID: start.job.jobID)
             return start.job.jobID
         }
 
