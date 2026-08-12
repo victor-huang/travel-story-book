@@ -671,7 +671,7 @@ driven entirely by tapping.
 | I23 | `Auth` + app shell + trip list | **blocked** | — | Wave 0, **S06** |
 | I24 | Report webview | review | claude (2026-08-09) | I03 |
 | I25 | `AssetSchemeHandler` — images from the phone | review | claude/I24 agent (2026-08-09) | I04, I24, XT-1 ✅ |
-| I26 | **Loop screen** — export, upload, build, view, on the phone, over the stub identity | review | claude/I26 agent (2026-08-11) | I17, I20, I21, I22, I24, I25, S05 |
+| I26 | **Loop screen** — export, upload, build, view, on the phone, over the stub identity | done | claude/I26 agent (2026-08-11) | I17, I20, I21, I22, I24, I25, S05 |
 
 **Four of the six are blocked, and not merely unstarted.** Recorded 2026-08-09:
 
