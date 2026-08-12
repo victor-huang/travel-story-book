@@ -899,10 +899,10 @@ not just its own.
 
 | ID | Task | Status | Owner | Depends on |
 | --- | --- | --- | --- | --- |
-| I30 | Reel options — aspect, day range | **blocked** | — | I22, **S07** |
-| I31 | Music import — Files, **not** Apple Music | **blocked** | — | I20, **S07** |
+| I30 | Reel options — aspect, day range | wip | claude/I30-33 agent (2026-08-12) | I22, **S07** |
+| I31 | Music import — Files, **not** Apple Music | wip | claude/I30-33 agent (2026-08-12) | I20, **S07** |
 | I32 | Playback | todo | — | I30 |
-| I33 | `MediaCache` — posters and reels | **blocked** | — | I23, **S05** |
+| I33 | `MediaCache` — posters and reels | wip | claude/I30-33 agent (2026-08-12) | I23, **S05** |
 | I34 | Share sheet | todo | — | I32 |
 
 ### I26 — Loop screen *(added 2026-08-11, D14's loop closed on-device)*
