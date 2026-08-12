@@ -195,3 +195,90 @@ class S3ObjectStore:
             "get_object", Params=params, ExpiresIn=ttl, HttpMethod="GET"
         )
         return PresignedDownload(key=key, url=url, expires_at=issued_at + timedelta(seconds=ttl))
+
+
+def _reject_path_traversal(key: str) -> None:
+    if not key or key.startswith("/") or any(part in ("", "..") for part in key.split("/")):
+        raise ObjectStoreError(f"refusing key outside the store root: {key!r}")
+
+
+class LocalFileObjectStore:
+    """A directory on this machine, answering to the same shape S3 does.
+
+    **Not a deployment shape. A same-Wi-Fi stand-in for the one test that cannot wait on a
+    bucket.** There is no signature, no expiry enforcement, and no cross-host access control on
+    the URLs this hands out -- anyone who can reach this process on the network can read or write
+    any key, because "presigned" here means only "points at a route this process happens to
+    serve," not a cryptographic grant. `S3ObjectStore` enforces bucket, key, method and length;
+    this enforces path traversal and nothing else. Select it with
+    `STORY_SERVICE_OBJECT_STORE_BACKEND=local`, never by omission.
+    """
+
+    def __init__(self, settings: Settings) -> None:
+        if not settings.public_base_url:
+            raise ObjectStoreError(
+                "STORY_SERVICE_PUBLIC_BASE_URL is unset. The local object store hands out URLs "
+                "that point back at this service, and this service does not know what host or "
+                "port a client used to reach it -- set it to how the phone reaches this machine, "
+                "e.g. http://192.168.1.23:8000."
+            )
+        self.base_url = settings.public_base_url.rstrip("/")
+        self.root = settings.local_store_root
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.ttl_s = settings.presign_ttl_s
+
+    def path_for(self, key: str) -> Path:
+        """Resolve `key` to a path under `root`, or raise. Shared with the routes that actually
+        move bytes, so there is exactly one place path traversal is rejected."""
+        _reject_path_traversal(key)
+        return self.root / key
+
+    def head(self, key: str) -> ObjectInfo | None:
+        path = self.path_for(key)
+        if not path.is_file():
+            return None
+        return ObjectInfo(key=key, size=path.stat().st_size)
+
+    def presign_put(self, key: str, *, size: int) -> PresignedUpload:
+        if size < 0:
+            raise ObjectStoreError(f"size must not be negative; got {size}")
+        _reject_path_traversal(key)
+        issued_at = datetime.now(UTC)
+        return PresignedUpload(
+            key=key,
+            url=f"{self.base_url}/_local-object-store/{key}",
+            method="PUT",
+            expires_at=issued_at + timedelta(seconds=self.ttl_s),
+            headers={"Content-Length": str(size)},
+        )
+
+    def get_to_file(self, key: str, destination: Path) -> int:
+        """Copy, atomically -- same guarantee `S3ObjectStore` makes, for the same reason: a
+        partial file left under the final name reads as a truncated photograph, a wrong result
+        rather than a failure."""
+        source = self.path_for(key)
+        if not source.is_file():
+            raise ObjectStoreError(f"GET {key}: no such object")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        staging = destination.with_name(destination.name + ".partial")
+        staging.write_bytes(source.read_bytes())
+        staging.replace(destination)
+        return destination.stat().st_size
+
+    def put_file(self, key: str, source: Path) -> None:
+        destination = self.path_for(key)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(source.read_bytes())
+
+    def presign_get(
+        self, key: str, *, filename: str | None = None, ttl_s: int | None = None
+    ) -> PresignedDownload:
+        _reject_path_traversal(key)
+        issued_at = datetime.now(UTC)
+        ttl = self.ttl_s if ttl_s is None else ttl_s
+        url = f"{self.base_url}/_local-object-store/{key}"
+        if filename:
+            from urllib.parse import quote
+
+            url = f"{url}?filename={quote(filename)}"
+        return PresignedDownload(key=key, url=url, expires_at=issued_at + timedelta(seconds=ttl))

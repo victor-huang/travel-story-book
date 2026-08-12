@@ -18,14 +18,15 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import Any
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import FileResponse
 
 from storybook_service import index as index_module
 from storybook_service.capability import Report, probe
 from storybook_service.delivery import router as delivery_router
 from storybook_service.ingest import router as ingest_router
 from storybook_service.jobs import router as jobs_router
-from storybook_service.objectstore import ObjectStoreError, S3ObjectStore
+from storybook_service.objectstore import LocalFileObjectStore, ObjectStoreError, S3ObjectStore
 from storybook_service.principal import DEV_IDENTITY_HEADER
 from storybook_service.settings import Settings
 from storybook_service.worker import start_inline_worker, stop_inline_worker
@@ -64,11 +65,15 @@ async def lifespan(app: FastAPI):
         app.state.index = index_module.for_dsn(settings.resolved_index_dsn())
     if getattr(app.state, "object_store", None) is None:
         try:
-            app.state.object_store = S3ObjectStore(settings)
+            if settings.object_store_backend == "local":
+                app.state.object_store = LocalFileObjectStore(settings)
+            else:
+                app.state.object_store = S3ObjectStore(settings)
         except ObjectStoreError:
-            # An unconfigured bucket is not a reason to refuse to start: /health, /ready and the
-            # trip list all still answer, and the ingest routes say 503 with what to set. The
-            # bucket does not exist yet (open question 15), so this is today's normal state.
+            # An unconfigured bucket (or, for the local backend, an unset public base URL) is not
+            # a reason to refuse to start: /health, /ready and the trip list all still answer,
+            # and the ingest routes say 503 with what to set. The bucket does not exist yet (open
+            # question 15), so this is today's normal state for the s3 backend.
             app.state.object_store = None
     # The worker runs here by default (S03, question 16). A separate `python -m
     # storybook_service.worker` process is supported and equivalent -- the claim is one transaction
@@ -99,13 +104,51 @@ def create_app(
     over the environment, the same rule `lifespan` already applies to settings.
     """
     app = FastAPI(title=SERVICE_NAME, lifespan=lifespan)
-    if settings is not None:
-        app.state.settings = settings
+    # Resolved once, here, rather than left for `lifespan` to compute later: route *registration*
+    # (below) has to happen at construction time, and reading twice would risk the two disagreeing
+    # if the environment changed between them.
+    resolved_settings = settings or Settings.from_env()
+    app.state.settings = resolved_settings
     app.state.index = index
     app.state.object_store = object_store
     app.include_router(ingest_router)
     app.include_router(jobs_router)
     app.include_router(delivery_router)
+
+    if resolved_settings.object_store_backend == "local":
+        # The routes `LocalFileObjectStore` points its "presigned" URLs at. Registered only for
+        # this backend -- an S3 deployment must not carry a route that reads and writes arbitrary
+        # local files, even an unused one. There is no signature and no auth on these; that is the
+        # whole reason `LocalFileObjectStore`'s own docstring says "never a deployment shape."
+        @app.put("/_local-object-store/{key:path}")
+        async def local_store_put(key: str, request: Request) -> dict[str, str]:
+            store = app.state.object_store
+            if not isinstance(store, LocalFileObjectStore):
+                raise HTTPException(503, "local object store is not active")
+            destination = store.path_for(key)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            staging = destination.with_name(destination.name + ".partial")
+            written = 0
+            with staging.open("wb") as handle:
+                async for chunk in request.stream():
+                    handle.write(chunk)
+                    written += len(chunk)
+            staging.replace(destination)
+            return {"key": key, "bytes": str(written)}
+
+        @app.get("/_local-object-store/{key:path}")
+        def local_store_get(key: str, filename: str | None = None):
+            store = app.state.object_store
+            if not isinstance(store, LocalFileObjectStore):
+                raise HTTPException(503, "local object store is not active")
+            path = store.path_for(key)
+            if not path.is_file():
+                raise HTTPException(404, f"no object at key {key!r}")
+            return FileResponse(
+                path,
+                filename=filename,
+                media_type="application/octet-stream",
+            )
 
     @app.get("/health")
     def health() -> dict[str, str]:

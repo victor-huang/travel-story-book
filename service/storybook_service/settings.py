@@ -31,6 +31,12 @@ class Settings:
     probe_timeout_s: float = 10.0
 
     # --- S02: the object store -------------------------------------------------------------
+    # `s3` (production shape) or `local` (a filesystem masquerading as one, for a same-Wi-Fi
+    # phone test before a bucket exists). Explicit rather than inferred from an unset bucket,
+    # because inferring it would make a forgotten `S3_BUCKET` silently fall back to local disk
+    # instead of failing loudly.
+    object_store_backend: str = "s3"
+
     # The bucket does not exist yet (open question 15), so there is no default and an unset bucket
     # is a configuration error reported at the boundary rather than an AWS error at signing time.
     s3_bucket: str = ""
@@ -40,6 +46,18 @@ class Settings:
     # there are deliberately no key fields here.
     s3_endpoint_url: str | None = None
     s3_asset_prefix: str = "assets"
+
+    # Only read when `object_store_backend == "local"`. Bytes land under this directory instead
+    # of a bucket; there is no signature, no expiry enforcement, and no cross-host access --
+    # this is a same-machine or same-Wi-Fi stand-in, never a deployment shape.
+    local_store_root: Path = Path("var/service-data/objectstore")
+
+    # Only read when `object_store_backend == "local"`. There is no bucket to derive a URL from,
+    # so a "presigned" URL here just points back at this service -- and this service does not
+    # know what host or port a client used to reach it (that lives on the request, not in a
+    # constructor), so the base has to be told rather than inferred. An unset value while running
+    # local is a configuration error, same shape as an unset bucket for S3.
+    public_base_url: str = ""
 
     # `user` or `content`. See `naming.asset_key` for what each forecloses -- this is open
     # question 4 and it is not settled here.
@@ -104,10 +122,17 @@ class Settings:
             probe_timeout_s=float(
                 source.get(f"{ENV_PREFIX}PROBE_TIMEOUT_S", str(cls.probe_timeout_s))
             ),
+            object_store_backend=source.get(
+                f"{ENV_PREFIX}OBJECT_STORE_BACKEND", cls.object_store_backend
+            ),
             s3_bucket=source.get(f"{ENV_PREFIX}S3_BUCKET", cls.s3_bucket),
             s3_region=source.get(f"{ENV_PREFIX}S3_REGION", cls.s3_region),
             s3_endpoint_url=endpoint or None,
             s3_asset_prefix=source.get(f"{ENV_PREFIX}S3_ASSET_PREFIX", cls.s3_asset_prefix),
+            local_store_root=Path(
+                source.get(f"{ENV_PREFIX}LOCAL_STORE_ROOT", str(cls.local_store_root))
+            ),
+            public_base_url=source.get(f"{ENV_PREFIX}PUBLIC_BASE_URL", cls.public_base_url),
             asset_scope=source.get(f"{ENV_PREFIX}ASSET_SCOPE", cls.asset_scope),
             presign_ttl_s=int(source.get(f"{ENV_PREFIX}PRESIGN_TTL_S", str(cls.presign_ttl_s))),
             s3_delivery_prefix=source.get(

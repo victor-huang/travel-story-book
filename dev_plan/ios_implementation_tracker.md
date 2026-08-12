@@ -378,6 +378,7 @@ what, which every other entry assumes.
 | --- | --- | --- | --- | --- |
 | S01 | Service skeleton, deployment shape, CI | review | claude/S01 agent (2026-08-10) | — |
 | S02 | Ingest — `POST /trips`, `assets:negotiate`, presigned `PUT` | review | claude/S02 agent (2026-08-10) | S01 |
+| S02b | **`LocalFileObjectStore`** — a filesystem masquerading as S3, for one same-Wi-Fi test | done | claude (2026-08-12) | S02 |
 | S03 | Job queue — `POST /trips/{id}/build`, `GET /jobs/{id}` | review | claude/S03 agent (2026-08-10) | S01, S02 |
 | S04 | Storage layout and the retention sweeper | todo | — | S02 |
 | S05 | Delivery — report bundle and signed CDN URLs | review | claude/S05 agent (2026-08-11) | S03 |

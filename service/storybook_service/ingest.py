@@ -118,7 +118,9 @@ def _store(request: Request) -> ObjectStore:
             status_code=503,
             detail=(
                 "no object store is configured. Set STORY_SERVICE_S3_BUCKET (and "
-                "STORY_SERVICE_S3_ENDPOINT_URL for a local MinIO or moto)."
+                "STORY_SERVICE_S3_ENDPOINT_URL for a local MinIO or moto), or set "
+                "STORY_SERVICE_OBJECT_STORE_BACKEND=local and STORY_SERVICE_PUBLIC_BASE_URL "
+                "for a same-Wi-Fi test with no bucket at all."
             ),
         )
     return store
