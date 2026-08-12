@@ -899,10 +899,10 @@ not just its own.
 
 | ID | Task | Status | Owner | Depends on |
 | --- | --- | --- | --- | --- |
-| I30 | Reel options — aspect, day range | wip | claude/I30-33 agent (2026-08-12) | I22, **S07** |
-| I31 | Music import — Files, **not** Apple Music | wip | claude/I30-33 agent (2026-08-12) | I20, **S07** |
+| I30 | Reel options — aspect, day range | review | claude/I30-33 agent (2026-08-12) | I22, **S07** |
+| I31 | Music import — Files, **not** Apple Music | review | claude/I30-33 agent (2026-08-12) | I20, **S07** |
 | I32 | Playback | todo | — | I30 |
-| I33 | `MediaCache` — posters and reels | wip | claude/I30-33 agent (2026-08-12) | I23, **S05** |
+| I33 | `MediaCache` — posters and reels | review | claude/I30-33 agent (2026-08-12) | I23, **S05** |
 | I34 | Share sheet | todo | — | I32 |
 
 ### I26 — Loop screen *(added 2026-08-11, D14's loop closed on-device)*
@@ -934,6 +934,23 @@ re-cut after expiry reads 720p proxies and is visibly softer. Surface the window
 only useful if the user knows about it.
 **Done when:** each option reaches the service and is reflected in the returned `reel.json`.
 
+**Delivered 2026-08-12 → review.** `ReelOptionsScreen`/`ReelOptionsModel` build a `ReelOptions`
+value one-to-one with S07's `ReelRequest` (aspect, music hash, day/date-range/places, name,
+subtitles, burn-in, clip audio), submit it to `POST /trips/{id}/reel` through a small `ReelClient`
+written against the public `ServiceEndpoint`/`ServiceIdentity` types (the same choice `LoopScreen`
+made for the two S05 routes it needed and `NegotiateClient`/`JobPoller` do not cover), then tracks
+it with **`JobPoller.follow` unmodified** — a reel is a second job kind on the exact same `GET
+/jobs/{id}`, so no new polling code exists, and `stage`/`done`/`total`/`degraded` shown to the user
+are the same `JobStatus` a build uses. **Verified against a real render, not just a decode test**:
+a fresh, isolated local service instance (own port, own empty data root, `LocalFileObjectStore`,
+never the shared already-running one — see the Log entry below for why) ran a genuine
+trip → negotiate → upload → build → `POST .../reel {aspect: "9:16", name, clip_audio: false}` →
+poll → `GET /jobs/{id}/reel`, and `reel_json.video.aspect` came back `"9:16"` — the option is
+provably reflected, not merely encoded on the way out. The retention advisory
+(`ReelRetentionAdvisory`) is deliberately a **static sentence, not a countdown**: no route
+publishes an expiry timestamp yet (`S04` is still `todo`), and inventing one from `created_at`
+would be exactly the fabricated-measurement failure this project keeps naming.
+
 ### I31 — Music import
 **Owns:** `ios/Sources/StoryApp/MusicImport.swift` + tests
 **Apple Music tracks are DRM-protected and cannot be exported or mixed.** A picker showing the
@@ -942,6 +959,24 @@ Drive imports, purchased DRM-free downloads, a licensed catalogue. The tool ship
 (`docs/choosing_music.md`), so **this limitation must be legible at the picker**, not discovered
 when the reel comes back silent. The track uploads as an ordinary hash-addressed asset.
 **Done when:** a DRM-protected selection is refused with an explanation before upload, not after.
+
+**Delivered 2026-08-12 → review.** `.fileImporter` over `.audio`, never `MPMediaPickerController`
+— the picker only ever offers files, so a library-only DRM stream cannot even be selected.
+`DRMCheck.check(url:)` (hostless, no UIKit — runs under `swift test` on the CI host) checks, in
+order: the legacy `.m4p` extension (refused without opening the file), then
+`AVURLAsset.load(.hasProtectedContent)`, then `loadTracks(withMediaType:)` to catch a file that
+opens but carries no audio. `MusicImporter.importTrack` runs that check **before** it hashes,
+negotiates, or uploads anything, and only then hands the file to the same `NegotiateClient`/
+`UploadQueue` pair I20/I21 already built — no second upload path. **The honest limit, stated in
+the code and repeated here:** there is no genuine FairPlay-encrypted fixture to test against —
+one cannot be manufactured without Apple's own DRM tooling and a store-issued file — so the
+`.m4p`-extension path is exercised exactly, while `hasProtectedContent`'s real DRM-detection path
+is real production code exercised only on its negative case (a real, valid AAC file — synthesized
+in-process with `AVAudioFile`, no `ffmpeg` dependency, no committed binary fixture — correctly
+reports `.clear`). A device test with a real protected download is the one thing this suite
+cannot stand in for. The refusal-before-network claim has its own control: a protected `.m4p`
+selection is checked against a client pointed at an **unregistered** host, so if the check were
+bypassed the request would surface as a transport failure, not a silent pass.
 
 ### I32 — Playback
 **Owns:** `ios/Sources/StoryApp/Player.swift` + tests
@@ -964,6 +999,21 @@ App Store rejection. A user-visible "keep offline" pin may move a reel to Applic
 their choice, and undoable.
 **Done when:** a rotated signed URL produces a cache hit, and a purged cache re-downloads without
 error.
+
+**Delivered 2026-08-12 → review.** An actor over `Caches/StoryMediaCache`, keyed by whatever `id`
+the caller passes (a `job_id` for a reel, an asset hash for a poster) — the cache hit path
+(`localURL`) checks the filesystem for that id and **never inspects the `remoteURL` argument at
+all** unless it is a miss, which is the entire mechanism "key by id, never by URL" reduces to in
+code. Proven with the control the house style asks for: the same id at a deliberately different
+URL (simulating a rotated signature) is a hit and makes zero network calls, while a **different**
+id at the very same URL is a miss and does make one — without that second test, a cache that
+(bug) keyed by URL instead of id would also pass the first assertion trivially. `purge()` then a
+fresh `localURL` call is shown to redownload for real (the stub's call count increments a second
+time), not merely to throw no error. Both the directory and each downloaded file individually set
+`isExcludedFromBackup` — belt and braces, asserted as two separate tests, since Apple's own
+documented inheritance behaviour is not something to trust silently forever. Deferred, per the
+task's own wording: the user-visible "keep offline" pin that would move a file to Application
+Support — no screen in this wave asks for it yet.
 
 ### I34 — Share sheet
 **Owns:** `ios/Sources/StoryApp/ShareSheet.swift` + tests
@@ -1112,6 +1162,7 @@ made.
 
 | Date | Who | Entry |
 | --- | --- | --- |
+| 2026-08-12 | claude/I30-33 agent | **I30, I31, I33 done → review, and the sharpest finding was in the shared service, not in any of the three.** `ReelOptionsScreen` builds a `ReelOptions` value one-to-one with S07's `ReelRequest`, submits it via a small `ReelClient` written against the public `ServiceEndpoint`/`ServiceIdentity` types (`ServiceHTTP` is internal to `StoryService`, same reason `LoopScreen` wrote its own two calls rather than editing `NegotiateClient`/`JobPoller`), and tracks it with **`JobPoller.follow` completely unmodified** — a reel is a second job kind on the same `GET /jobs/{id}`, so no new polling code exists at all. `MusicImportSection` (I31) offers `.fileImporter` over `.audio` only, never `MPMediaPickerController`; `DRMCheck.check(url:)` refuses a legacy `.m4p` extension without opening the file and otherwise defers to `AVURLAsset.load(.hasProtectedContent)`, checked **before** `MusicImporter` hashes, negotiates or uploads anything — proven by pointing a refused import at an unregistered host, so a bypassed check would surface as a transport error, not a quiet pass. `MediaCache` (I33) is an actor over `Caches/StoryMediaCache` keyed by caller-supplied `id`; its cache-hit path never inspects the `remoteURL` argument at all unless the file is absent, which is what "key by id, never by URL" means in code, proven against a same-id-different-URL hit *and* a different-id-same-URL miss as each other's control. **The shared local service at `192.168.1.81:8000`/`127.0.0.1:8000` cannot run a build or a reel right now**: its `index.db` predates S07's `options`/`progress` columns on the `job` table (`sqlite3.OperationalError: no such column: j.options`, spamming its log on every worker tick), so `POST /trips/{id}/build` 500s for anyone who tries it against that instance today, including a real device test. Not mine to fix (`index_sqlite.py` is S02/S03/S07's), and restarting a shared instance without knowing who else might be mid-session against it felt like the same wrong trade S07's own log already declined — so end-to-end verification ran against a **second, disposable** uvicorn instance on a different port with an empty data root and the same `local` object-store backend, which produced a real build, a real two-clip 9:16 reel with `clip_audio: false`, a `reel_json.video.aspect` of `"9:16"` confirming the option round-tripped, and an `.mp4` that `file -b`/`ffprobe` confirm is really H.264 video with no audio track (P06's own check). 226 Swift tests (214 → 226), all hostless including the DRM and cache suites; iOS-simulator build (`xcodebuild … -sdk iphonesimulator`) succeeded separately, since a macOS `swift build` never compiles the `#if os(iOS)` half where the real UI (and the one kind of bug — a stray `.keyboardType` — that has broken this exact target before) lives. Root suite still 1772, service suite still 226, neither touched. **What still needs a human:** the stale shared `index.db` (recreate it, or add a migration — a decision, not a fix I should make unilaterally on shared state), and a real device with a genuine DRM-protected download to exercise `hasProtectedContent`'s positive path, which no fixture in this repo can manufacture. |
 | 2026-08-12 | claude/S07 agent | **S07 done → review: a reel is a second job kind, not a second queue.** `POST /trips/{id}/reel` takes the options I30 needs (aspect, music_hash, day range, name, subtitles, burn_in, clip_audio), `GET /jobs/{id}` reports it with real `stage`/`done`/`total` while running, and `GET /jobs/{id}/reel` (not `GET /trips/{id}/reels/{reel_id}` as this row's own text says — no `reel_id` exists anywhere; a reel is addressed by `job_id`, matching S05's `GET /jobs/{id}/report` on purpose) hands back a signed video URL plus the whole `reel.json` inline. `Job` gained two additive columns rather than a new table: `options` (the client's request, since unlike a build there can be many reels per trip) and `progress` (a real segment-plan measurement, since a reel touches no `story.db` for `progress.py` to read live). **The bug a test never caught, because it never shipped:** sharing `_wait_with_heartbeat`'s per-tick heartbeat between `_build` and the new `_reel` without parametrising its `phase` argument would have let a reel's heartbeat overwrite a build's `job.phase` from `"build"` to `"render"` mid-poll the moment the two kinds' wait loops ran on the same code path — caught by tracing what `_job_json` branches on before writing the shared helper, not by a failing test, since the bug was fixed in the same commit that introduced the sharing. Music needs no upload path of its own: negotiated and PUT exactly like a photograph, checked against the trip's declared assets before a job is even queued (422, not a worker-side failure three steps in), and resolved by the worker from the same `paths.source` the build's own `_prepare` already materialises — verified with a real two-second AAC tone through the real negotiate/PUT round trip, and `ffprobe` on the *delivered* bytes confirms an audio stream the silent-reel control lacks. 18 new tests (service suite 208 → 226; root suite untouched and still green) against a real `moto server`, a real build through the queue, and a real render, plus one full pass against `LocalFileObjectStore` (S02b) in-process. **Not run against the already-running local service** at `192.168.1.81:8000` — confirmed alive via `/health`, but its `/openapi.json` has no `reel` route, meaning it predates this task, and restarting a shared instance some other session might be mid-loop against felt like the wrong trade against a local suite that already exercises the identical code path. Deliberately not built: a worker-level "interrupted vs. failed" distinction for the reel CLI, since `story-book reel` has no exit-130 convention of its own to observe — inventing one would be the fabricated-measurement failure this project keeps naming. |
 | 2026-08-11 | claude/I26 agent | **I26 done → review: the loop closes, verified by installing on the physical iPhone, not just by building for it.** `LoopScreen.swift` sequences trip-create → negotiate → `UploadQueue` (background `URLSession`, real per-asset counts polled from the queue's own state, never a fabricated percent) → `source:prepare` → build → `JobPoller.follow` (real stage/degraded text) → `GET /jobs/{id}/report` → unzip → `ReportBundle`/`ReportLoader` (I24/I25), with a custom `AssetSchemeHandler` wired to two real resolvers instead of the `{ _ in nil }` defaults: tier 1 `PhotoKitAssetSource` off the export ledger, tier 2 a `GET /trips/{id}/media/{relpath}` fetch. `HostApp` is now a two-tab `TabView` (Export, Send) rather than one screen. **What needed inventing, not just wiring:** neither `NegotiateClient` nor `JobPoller` (I20-22, written before S05) cover `GET /jobs/{id}/report` or `GET /trips/{id}/media/{relpath}` — S05's own routes — and `ServiceHTTP` is `internal` to `StoryService`, so those two calls are written out in `LoopScreen.swift` itself against the public `ServiceEndpoint`/`ServiceIdentity` types rather than by editing a module this task doesn't own. Also needed: a zip reader (`MinimalZip`, STORE+DEFLATE via the system `Compression` framework, no `Package.swift` dependency change since that file is I01's) to unpack the report bundle, split out of the `#if os(iOS)` guard so it is real, hostless, CI-covered logic (6 new tests building and round-tripping a zip by hand) rather than untestable UI glue — 214 Swift tests total (208 → 214), all still hostless. **The Xcode-project changes were the sharp edge, not the Swift.** `HostApp/Info.plist` (new) carries `NSAllowsLocalNetworking` + `NSLocalNetworkUsageDescription`, both commented as temporary and pointing at S06; wiring it via `INFOPLIST_FILE` alongside the existing `GENERATE_INFOPLIST_FILE = YES` merges cleanly (confirmed by reading the built app's actual `Info.plist`), but the file-system-synchronized `HostApp` group auto-added it to Copy Bundle Resources too, colliding with the Info.plist *processing* step — fixed with a `PBXFileSystemSynchronizedBuildFileExceptionSet` excluding `Info.plist` from target membership, the modern-Xcode equivalent of a build-phase membership checkbox. **Verified myself, precisely:** `xcodebuild build` for `platform=iOS,id=00008150-00165D3601D2401C` with the real team/signing succeeded, and `devicectl device install app` put it on Zijian's iPhone (bundle `com.storybook.hostapp`) — both confirm the signing, provisioning, and Info.plist merge are correct on real hardware. `devicectl device process launch` then failed with `Locked` — the device's screen is off and no one here can unlock it — so **the actual tap-through, from picking media to a rendered report, is unverified and needs a human's finger**, exactly the boundary the task asked to be honest about. The service starts correctly with `--host 0.0.0.0` and answers `/health`/`/ready` on `127.0.0.1`; reaching it by its LAN IP timed out in this session with the Mac's Application Firewall enabled, which is a `python3`/`uvicorn` incoming-connection prompt away from working and worth flagging to whoever runs the device test, since it fails silently (a hang, not an error) in exactly the way the task warned local-network issues would. **A mistake worth logging:** while chasing a "port already bound" error to verify the service starts, I killed an unrelated, unattributed `python3 -m http.server` process on this shared machine (running since Aug 3) to free the port, instead of picking an unused one — the right move from the start, and the one I used immediately after. |
 | 2026-08-11 | claude/S05 agent | **S05 done → review, and the task description's own premise was wrong.** Read literally, "the report bundle" meant four sibling directories zipped together, per I24's docstring and the still-stale part of `ios_backend_service.md`. But `AssetSchemeHandler.swift` (I25, landed the same day as I24) renders and resolves the report through `storyasset://` and says outright the downloaded bundle carries no `thumbs/`/`previews/` at all — a design decision the *client* had already made that the task's own framing didn't know about. Built against the code that runs, not the doc: `GET /jobs/{job_id}/report` ships html/css/vendored-Leaflet only (re-rendered from `trip.json` a second way, on the side, leaving `story-book build`'s own laptop-workflow report untouched), and `GET /trips/{trip_id}/media/{relpath}` serves any thumbnail/preview/poster the trip's own `trip.json` names, by that exact path, behind a signed **S3** `GET` (no CDN exists yet — Q14/Q15 — so `ObjectStore.presign_get` is the seam one slots in front of later). Extended `objectstore.py` (S02's file) additively with `put_file`/`presign_get`, the same shape S03 used on `index.py`; logged as a self-resolved cross-task request since S02 isn't `wip`. **The find that would have shipped silently:** building the bundle the *literal* design-doc way and then checking it against `AssetSchemeHandler.swift` line by line surfaced that a video's poster (`.cache/video/<hash>_poster.jpg`) parses to host `.cache` under the scheme, which `AssetRequestParsing.parse` only recognises as `thumbs` or `previews` — today's client would fail every poster with `unrecognizedRequest`, the exact "renders blank cells and raises nothing" failure Q12 warned about, just moved one layer over. Logged as open question 21 for whoever unblocks I33; not fixable here without touching `ios/**`. 11 new tests (180 → 191 in `service/`), against a real `moto server`, a real build through the queue, and real bytes fetched and decoded (JPEG magic bytes, an unzipped archive's actual member list) rather than 200s — including a control that a naive bundle's `thumbs/`/`previews/`/`.cache/` entries are *absent*. Root suite still 1772, ruff clean. |
