@@ -384,6 +384,7 @@ what, which every other entry assumes.
 | S05 | Delivery — report bundle and signed CDN URLs | review | claude/S05 agent (2026-08-11) | S03 |
 | S06 | Auth — Apple and Google, per-user isolation | todo | — | S01 |
 | S07 | Reel endpoints (M2) | review | claude/S07 agent (2026-08-12) | S03, S05 |
+| S08 | **Schema migration for `index_sqlite.py`** — deferred on purpose, see below | backlog | — | S02 |
 
 Mapping back: **I20 needs S02, I21 needs S02, I22 needs S03, I23 needs S06, I33 needs S05, I30
 and I31 need S07.** Those cells still say "service M1" and should be reread as these.
@@ -721,6 +722,26 @@ service already up on this machine** (`192.168.1.81:8000`, confirmed alive via `
 shared, already-running instance without knowing what device session might be mid-loop against it
 felt like the wrong trade against a local pytest run that already exercises the identical code
 path. Left for whoever restarts it next.
+
+### S08 — Schema migration for `index_sqlite.py`
+**Owns:** `service/storybook_service/index_sqlite.py`, a new migration test file
+**Backlog, deliberately.** Filed 2026-08-12 as open question 22 after S07's two new `job` columns
+broke every job query (`no such column: j.options`) against the one `index.db` already running —
+`CREATE TABLE IF NOT EXISTS` does nothing to a table that already exists in an older shape.
+Worked around that night by renaming the local dev database aside; **this will recur** on the
+next column any task adds, against any database that predates it. Not built the same night on
+purpose — a migration path is real scope, not a five-minute fix, and it deserves a deliberate
+design rather than a 2am addition to a file three tasks have already extended. **Pick this up once
+the project is past its testing phase** — building it too early risks designing it around
+guesses about what schema changes are still coming, rather than the ones that actually happened.
+**The shape, when it's time:** `PRAGMA user_version` (SQLite's own built-in counter) checked on
+every connection open; an ordered list of migration steps, each one or more DDL statements, applied
+starting from the database's current version up to the version the running code expects; the schema
+in this file's docstring becomes the *target* state, not the only state a fresh database can start
+from. Test by constructing a database frozen at each prior schema version (a fixture per version,
+not just "the latest minus one") and asserting every migration step lands it at current.
+**Done when:** a database created by any previously-shipped version of this schema opens
+successfully and reads/writes correctly after startup, with no manual intervention.
 
 ---
 
@@ -1152,7 +1173,7 @@ Unresolved. Each blocks the wave named, not the whole plan.
 | ~~11~~ | ~~**Should the risky half of Wave 1 avoid PhotoKit entirely?**~~ **Answered 2026-08-09: neither — both.** See D12: exporters take an `ExportSource` that is a `PHAsset` or a file URL. Original text: Metadata surviving an ImageIO downscale (I11) and an AVFoundation export (I12) can be tested against plain file URLs — no library, no authorization, runs in CI. That would leave only `LibraryScope` (I10) and `ResourceSelection` (I13) needing a real `PHAsset`. | ~~I11, I12~~ |
 | 20 | **`Sidecar` records a UTC instant with no local offset, so an asset whose *only* time source is the sidecar cannot be placed in its capture timezone.** Found on the first device export: two clips carry a UTC instant but no offset, so they resolve via `tz_source: config` and their local wall time is presented as UTC — the same instant, the wrong reading, and near midnight the wrong *day*. The filename of one of them states the true local time, which is how the discrepancy was visible at all. `Sidecar.Creation` has `utc` and `source` and nothing else, so it cannot express what PhotoKit or the container may know. **This is a Wave 0 contract (I04), so it needs the human**: adding an optional local-offset field is small, but `Sidecar` is what the service will parse and the format has already shipped into `tests/ios_parity/exported/`. Worth pairing with the Python-side request that makes anything read sidecars at all. | I04, and the hosted trip's timezone quality |
 | 21 | **`AssetSchemeHandler.swift`'s `AssetRequestParsing.parse` cannot resolve a video's poster frame under `media_rel="storyasset://"`.** Found by S05, building the bundle I25's own rendering choice implies. A poster lives at `.cache/video/<hash>_poster.jpg` (`pipeline/video.py:419`, `pipeline/timeline.py:366-368`), and prefixed with the scheme that becomes `storyasset://.cache/video/<hash>_poster.jpg` — host `.cache`, which the parser recognises neither as `thumbs` nor `previews`, so today's client fails every video poster with `unrecognizedRequest`. `GET /trips/{trip_id}/media/{relpath}` (S05) serves the file regardless of host naming, by the exact relative path `trip.json` already carries, so the fix is entirely client-side: either add a third host case, or have `AssetSchemeHandler` fall back to requesting the literal relpath when host parsing fails. Needs whoever next touches `ios/Sources/StoryApp/AssetSchemeHandler.swift` (I33 is the likely owner, currently blocked on S05). | I33 |
-| 22 | **`index_sqlite.py` has no schema migration path.** Found 2026-08-12: S07 added `options`/`progress` columns to `job`, and every `index.db` created before that change now fails every job query with `no such column: j.options` — `CREATE TABLE IF NOT EXISTS` does nothing for a table that already exists under the old shape. Worked around by renaming the one local dev database aside; **will recur** on the next column any task adds. Needs a real answer before this runs anywhere the database isn't disposable: a versioned `ALTER TABLE` migration on startup, or accept that local dev databases get deleted across schema changes until Postgres (Q19) brings real migration tooling. | S02, S03, S07, and every future column |
+| 22 | **`index_sqlite.py` has no schema migration path.** Found 2026-08-12: S07 added `options`/`progress` columns to `job`, and every `index.db` created before that change now fails every job query with `no such column: j.options` — `CREATE TABLE IF NOT EXISTS` does nothing for a table that already exists under the old shape. Worked around by renaming the one local dev database aside; **will recur** on the next column any task adds. **Tracked as S08, deliberately backlogged** until the project is past its testing phase rather than built the same night. | S02, S03, S07, and every future column |
 
 ---
 
