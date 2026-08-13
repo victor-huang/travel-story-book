@@ -263,23 +263,36 @@ private extension String {
 
 #if os(iOS)
 
+    import AVFoundation
     import AVKit
     import SwiftUI
 
-    /// A thin wrapper over `AVKit.VideoPlayer`, keyed to `url` so a rebuild of the enclosing
-    /// `Form` (any `@Observable` field changing — the share sheet opening, a rotation) does not
-    /// tear down and recreate the `AVPlayer`, which would restart playback from zero every time.
+    /// `AVPlayerViewController` directly, not SwiftUI's `VideoPlayer` — the fullscreen expand
+    /// control asked for here is `AVPlayerViewController`'s own built-in affordance, present in
+    /// its default control bar, and `VideoPlayer` does not expose a way to confirm or configure
+    /// it. Keyed to `url` (not recreated on every body evaluation) so a rebuild of the enclosing
+    /// `Form` does not tear down and restart playback from zero.
     @available(iOS 17.0, *)
-    private struct ReelPlayerView: View {
+    private struct ReelPlayerView: UIViewControllerRepresentable {
         let url: URL
-        @State private var player: AVPlayer?
 
-        var body: some View {
-            VideoPlayer(player: player)
-                .onAppear {
-                    if player == nil { player = AVPlayer(url: url) }
-                }
+        func makeUIViewController(context: Context) -> AVPlayerViewController {
+            // The default audio session category (`.soloAmbient`) is silenced by the ringer/
+            // silent switch — a video with a real audio track then plays with no sound and no
+            // error, which is exactly what was reported. `.playback` is what every video app uses
+            // to be heard regardless of that switch; failure here is not fatal to playback itself,
+            // only to whether it can be heard, so it is not surfaced as an error.
+            try? AVAudioSession.sharedInstance().setCategory(.playback)
+            try? AVAudioSession.sharedInstance().setActive(true)
+
+            let controller = AVPlayerViewController()
+            controller.player = AVPlayer(url: url)
+            controller.entersFullScreenWhenPlaybackBegins = false
+            controller.exitsFullScreenWhenPlaybackEnds = true
+            return controller
         }
+
+        func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {}
     }
 
     /// The screen. **Owns no logic beyond what belongs to a view**: `ReelOptionsModel` builds the
