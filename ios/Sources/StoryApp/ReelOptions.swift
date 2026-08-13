@@ -263,7 +263,24 @@ private extension String {
 
 #if os(iOS)
 
+    import AVKit
     import SwiftUI
+
+    /// A thin wrapper over `AVKit.VideoPlayer`, keyed to `url` so a rebuild of the enclosing
+    /// `Form` (any `@Observable` field changing — the share sheet opening, a rotation) does not
+    /// tear down and recreate the `AVPlayer`, which would restart playback from zero every time.
+    @available(iOS 17.0, *)
+    private struct ReelPlayerView: View {
+        let url: URL
+        @State private var player: AVPlayer?
+
+        var body: some View {
+            VideoPlayer(player: player)
+                .onAppear {
+                    if player == nil { player = AVPlayer(url: url) }
+                }
+        }
+    }
 
     /// The screen. **Owns no logic beyond what belongs to a view**: `ReelOptionsModel` builds the
     /// request and reads the answer; `MusicImportSection` (I31) is embedded, not reimplemented.
@@ -460,12 +477,15 @@ private extension String {
                 LabeledContent("Reel", value: "fetching the finished video…")
             case .ready(let download):
                 LabeledContent("Reel", value: "ready — \(download.videoSizeBytes) bytes")
-                // I32 (in-app playback with a background download and a local-file replay) is not
-                // built yet — this hands the signed URL to the system instead of leaving a
-                // finished reel with no way to watch it. A progressive MP4 behind this URL plays
-                // directly in Safari/Photos' own player, and the share sheet covers AirDrop/Files/
-                // Save Video. Both go away the day I32 lands; neither duplicates its caching logic.
-                Link("Open in Safari", destination: download.videoDownloadURL)
+                // Plays in-app, directly against the signed URL — the mux already re-applies
+                // `+faststart` (9eb53ab), so a progressive MP4 starts before it has fully arrived,
+                // same premise I32 itself will build on. **What this is not:** I32's own
+                // criterion also asks for a background download so a *second* play makes no
+                // network request, and this does not cache anything or reuse `MediaCache` (I33)
+                // — a fresh `AVPlayer` re-streams from the same signed URL every time this view
+                // appears. That gap is I32's to close, not silently claimed here.
+                ReelPlayerView(url: download.videoDownloadURL)
+                    .frame(height: 220)
                 ShareLink("Share or save", item: download.videoDownloadURL)
             case .failed(let reason):
                 Text(reason).font(.footnote).foregroundStyle(.red)
