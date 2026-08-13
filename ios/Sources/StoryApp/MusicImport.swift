@@ -149,7 +149,17 @@ public struct MusicImporter: Sendable {
     /// The whole chain: DRM check (first, and the only step that can refuse), copy, hash,
     /// negotiate, upload. Any failure after the DRM check is a transport or service failure, not a
     /// refusal — the two read differently to a caller because the fix is different.
+    ///
+    /// **The security-scope bracket has to wrap the DRM check too, not just the copy.**
+    /// `.fileImporter`/`UIDocumentPickerViewController` hand out security-scoped URLs, and nothing
+    /// — including `AVURLAsset.load` inside `DRMCheck.check` — may read one before
+    /// `startAccessingSecurityScopedResource()` runs. The first version opened the scope only
+    /// around the copy, so the DRM check (which reads the file first) failed with "no permission
+    /// to open" on a real device before the copy it was meant to gate ever got the chance to run.
     public func importTrack(from pickedURL: URL) async throws -> Imported {
+        let scoped = pickedURL.startAccessingSecurityScopedResource()
+        defer { if scoped { pickedURL.stopAccessingSecurityScopedResource() } }
+
         let verdict = await DRMCheck.check(url: pickedURL)
         switch verdict {
         case .protectedContent(let reason): throw ImportError.protectedContent(reason)
@@ -165,11 +175,6 @@ public struct MusicImporter: Sendable {
             throw ImportError.copyFailed("\(error)")
         }
         let destination = workingDirectory.appending(path: filename)
-
-        // `.fileImporter`/`UIDocumentPickerViewController` hand out security-scoped URLs; bracket
-        // access here so this type works the same whether or not the caller already did.
-        let scoped = pickedURL.startAccessingSecurityScopedResource()
-        defer { if scoped { pickedURL.stopAccessingSecurityScopedResource() } }
 
         do {
             if fm.fileExists(atPath: destination.path) {
