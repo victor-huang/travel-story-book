@@ -460,6 +460,13 @@ private extension String {
                 LabeledContent("Reel", value: "fetching the finished video…")
             case .ready(let download):
                 LabeledContent("Reel", value: "ready — \(download.videoSizeBytes) bytes")
+                // I32 (in-app playback with a background download and a local-file replay) is not
+                // built yet — this hands the signed URL to the system instead of leaving a
+                // finished reel with no way to watch it. A progressive MP4 behind this URL plays
+                // directly in Safari/Photos' own player, and the share sheet covers AirDrop/Files/
+                // Save Video. Both go away the day I32 lands; neither duplicates its caching logic.
+                Link("Open in Safari", destination: download.videoDownloadURL)
+                ShareLink("Share or save", item: download.videoDownloadURL)
             case .failed(let reason):
                 Text(reason).font(.footnote).foregroundStyle(.red)
             }

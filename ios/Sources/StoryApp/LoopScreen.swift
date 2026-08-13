@@ -336,6 +336,11 @@ enum MinimalZip {
                 NavigationLink("View the trip") {
                     LoopReportScreen(bundle: bundle, assetScheme: model.makeAssetScheme())
                 }
+                if let reelModel = model.makeReelOptionsModel() {
+                    NavigationLink("Make a reel") {
+                        ReelOptionsScreen(model: reelModel)
+                    }
+                }
             }
         }
     }
@@ -721,6 +726,22 @@ enum MinimalZip {
                 }
             }
             return AssetSchemeHandler(local: local, remote: remote)
+        }
+
+        /// `nil` until a trip exists (the same condition `makeAssetScheme`'s remote resolver
+        /// already gates on) — a reel is queued against a trip, and there is no trip before the
+        /// first successful negotiate.
+        func makeReelOptionsModel() -> ReelOptionsModel? {
+            guard let tripID, let (endpoint, identity) = try? endpointAndIdentity() else {
+                return nil
+            }
+            // A scratch folder per trip, same convention `ExportModel.export()` uses for the
+            // export destination — `MusicImportModel` only ever writes its own upload-state
+            // file and the imported track here, never anything shared across trips.
+            let workingDirectory = URL.documentsDirectory.appending(path: "reel-music-\(tripID)")
+            return ReelOptionsModel(
+                endpoint: endpoint, identity: identity, tripID: tripID,
+                musicWorkingDirectory: workingDirectory)
         }
 
         // MARK: - Small networking helpers
