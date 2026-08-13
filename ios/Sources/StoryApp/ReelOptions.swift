@@ -60,6 +60,36 @@ public struct ReelOptions: Sendable, Equatable, Encodable {
         case burnIn = "burn_in"
         case clipAudio = "clip_audio"
     }
+
+    // Written by hand because the doc comment above's claim — an unset field reaches the wire as
+    // `null`, never as an absent key — is not what Swift's synthesized `Encodable` actually does
+    // for an `Optional` stored property: it calls `encodeIfPresent`, which omits the key on `nil`.
+    // A `ReelClientTests` regression test caught the two disagreeing; this makes the code match
+    // what was always the stated intent, rather than quietly rewriting the comment to match the
+    // code.
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try Self.encodeExplicit(aspect, forKey: .aspect, in: &container)
+        try Self.encodeExplicit(musicHash, forKey: .musicHash, in: &container)
+        try Self.encodeExplicit(day, forKey: .day, in: &container)
+        try Self.encodeExplicit(dateFrom, forKey: .dateFrom, in: &container)
+        try Self.encodeExplicit(dateTo, forKey: .dateTo, in: &container)
+        try container.encode(places, forKey: .places)
+        try Self.encodeExplicit(name, forKey: .name, in: &container)
+        try container.encode(subtitles, forKey: .subtitles)
+        try Self.encodeExplicit(burnIn, forKey: .burnIn, in: &container)
+        try Self.encodeExplicit(clipAudio, forKey: .clipAudio, in: &container)
+    }
+
+    private static func encodeExplicit<T: Encodable>(
+        _ value: T?, forKey key: CodingKeys, in container: inout KeyedEncodingContainer<CodingKeys>
+    ) throws {
+        if let value {
+            try container.encode(value, forKey: key)
+        } else {
+            try container.encodeNil(forKey: key)
+        }
+    }
 }
 
 /// Presets a screen may offer. The service accepts any `"W:H"` string (`parse_aspect` just wants
