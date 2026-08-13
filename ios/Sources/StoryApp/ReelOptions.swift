@@ -340,16 +340,22 @@ private extension String {
         private let tripID: String
         private let session: URLSession
         private let client: ReelClient
+        /// Told about a reel the moment it is *queued*, not once it finishes — so a caller (
+        /// `LoopScreen`) can persist the job id in time to survive the app being killed mid-render,
+        /// the same reasoning `LoopModel` already applies to a build's own job id.
+        private let onJobStarted: (@MainActor (String) -> Void)?
 
         public init(
             endpoint: ServiceEndpoint, identity: any ServiceIdentity, tripID: String,
-            musicWorkingDirectory: URL, session: URLSession = .shared
+            musicWorkingDirectory: URL, session: URLSession = .shared,
+            onJobStarted: (@MainActor (String) -> Void)? = nil
         ) {
             self.endpoint = endpoint
             self.identity = identity
             self.tripID = tripID
             self.session = session
             self.client = ReelClient(endpoint: endpoint, identity: identity, session: session)
+            self.onJobStarted = onJobStarted
             self.music = MusicImportModel(
                 client: StoryServiceClient(endpoint: endpoint, identity: identity, session: session),
                 tripID: tripID, workingDirectory: musicWorkingDirectory)
@@ -393,6 +399,7 @@ private extension String {
             phase = .starting
             do {
                 let start = try await client.startReel(tripID: tripID, options: buildOptions())
+                onJobStarted?(start.jobID)
                 let poller = JobPoller(endpoint: endpoint, identity: identity, session: session)
                 var last: JobStatus?
                 for try await reading in poller.follow(jobID: start.jobID) {
@@ -527,6 +534,83 @@ private extension String {
             if let error = status.error {
                 Text(error).font(.footnote).foregroundStyle(.red)
             }
+        }
+    }
+
+    // MARK: - Viewing a reel that was already rendered
+
+    /// Reached from `LoopScreen`'s "View last reel" link — the point of this type is what it does
+    /// *not* do: no `ReelOptions` form, no `POST /trips/{id}/reel`, no `JobPoller`. A reel job
+    /// that already finished has nothing left to queue; the only call left to make is `GET
+    /// /jobs/{id}/reel` for a fresh signed URL, since the one from the original render has long
+    /// since expired (`delivery_presign_ttl_s`, 15 minutes) while the underlying video — immutable
+    /// once rendered (D5) — is still exactly where it was.
+    @available(iOS 17.0, *)
+    @MainActor
+    @Observable
+    public final class ReelViewerModel {
+        public enum Phase: Equatable {
+            case loading
+            case ready(ReelDownload)
+            /// Covers a job that is a build rather than a reel (404), one still queued or
+            /// rendering from a session that never finished watching it (409), and any transport
+            /// failure — all surfaced verbatim rather than guessed apart, since only the service
+            /// actually knows which.
+            case failed(String)
+        }
+
+        public var phase: Phase = .loading
+
+        private let client: ReelClient
+        private let jobID: String
+
+        public init(
+            endpoint: ServiceEndpoint, identity: any ServiceIdentity, jobID: String,
+            session: URLSession = .shared
+        ) {
+            self.client = ReelClient(endpoint: endpoint, identity: identity, session: session)
+            self.jobID = jobID
+        }
+
+        public func load() async {
+            phase = .loading
+            do {
+                phase = .ready(try await client.reelDownload(jobID: jobID))
+            } catch {
+                phase = .failed("\(error)")
+            }
+        }
+    }
+
+    @available(iOS 17.0, *)
+    public struct ReelViewerScreen: View {
+        @State private var model: ReelViewerModel
+
+        public init(model: ReelViewerModel) {
+            _model = State(initialValue: model)
+        }
+
+        public var body: some View {
+            Group {
+                switch model.phase {
+                case .loading:
+                    ProgressView("Fetching the reel…")
+                case .ready(let download):
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 12) {
+                            ReelPlayerView(url: download.videoDownloadURL)
+                                .frame(height: 220)
+                            ShareLink("Share or save", item: download.videoDownloadURL)
+                            LabeledContent("Size", value: "\(download.videoSizeBytes) bytes")
+                        }
+                        .padding()
+                    }
+                case .failed(let reason):
+                    Text(reason).font(.footnote).foregroundStyle(.red).padding()
+                }
+            }
+            .navigationTitle("Reel")
+            .task { await model.load() }
         }
     }
 

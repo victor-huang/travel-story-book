@@ -336,8 +336,13 @@ enum MinimalZip {
                 NavigationLink("View the trip") {
                     LoopReportScreen(bundle: bundle, assetScheme: model.makeAssetScheme())
                 }
+                if let viewerModel = model.makeReelViewerModel() {
+                    NavigationLink("View last reel") {
+                        ReelViewerScreen(model: viewerModel)
+                    }
+                }
                 if let reelModel = model.makeReelOptionsModel() {
-                    NavigationLink("Make a reel") {
+                    NavigationLink(model.hasReelJobID ? "Make a new reel" : "Make a reel") {
                         ReelOptionsScreen(model: reelModel)
                     }
                 }
@@ -419,12 +424,19 @@ enum MinimalZip {
         /// finished job — so "send" fetched the old report again and looked like nothing happened.
         private var tripID: String?
         private var jobID: String?
+        /// The most recent reel *render* job for this folder, if one was ever started — kept
+        /// apart from `jobID` because a reel is a second job kind on the same trip, not a
+        /// replacement for the build's own job id.
+        private var reelJobID: String?
         private var runsByFolder: [String: RunRecord] = [:]
 
         private struct RunRecord: Codable {
             var tripID: String
             var jobID: String?
+            var reelJobID: String?
         }
+
+        var hasReelJobID: Bool { reelJobID != nil }
 
         var isRunning: Bool {
             switch phase {
@@ -485,10 +497,12 @@ enum MinimalZip {
             guard let folder, let record = runsByFolder[folder.path] else {
                 tripID = nil
                 jobID = nil
+                reelJobID = nil
                 return
             }
             tripID = record.tripID
             jobID = record.jobID
+            reelJobID = record.reelJobID
             loadCachedReport(jobID: record.jobID)
         }
 
@@ -508,7 +522,29 @@ enum MinimalZip {
         }
 
         private func saveRun(folder: URL, tripID: String, jobID: String?) {
-            runsByFolder[folder.path] = RunRecord(tripID: tripID, jobID: jobID)
+            // Preserve whatever reel this folder already has — a fresh `RunRecord` here would
+            // silently drop it every time a build re-runs, the same class of bug the folder-
+            // scoping fix already found for `tripID`/`jobID` themselves.
+            var record = runsByFolder[folder.path] ?? RunRecord(tripID: tripID, jobID: jobID)
+            record.tripID = tripID
+            record.jobID = jobID
+            runsByFolder[folder.path] = record
+            persistRunsByFolder()
+        }
+
+        /// Called once a reel render has actually been *queued* (`ReelOptionsModel`'s
+        /// `onJobStarted`), not once it finishes — so a reel started, then the app killed before
+        /// it completed, still has something to check next launch rather than looking like it was
+        /// never started.
+        private func saveReelJobID(folder: URL, reelJobID: String) {
+            guard var record = runsByFolder[folder.path] else { return }
+            record.reelJobID = reelJobID
+            runsByFolder[folder.path] = record
+            if folder == selectedFolder { self.reelJobID = reelJobID }
+            persistRunsByFolder()
+        }
+
+        private func persistRunsByFolder() {
             if let data = try? JSONEncoder().encode(runsByFolder) {
                 UserDefaults.standard.set(data, forKey: Keys.runsByFolder)
             }
@@ -753,16 +789,30 @@ enum MinimalZip {
         /// already gates on) — a reel is queued against a trip, and there is no trip before the
         /// first successful negotiate.
         func makeReelOptionsModel() -> ReelOptionsModel? {
-            guard let tripID, let (endpoint, identity) = try? endpointAndIdentity() else {
-                return nil
-            }
+            guard let tripID, let folder = selectedFolder,
+                let (endpoint, identity) = try? endpointAndIdentity()
+            else { return nil }
             // A scratch folder per trip, same convention `ExportModel.export()` uses for the
             // export destination — `MusicImportModel` only ever writes its own upload-state
             // file and the imported track here, never anything shared across trips.
             let workingDirectory = URL.documentsDirectory.appending(path: "reel-music-\(tripID)")
             return ReelOptionsModel(
                 endpoint: endpoint, identity: identity, tripID: tripID,
-                musicWorkingDirectory: workingDirectory)
+                musicWorkingDirectory: workingDirectory,
+                onJobStarted: { [weak self] reelJobID in
+                    self?.saveReelJobID(folder: folder, reelJobID: reelJobID)
+                })
+        }
+
+        /// `nil` until a reel has actually been started for this folder — `reelJobID` is recorded
+        /// the moment `ReelOptionsModel` queues one (see `onJobStarted` above), not once it
+        /// finishes, so this can also point at a reel still rendering; `ReelViewerScreen` reads
+        /// `GET /jobs/{id}/reel`'s own `409` for that case rather than this screen guessing at it.
+        func makeReelViewerModel() -> ReelViewerModel? {
+            guard let reelJobID, let (endpoint, identity) = try? endpointAndIdentity() else {
+                return nil
+            }
+            return ReelViewerModel(endpoint: endpoint, identity: identity, jobID: reelJobID)
         }
 
         // MARK: - Small networking helpers
