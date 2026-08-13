@@ -434,6 +434,7 @@ enum MinimalZip {
         }
 
         var runButtonTitle: String {
+            if reportBundle != nil { return "Rebuild" }
             if jobID != nil { return "Resume" }
             if tripID != nil { return "Continue" }
             return "Start"
@@ -477,6 +478,10 @@ enum MinimalZip {
         }
 
         private func loadRun(for folder: URL?) {
+            // A stale bundle from whatever folder was selected before must not linger once the
+            // selection changes — the same reasoning `tripID`/`jobID` already follow below.
+            reportBundle = nil
+            phase = .idle
             guard let folder, let record = runsByFolder[folder.path] else {
                 tripID = nil
                 jobID = nil
@@ -484,6 +489,22 @@ enum MinimalZip {
             }
             tripID = record.tripID
             jobID = record.jobID
+            loadCachedReport(jobID: record.jobID)
+        }
+
+        /// `fetchAndUnzipReport` already leaves its unzipped bundle on disk, keyed by job id, and
+        /// never deletes it — so picking a folder that was already sent can show its report
+        /// immediately, with no network call, instead of making a human re-run the whole
+        /// negotiate/upload/build/poll chain just to see something already built. Silent on a
+        /// miss (a jobID with no bundle on disk, or one from a build that failed): `run()` is
+        /// still there for that case, and the button already says so via `runButtonTitle`.
+        private func loadCachedReport(jobID: String?) {
+            guard let jobID else { return }
+            let reportRoot = URL.documentsDirectory.appending(path: "report-\(jobID)")
+            guard FileManager.default.fileExists(atPath: reportRoot.path) else { return }
+            guard let bundle = try? ReportBundle(root: reportRoot) else { return }
+            reportBundle = bundle
+            phase = .ready
         }
 
         private func saveRun(folder: URL, tripID: String, jobID: String?) {
