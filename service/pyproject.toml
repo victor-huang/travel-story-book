@@ -18,6 +18,10 @@ dependencies = [
     # signer: presigned PUT signatures are SigV4, and getting one subtly wrong fails at the
     # client with a message that blames the client.
     "boto3>=1.35",
+    # S06: verifying Google and Apple ID tokens is the same JWT-over-JWKS check for both
+    # providers, so one library covers both rather than a Google-only verifier plus a
+    # hand-rolled Apple path. `[crypto]` pulls in the RS256 backend both providers sign with.
+    "PyJWT[crypto]>=2.9",
 ]
 
 [project.optional-dependencies]

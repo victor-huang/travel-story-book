@@ -107,6 +107,20 @@ class Settings:
     # network call at all.
     build_no_cloud: bool = False
 
+    # --- S06: auth ---------------------------------------------------------------------------
+    # The OAuth audience (`aud`) the app's Google Sign-In / Sign in with Apple was configured
+    # with. Empty means that provider's tokens cannot be verified -- `principal.py` turns that
+    # into a clear 401 rather than verifying against a missing audience, which would either
+    # crash or (worse) silently accept anything.
+    google_client_id: str = ""
+    apple_client_id: str = ""
+
+    # Selected explicitly, never by omission, same reasoning as `object_store_backend`. Default
+    # `True` keeps today's `X-Story-Identity` dev workflow and existing tests working unchanged.
+    # D14 already promises this flips to `False` before a deployment is exposed beyond
+    # localhost -- that promise is enforced by a human setting this, not by code here.
+    allow_dev_identity_header: bool = True
+
     def resolved_index_dsn(self) -> str:
         if self.index_dsn:
             return self.index_dsn
@@ -154,6 +168,12 @@ class Settings:
                 source.get(f"{ENV_PREFIX}JOB_MAX_ATTEMPTS", str(cls.job_max_attempts))
             ),
             build_no_cloud=_flag(source.get(f"{ENV_PREFIX}BUILD_NO_CLOUD"), cls.build_no_cloud),
+            google_client_id=source.get(f"{ENV_PREFIX}GOOGLE_CLIENT_ID", cls.google_client_id),
+            apple_client_id=source.get(f"{ENV_PREFIX}APPLE_CLIENT_ID", cls.apple_client_id),
+            allow_dev_identity_header=_flag(
+                source.get(f"{ENV_PREFIX}ALLOW_DEV_IDENTITY_HEADER"),
+                cls.allow_dev_identity_header,
+            ),
         )
 
 
