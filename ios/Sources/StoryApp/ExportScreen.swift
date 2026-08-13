@@ -17,6 +17,8 @@
 
         public init() {}
 
+        @State private var showingSelectionGrid = false
+
         public var body: some View {
             NavigationStack {
                 Form {
@@ -28,6 +30,18 @@
                     if let summary = model.summary { resultSection(summary) }
                 }
                 .navigationTitle("Export a trip")
+                .sheet(isPresented: $showingSelectionGrid) {
+                    NavigationStack {
+                        SelectionGridScreen(
+                            assets: model.assets, excludedAssetIDs: $model.excludedAssetIDs
+                        )
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") { showingSelectionGrid = false }
+                            }
+                        }
+                    }
+                }
             }
             .task { await model.requestAccess() }
         }
@@ -110,7 +124,19 @@
 
         private var selectionSection: some View {
             Section("Selection") {
-                LabeledContent("Found", value: "\(model.assets.count) items")
+                if model.excludedAssetIDs.isEmpty {
+                    LabeledContent("Found", value: "\(model.assets.count) items")
+                } else {
+                    // Once anything has been deselected, "found" alone would hide the number
+                    // that actually matters -- how many will export -- so both are shown rather
+                    // than silently picking one (I18's brief, on the same ambiguity).
+                    LabeledContent(
+                        "Found",
+                        value: "\(model.assets.count) items, \(model.includedAssets.count) selected"
+                    )
+                }
+                Button("Review and deselect") { showingSelectionGrid = true }
+                    .font(.footnote)
                 exclusionPreview
 
                 if let reading = model.cullReading {
@@ -138,12 +164,16 @@
             }
         }
 
-        /// What the privacy filter would remove, before the export runs.
+        /// What the privacy filter would remove, before the export runs. Previewed against
+        /// `includedAssets` rather than `assets` -- a grid deselection already means "do not
+        /// send this", so the number that matters here is what home-exclusion would additionally
+        /// remove from what is actually about to be exported, not from everything the scope found.
         @ViewBuilder
         private var exclusionPreview: some View {
             if let preview = model.exclusionPreview {
                 let excluded = preview.excludedCount
-                if excluded == model.assets.count {
+                let included = model.includedAssets.count
+                if excluded == included {
                     Text(
                         "Every item would be excluded — \(preview.excludedNearHome.count) near home "
                             + "and \(preview.excludedUnknownLocation.count) with no location. The "
@@ -155,7 +185,7 @@
                 } else if excluded > 0 {
                     LabeledContent(
                         "Would be excluded",
-                        value: "\(excluded) of \(model.assets.count)")
+                        value: "\(excluded) of \(included)")
                     Text(
                         "\(preview.excludedNearHome.count) near home, "
                             + "\(preview.excludedUnknownLocation.count) with no location."
@@ -171,7 +201,7 @@
                 Button(model.isExporting ? "Exporting…" : "Export to a folder") {
                     Task { await model.export() }
                 }
-                .disabled(model.assets.isEmpty || model.isExporting)
+                .disabled(model.includedAssets.isEmpty || model.isExporting)
 
                 if model.progressTotal > 0 {
                     // Real counts, straight from the writer. Never a fabricated percentage.
@@ -259,6 +289,10 @@
 
         var assets: [PHAsset] = []
         var cullReading: CullCheck.Reading?
+        /// What the grid (`SelectionGridScreen`) has deselected, by `localIdentifier` -- excluded
+        /// rather than included, so an asset a widened scope newly finds defaults to included
+        /// without this set needing to be backfilled.
+        var excludedAssetIDs: Set<String> = []
 
         var isExporting = false
         var progressDone = 0
@@ -270,12 +304,20 @@
 
         var canRead: Bool { authorization == .authorized || authorization == .limited }
 
+        /// What the scope found, minus what the grid has deselected. This, not `assets`, is what
+        /// `export()` sends -- a grid deselection is a decision made before export starts, the
+        /// same standing as the home-exclusion toggle.
+        var includedAssets: [PHAsset] {
+            assets.filter { !excludedAssetIDs.contains($0.localIdentifier) }
+        }
+
         /// What the home filter *would* do, computed from the same `HomeFilter.partition` the export
-        /// uses. Shown before exporting, because finding out afterwards means the work was wasted --
-        /// the same reason the cull check warns up front.
+        /// uses, and against `includedAssets` -- see `exclusionPreview` in `ExportScreen` for why.
+        /// Shown before exporting, because finding out afterwards means the work was wasted -- the
+        /// same reason the cull check warns up front.
         var exclusionPreview: HomeFilter.Partition? {
-            guard homeEnabled, !assets.isEmpty else { return nil }
-            return HomeFilter.partition(assets, home: currentHome)
+            guard homeEnabled, !includedAssets.isEmpty else { return nil }
+            return HomeFilter.partition(includedAssets, home: currentHome)
         }
 
         var currentHome: HomeFilter.Home? {
@@ -309,6 +351,11 @@
             }
             assets = LibraryScope.assets(in: scope)
             cullReading = LibraryScope.cullCheck(for: assets)
+            // A fresh search must not inherit a stale exclusion set left over from a previous
+            // scope -- an identifier a widened or changed scope no longer contains is dead
+            // weight at best, and at worst silently excludes an unrelated asset that happens to
+            // reuse it.
+            excludedAssetIDs = []
             summary = nil
             folder = nil
             errorMessage = nil
@@ -319,7 +366,8 @@
         func export() async {
             isExporting = true
             progressDone = 0
-            progressTotal = assets.count
+            let sources = includedAssets.map { ExportSource.asset($0) }
+            progressTotal = sources.count
             defer { isExporting = false }
 
             // Documents, so the folder is reachable from the Files app and from a share sheet.
@@ -328,7 +376,6 @@
 
             do {
                 let writer = try FolderWriter(destination: destination, home: home)
-                let sources = assets.map { ExportSource.asset($0) }
                 let result = await writer.export(sources) { done, total in
                     Task { @MainActor in
                         self.progressDone = done
