@@ -251,6 +251,7 @@ on.** It is shippable alone for anyone with a laptop.
 | I15 | `FolderWriter` — the source folder, and hand-off | review | claude (2026-08-09) | I11, I12, I14 |
 | I16 | **Parity harness** — the M0 gate | review | claude (2026-08-09) | I15 |
 | I17 | **M0 export app** — one screen, so a human can run M0 | done | claude (2026-08-09) | I10, I15 |
+| I18 | **Selection review grid** — see and deselect what a scope found | wip | claude (2026-08-12) | I10, I17 |
 
 I11 and I12 are where the project's risk is concentrated, and they are testable long before there
 is an app around them. Start there.
@@ -800,6 +801,39 @@ decisions, it belongs in `PhotoExport` instead. I23 replaces the shell; this scr
 into it or be deleted, not grow.
 **Done when:** an export run on a simulator produces a folder that `story-book build` completes on,
 driven entirely by tapping.
+
+### I18 — Selection review grid *(added 2026-08-12, requested by the human)*
+**Owns:** `ios/Sources/StoryApp/SelectionGridScreen.swift` + tests, `ios/Sources/PhotoExport/ThumbnailLoader.swift` + tests
+**Why this exists.** A scope (date range or album) resolves to a `[PHAsset]` count today —
+`ExportScreen`'s "Selection" section shows *how many*, never *which ones* — so the only way to find
+out a scope swept in an unwanted photo is to export it and look at the folder afterwards. The human
+asked for this directly: a grid of what a scope found, with the ability to tap a thumbnail to
+deselect it before export, same as every other photo picker's editing flow.
+**What it is not.** Not a second `LibraryScope` — the grid renders exactly the `[PHAsset]` array
+`ExportModel.assets` already holds; it narrows that array, it does not requery the library. Not a
+full-size viewer: **thumbnail-scale requests only**, per I25's own rule one section up — piping
+original-resolution bytes into a scrolling grid is how the app gets jetsam-killed, and a photo
+grid holding hundreds of full-size decodes is the canonical way to hit that ceiling. A tap opens a
+single full-screen page (one asset's `PHImageManager` request at display size, not "full") for
+review, with a swipe or button to deselect from there too — that view is still not I25's
+tap-through, which is server-report imagery, a different asset space entirely.
+**Shape.** `ThumbnailLoader` wraps `PHImageManager.requestImage(for:targetSize:...)` behind an
+`async` call keyed by `PHAsset.localIdentifier`, with an in-memory `NSCache` so re-scrolling the
+grid does not re-request a thumbnail already fetched — a bare `LazyVGrid` with no cache reissues a
+request every time a cell scrolls back into view, which is its own way to overload the image
+manager on a few hundred assets. `SelectionGridScreen` holds a `Set<String>` of excluded
+`localIdentifier`s (excluded, not included — a newly-found asset from a widened date range should
+default to included without the screen having to backfill a set); a deselected cell dims and shows
+an unchecked circle, matching the system Photos picker's own convention rather than inventing one.
+Video assets get a small duration badge (`PHAsset.duration`) so they read as video before a tap.
+`ExportModel.export()` filters `assets` by the exclusion set immediately before building
+`FolderWriter`'s input — the exclusion lives on the screen's model, not inside `PhotoExport`, since
+which assets to send is a UI decision the same way `HomeFilter`'s toggle already is.
+**Done when:** deselecting a thumbnail and running export produces a folder missing exactly that
+asset (proven against `FolderWriter` with a seeded set, not just that the excluded id left the
+in-memory array), and reselecting it restores it to the next export. A grid of ~50 seeded assets
+must not request more than 50 thumbnail images from a mocked `PHImageManager` across two full
+scrolls — the cache's reason for existing, asserted rather than assumed.
 
 
 # Wave 2 — Upload, build, and the book (M1)
